@@ -33,7 +33,8 @@ export async function visualRecommendationMessages(
             ratio,
             candidates: candidates.map((p) => ({
               id: p.id,
-              description: p.ai?.description || "未分析，请以附图为准",
+              description:
+                p.description || p.ai?.description || "未分析，请以附图为准",
               tags: tagsOf(p),
               orientation: p.width >= p.height ? "横图" : "竖图",
               favorite: p.favorite,

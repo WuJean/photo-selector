@@ -3,7 +3,7 @@ import { Vault } from "./vault.mjs";
 export { Vault } from "./vault.mjs";
 import { visualCandidates } from "../shared/pairing.mjs";
 import { visualRecommendationMessages } from "./recommendation.mjs";
-import { sourcePhotos } from "./sources.mjs";
+import { sourcePhotos, recommendationScope } from "./sources.mjs";
 import { tagLibrary } from "./tags.mjs";
 import { structuredTags, tagCategory } from "../shared/tags.mjs";
 import { scheduler, concurrency, workers } from "./scheduler.mjs";
@@ -560,33 +560,12 @@ export function registerAI(app, store, native) {
       .trim()
       .slice(0, 4000);
     if (!query) throw new Error("请描述希望制作的作品");
-    const collection = req.body.collectionId
-      ? store.get("collection", req.body.collectionId)
-      : null;
-    if (collection && collection.projectId !== req.params.id)
-      throw new Error("作品集不属于当前项目");
-    const all = sourcePhotos(store, req.params.id, req.body),
-      locked = [
-        ...new Set([
-          ...(req.body.lockedIds || []),
-          ...(collection?.lockedIds || []),
-        ]),
-      ];
-    if (!locked.every((id) => all.some((p) => p.id === id)))
-      throw new Error("锁定照片不属于当前项目");
+    const { all, locked, current, candidates } = recommendationScope(
+      store,
+      req.params.id,
+      req.body,
+    );
     if (locked.length > 4) throw new Error("三拼或四拼最多锁定 4 张");
-    const current = req.body.current || null;
-    if (
-      current?.photoIds &&
-      (!Array.isArray(current.photoIds) ||
-        current.photoIds.length > 4 ||
-        current.photoIds.some((id) => !all.some((p) => p.id === id)))
-    )
-      throw new Error("当前画布照片超出来源范围");
-    const candidates = visualCandidates(all, query, {
-      lockedIds: locked,
-      currentIds: current?.photoIds || [],
-    });
     if (candidates.length < 3)
       throw new Error("当前范围至少需要三张精筛保留照片");
     if (!locked.every((id) => candidates.some((p) => p.id === id)))
@@ -596,7 +575,14 @@ export function registerAI(app, store, native) {
       await visualRecommendationMessages(store, candidates, {
         query,
         locked,
-        current,
+        current: current
+          ? {
+              ...current,
+              photoIds: current.photoIds?.map((id) =>
+                candidates.some((p) => p.id === id) ? id : null,
+              ),
+            }
+          : null,
         ratio: req.body.ratio || "3:4",
       }),
       (v) => {

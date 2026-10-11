@@ -1,3 +1,5 @@
+import CandidateSearch from "./CandidateSearch";
+import { candidatePhotos } from "../../shared/candidates.mjs";
 import React, { useEffect, useMemo, useState } from "react";
 import { Modal, Button } from "./LibraryParts";
 import { Canvas } from "./Studio";
@@ -47,6 +49,20 @@ export default function GuestStudio({ share, base, onClose, onSaved }) {
       localStorage.setItem(key, JSON.stringify(draft));
     } catch {}
   }, [draft, key]);
+  const [sourceLimit, setSourceLimit] = useState(100);
+  useEffect(
+    () => setSourceLimit(100),
+    [
+      JSON.stringify(draft.candidateFilter),
+      active,
+      preset,
+      JSON.stringify(roles),
+    ],
+  );
+  const available = candidatePhotos(photos, draft.candidateFilter);
+  const visiblePhotos = available.filter(
+    (p) => preset !== "custom" || matchesRole(p, roles[active]),
+  );
   const updateSlot = (i, patch) =>
     setDraft((d) => ({
       ...d,
@@ -65,7 +81,7 @@ export default function GuestStudio({ share, base, onClose, onSaved }) {
               roles: roles.slice(0, count),
             }
           : preset;
-      const next = randomPairing(photos, pairing, { slots: draft.slots });
+      const next = randomPairing(available, pairing, { slots: draft.slots });
       setDraft((d) => ({
         ...d,
         template: next.template,
@@ -283,31 +299,41 @@ export default function GuestStudio({ share, base, onClose, onSaved }) {
               }
             />
           </label>
+          <CandidateSearch
+            photos={photos}
+            tagDefinitions={share.tagDefinitions}
+            filter={draft.candidateFilter}
+            count={visiblePhotos.length}
+            onChange={(candidateFilter) =>
+              setDraft({ ...draft, candidateFilter })
+            }
+          />
           <div className="guest-photo-picker">
-            {photos
-              .filter(
-                (p) => preset !== "custom" || matchesRole(p, roles[active]),
-              )
-              .map((p) => (
-                <button
-                  key={p.id}
-                  aria-label={`放入 ${p.name}`}
-                  onClick={() =>
-                    setDraft((d) => ({
-                      ...d,
-                      slots: Array.from({ length: count }, (_, i) =>
-                        i === active
-                          ? slotFor(p)
-                          : d.slots[i] || slotFor(photos[i % photos.length]),
-                      ),
-                    }))
-                  }
-                >
-                  <img src={imageURL(p.id)} loading="lazy" alt={p.name} />
-                  <span>{p.tags.join(" · ") || p.name}</span>
-                </button>
-              ))}
+            {visiblePhotos.slice(0, sourceLimit).map((p) => (
+              <button
+                key={p.id}
+                aria-label={`放入 ${p.name}`}
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    slots: Array.from({ length: count }, (_, i) =>
+                      i === active
+                        ? slotFor(p)
+                        : d.slots[i] || slotFor(photos[i % photos.length]),
+                    ),
+                  }))
+                }
+              >
+                <img src={imageURL(p.id)} loading="lazy" alt={p.name} />
+                <span>{p.tags.join(" · ") || p.name}</span>
+              </button>
+            ))}
           </div>
+          {visiblePhotos.length > sourceLimit && (
+            <Button onClick={() => setSourceLimit((n) => n + 100)}>
+              显示更多照片
+            </Button>
+          )}
         </section>
       </div>
     </Modal>

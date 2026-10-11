@@ -1,3 +1,5 @@
+import { candidatePhotos } from "../shared/candidates.mjs";
+import { visualCandidates } from "../shared/pairing.mjs";
 import { inFinal } from "../shared/domain.mjs";
 import { validateDraft } from "../shared/layout.mjs";
 export function collectionFor(store, projectId, id) {
@@ -41,4 +43,30 @@ export function scopedDraft(store, projectId, input) {
     collectionId: input.collectionId || null,
     sourceIds: input.sourceIds || null,
   };
+}
+
+export function recommendationScope(store, projectId, body = {}) {
+  const source = sourcePhotos(store, projectId, body),
+    collection = body.collectionId
+      ? collectionFor(store, projectId, body.collectionId)
+      : null;
+  const locked = [
+    ...new Set([...(body.lockedIds || []), ...(collection?.lockedIds || [])]),
+  ];
+  const photos = candidatePhotos(source, body.candidateFilter);
+  if (!locked.every((id) => photos.some((p) => p.id === id)))
+    throw new Error("锁定照片不符合当前筛选，请调整条件或解锁");
+  const current = body.current;
+  if (
+    current?.photoIds &&
+    (!Array.isArray(current.photoIds) ||
+      current.photoIds.length > 4 ||
+      current.photoIds.some((id) => !source.some((p) => p.id === id)))
+  )
+    throw new Error("当前画布照片超出来源范围");
+  const candidates = visualCandidates(photos, String(body.prompt || ""), {
+    lockedIds: locked,
+    currentIds: current?.photoIds || [],
+  });
+  return { all: photos, locked, current, candidates };
 }

@@ -9,7 +9,7 @@ import { signature } from "./ai.mjs";
 import { tagLibrary } from "./tags.mjs";
 import { structuredTags, samplePhotos } from "../shared/tags.mjs";
 import { inInitial } from "../shared/domain.mjs";
-import { sourcePhotos, scopedDraft } from "./sources.mjs";
+import { sourcePhotos, scopedDraft, recommendationScope } from "./sources.mjs";
 import { visualCandidates } from "../shared/pairing.mjs";
 import { saveCreation } from "./creations.mjs";
 export function requiredMedia(store, url, body = {}) {
@@ -48,22 +48,9 @@ export function requiredMedia(store, url, body = {}) {
     const j = requireItem(store, "vocabularyJob", "library");
     ids = j.sampleIds.filter((id) => !j.completedIds.includes(id));
   } else if (url === "/projects/library/recommend") {
-    const collection = body.collectionId
-      ? requireItem(store, "collection", body.collectionId)
-      : null;
-    ids = visualCandidates(
-      sourcePhotos(store, "library", body),
-      String(body.prompt || ""),
-      {
-        lockedIds: [
-          ...new Set([
-            ...(body.lockedIds || []),
-            ...(collection?.lockedIds || []),
-          ]),
-        ],
-        currentIds: body.current?.photoIds || [],
-      },
-    ).map((p) => p.id);
+    ids = recommendationScope(store, "library", body).candidates.map(
+      (p) => p.id,
+    );
   } else if (/^\/projects\/library\/collections\/[^/]+\/create$/.test(url)) {
     const collection = requireItem(store, "collection", url.split("/")[4]);
     ids = sourcePhotos(store, "library", { collectionId: collection.id })

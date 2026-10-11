@@ -1,3 +1,5 @@
+import CandidateSearch from "./CandidateSearch";
+import { candidatePhotos } from "../../shared/candidates.mjs";
 import { renderLocal } from "./render-local";
 import { downloadPhotos, saveBlob } from "./downloads";
 import PhotoImage from "./PhotoImage";
@@ -236,7 +238,7 @@ export default function Studio({
     [loaded, setLoaded] = useState(false),
     [previousDraft, setPreviousDraft] = useState(null),
     [active, setActive] = useState(0),
-    [query, setQuery] = useState(""),
+    [sourceLimit, setSourceLimit] = useState(100),
     [prompt, setPrompt] = useState(""),
     [quickPreset, setQuickPreset] = useState("portrait_triptych"),
     [messages, setMessages] = useState([]),
@@ -326,16 +328,16 @@ export default function Studio({
     change({ ...draft, slots });
     if (active < TEMPLATES[draft.template].count - 1) setActive(active + 1);
   };
-  const available = initial.filter(
-    (p) =>
-      p.status !== "reject" &&
-      (!query || [p.name, ...tagsOf(p)].join(" ").includes(query)),
-  );
+  const available = candidatePhotos(initial, draft.candidateFilter);
+  useEffect(() => setSourceLimit(100), [JSON.stringify(draft.candidateFilter)]);
   const slot = draft.slots[active],
     photo = photos.find((p) => p.id === slot?.photoId);
   const setWatermark = (patch) =>
     change({ ...draft, watermark: { ...draft.watermark, ...patch } });
+  const filterRef = useRef();
+  filterRef.current = JSON.stringify(draft.candidateFilter);
   const ask = async () => {
+    const requestedFilter = filterRef.current;
     if (!prompt.trim() || busy) return;
     const text = prompt;
     setPrompt("");
@@ -349,6 +351,7 @@ export default function Studio({
           ratio: draft.ratio,
           collectionId: collection?.id,
           sourceIds: scope.sourceIds,
+          candidateFilter: draft.candidateFilter,
           lockedIds: draft.slots.filter((s) => s.locked).map((s) => s.photoId),
           current: {
             template: draft.template,
@@ -356,6 +359,10 @@ export default function Studio({
           },
         }),
       );
+      if (requestedFilter !== filterRef.current) {
+        notify("筛选条件已变化，请重新搭配");
+        return;
+      }
       setCandidate(recommendation);
       setMessages((v) => [
         ...v,
@@ -376,7 +383,7 @@ export default function Studio({
   };
   const quickShuffle = () => {
     try {
-      const result = randomPairing(initial, quickPreset, {
+      const result = randomPairing(available, quickPreset, {
         slots: draft.slots,
         requiredIds: collection?.lockedIds || [],
       });
@@ -587,14 +594,18 @@ export default function Studio({
           <div className="section-heading">
             候选照片<span>{available.length}</span>
           </div>
-          <input
-            aria-label="搜索拼图候选"
-            value={query}
-            placeholder="搜索标签或照片名"
-            onChange={(e) => setQuery(e.target.value)}
+          <CandidateSearch
+            projectId={projectId}
+            photos={initial}
+            filter={draft.candidateFilter}
+            count={available.length}
+            onChange={(candidateFilter) => {
+              change({ ...draft, candidateFilter });
+              setCandidate(null);
+            }}
           />
           <div className="source-grid">
-            {available.slice(0, 300).map((p) => (
+            {available.slice(0, sourceLimit).map((p) => (
               <button
                 key={p.id}
                 className={
@@ -611,8 +622,10 @@ export default function Studio({
               </button>
             ))}
           </div>
-          {available.length > 300 && (
-            <small className="muted">显示前 300 张，可搜索缩小范围。</small>
+          {available.length > sourceLimit && (
+            <button onClick={() => setSourceLimit((n) => n + 100)}>
+              显示更多照片
+            </button>
           )}
         </aside>
         <main className="studio-main">

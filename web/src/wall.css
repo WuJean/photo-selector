@@ -531,3 +531,36 @@
     padding: 0 10px 24px;
   }
 }
+
+.candidate-search {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.candidate-domains details {
+  border-bottom: 1px solid #343a34;
+  padding: 8px 0;
+}
+.candidate-count {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #aab1a5;
+}
+.candidate-search .tag-chips button {
+  border: 1px solid #485140;
+  background: transparent;
+  padding: 5px 8px;
+  border-radius: 12px;
+}
+.candidate-search .tag-chips button.active {
+  background: #cddba7;
+  color: #171d14;
+}
+.photo-description {
+  font-size: 12px;
+  color: #a9b2a2;
+  line-height: 1.7;
+  margin-top: 8px;
+}

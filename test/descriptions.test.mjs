@@ -75,3 +75,26 @@ test("canonical descriptions reuse legacy caches across model changes, search an
     await f.close();
   }
 });
+
+test("concurrent creations share one missing-description request", async () => {
+  const { ensureDescription } = await import("../server/descriptions.mjs");
+  const f = await fixture();
+  try {
+    const p = { id: "once", hash: "same", projectId: "library" };
+    f.store.put("photo", p);
+    let calls = 0;
+    const analyze = async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 20));
+      return { description: "蓝色山峦" };
+    };
+    const values = await Promise.all([
+      ensureDescription(f.store, p, { model: "one" }, null, analyze),
+      ensureDescription(f.store, p, { model: "two" }, null, analyze),
+    ]);
+    assert.deepEqual(values, ["蓝色山峦", "蓝色山峦"]);
+    assert.equal(calls, 1);
+  } finally {
+    await f.close();
+  }
+});

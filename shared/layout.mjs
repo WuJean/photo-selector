@@ -1,3 +1,4 @@
+import { normalizeCandidateFilter } from "./candidates.mjs";
 export const TEMPLATES = {
   rows: { label: "三张横图 · 上下排列", count: 3 },
   columns: { label: "三张竖图 · 左右排列", count: 3 },
@@ -101,6 +102,7 @@ export function newDraft(projectId, photos = []) {
     id: "draft-" + projectId,
     projectId,
     title: "我的旅行拼图",
+    candidateFilter: normalizeCandidateFilter(),
     template,
     ratio: "3:4",
     gap: 0.014,
@@ -151,6 +153,7 @@ export function validateDraft(input, photos) {
     ...newDraft(input.projectId),
     id: "draft-" + input.projectId,
     projectId: input.projectId,
+    candidateFilter: normalizeCandidateFilter(input.candidateFilter),
     title: String(input.title || "我的旅行拼图").slice(0, 80),
     template: input.template,
     ratio: input.ratio,

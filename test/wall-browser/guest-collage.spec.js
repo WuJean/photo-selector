@@ -63,6 +63,11 @@ test("password-protected visitor collage: random, crop, scoped save, download, d
   await visitor.getByLabel("快捷搭配").selectOption("random_three");
   await visitor.getByRole("button", { name: "随机组合" }).click();
   await expect(visitor.locator(".story-slot")).toHaveCount(3);
+  await visitor.getByLabel("搜索拼图候选").fill("guest-3");
+  await expect(visitor.locator(".guest-photo-picker button")).toHaveCount(1);
+  await visitor.getByRole("button", { name: "随机组合" }).click();
+  await expect(visitor.getByRole("status")).toContainText("当前范围");
+  await visitor.getByRole("button", { name: "清除条件" }).click();
   await visitor.getByLabel("拼图名称").fill("朋友的旅行三拼");
   await visitor.getByLabel("缩放", { exact: true }).fill("1.5");
   await visitor.getByLabel("画幅", { exact: true }).selectOption("1:1");

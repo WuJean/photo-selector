@@ -1,3 +1,4 @@
+import { tagCategory } from "../shared/tags.mjs";
 import path from "node:path";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import {
@@ -127,12 +128,20 @@ export function registerShares(app, store, upload) {
       name: c.name,
       description: c.description,
       assetIds: [...c.photoIds],
+      tagDefinitions: [...new Set(photos.flatMap(tagsOf))].map((name) => ({
+        name,
+        category: tagCategory(
+          name,
+          store.get("tagLibrary", "library")?.tags || [],
+        ),
+      })),
       photos: photos.map((p) => ({
         id: p.id,
         name: p.name,
         width: p.width,
         height: p.height,
         tags: tagsOf(p),
+        description: store.publicPhoto(p).description,
         kind: "photo",
       })),
       creations,
@@ -253,6 +262,7 @@ export function registerShares(app, store, upload) {
       name: s.name,
       description: s.description,
       photos: s.photos,
+      tagDefinitions: s.tagDefinitions || [],
       creations: s.creations.map(({ file, ...c }) => ({
         ...c,
         hasImage: !!file,
