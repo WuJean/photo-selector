@@ -338,6 +338,7 @@ export class AIQueue {
   resume() {
     if (!this.job.vocabulary) throw new Error("请重新确认候选标签库");
     this.job.paused = false;
+    this.job.error = null;
     this.persist();
     void this.drain();
   }

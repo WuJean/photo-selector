@@ -71,12 +71,10 @@ export default function AIWizard({
   const start = () =>
     run(async () => {
       const chosen = tags.filter((t) => enabled.has(t.name));
-      if (JSON.stringify(chosen) !== JSON.stringify(library.tags))
-        await api(
-          `/projects/${projectId}/tags`,
-          json("PUT", { version: library.version, tags: chosen }),
-        );
-      await api(`/projects/${projectId}/vocabulary`, json("POST", { ids }));
+      await api(
+        `/projects/${projectId}/vocabulary`,
+        json("POST", { ids, tags: chosen, version: library.version }),
+      );
     });
   const confirmed = job?.state === "confirmed";
   const sampling = ["sampling", "paused"].includes(job?.state);

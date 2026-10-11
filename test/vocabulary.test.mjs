@@ -145,6 +145,7 @@ test("sampling requires initial acceptance; confirmation gates full classificati
       name: "雪山",
       enabled: false,
     });
+    store.put("photo", { ...store.get("photo", ids[0]), manualTags: ["人像"] });
     mode = "hold";
     const response = await call(base + "/vocabulary/confirm", {
       tags: [{ name: "雪山", category: "环境", description: "积雪覆盖山峰" }],
@@ -169,7 +170,8 @@ test("sampling requires initial acceptance; confirmation gates full classificati
       store.get("photo", ids[0]).ai.vocabularyVersion,
       snapshot.version,
     );
-    assert.deepEqual(tagsOf(store.get("photo", ids[0])), []);
+    assert.deepEqual(tagsOf(store.get("photo", ids[0])), ["人像"]);
+    assert(!ai.job.vocabulary.tags.some((t) => t.name === "人像"));
     for (const body of requests.filter(
       (b) => !b.messages[0].content.includes("最多建议 8 项"),
     )) {

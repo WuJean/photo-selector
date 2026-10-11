@@ -16,7 +16,7 @@ export class VocabularyQueue {
   get(projectId) {
     return this.store.get("vocabularyJob", projectId);
   }
-  start(projectId, ids) {
+  start(projectId, ids, input = {}) {
     if (this.running.has(projectId)) throw new Error("当前抽样仍在处理中");
     const config = this.store.get("settings", "ai");
     if (!config) throw new Error("请先配置多模态服务");
@@ -26,6 +26,10 @@ export class VocabularyQueue {
     if (photos.some((p) => !p || p.projectId !== projectId || !inInitial(p)))
       throw new Error("只能抽样初筛入选照片");
     const library = tagLibrary(this.store, projectId);
+    if (input.version != null && input.version !== library.version)
+      throw new Error("标签库已更新，请重新打开");
+    const baseTags = input.tags ? normalizeTags(input.tags) : library.tags;
+    if (!baseTags.length) throw new Error("至少选择一个常用标签");
     const job = {
       id: projectId,
       projectId,
@@ -35,11 +39,11 @@ export class VocabularyQueue {
       completedIds: [],
       results: {},
       failed: {},
-      baseTags: library.tags,
+      baseTags,
       baseVersion: library.version,
       config: structuredClone(config),
       usage: { prompt_tokens: 0, completion_tokens: 0 },
-      candidates: library.tags,
+      candidates: baseTags,
     };
     this.store.put("vocabularyJob", job);
     void this.drain(projectId);
@@ -159,7 +163,7 @@ export function registerVocabulary(app, store) {
     res.json(queue.get(req.params.id) || null),
   );
   app.post("/api/projects/:id/vocabulary", (req, res) =>
-    res.json(queue.start(req.params.id, req.body.ids)),
+    res.json(queue.start(req.params.id, req.body.ids, req.body)),
   );
   app.post("/api/projects/:id/vocabulary/confirm", async (req, res) => {
     const job = queue.get(req.params.id);
