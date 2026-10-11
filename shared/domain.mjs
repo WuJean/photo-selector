@@ -97,7 +97,7 @@ export function filterPhotos(photos, filter = {}) {
     }
     if (filter.query) {
       const terms = filter.query.toLowerCase().split(/\s+/).filter(Boolean);
-      const hay = [p.name, p.ai?.description, ...tagsOf(p)]
+      const hay = [p.name, p.description || p.ai?.description, ...tagsOf(p)]
         .join(" ")
         .toLowerCase();
       if (!terms.every((t) => hay.includes(t))) return false;
@@ -121,7 +121,11 @@ export function rankCandidates(photos, query, lockedIds = []) {
         terms.reduce(
           (s, t) =>
             s +
-            ([p.ai?.description, ...tagsOf(p)].join(" ").includes(t) ? 2 : 0),
+            ([p.description || p.ai?.description, ...tagsOf(p)]
+              .join(" ")
+              .includes(t)
+              ? 2
+              : 0),
           0,
         ),
     }))

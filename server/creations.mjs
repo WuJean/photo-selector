@@ -1,9 +1,10 @@
+import { ensureDescription } from "./descriptions.mjs";
 import { imageConfig } from "./image-generation.mjs";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { AIClient, signature } from "./ai.mjs";
+import { AIClient } from "./ai.mjs";
 import { workers, concurrency } from "./scheduler.mjs";
 import { previewData } from "./images.mjs";
 import { tagsOf } from "../shared/domain.mjs";
@@ -167,26 +168,19 @@ export class CreationQueue {
             }).some((p) => p.id === photoId)
           )
             throw new Error("来源照片已退出作品集或精筛范围");
-          const p = this.store.get("photo", photoId),
-            cached = this.store.get("description", photoId),
-            cacheKey = signature(job.config);
-          let description =
-            p.ai?.description ||
-            (cached?.signature === cacheKey ? cached.text : null);
-          if (!description) {
-            const client = new AIClient(job.config, key);
-            const result = await client.analyze(
-              await previewData(this.store, photoId),
-              { signal },
-            );
-            description = result.description;
-            if (!signal.aborted)
-              this.store.put("description", {
-                id: photoId,
-                signature: cacheKey,
-                text: description,
+          const p = this.store.get("photo", photoId);
+          const description = await ensureDescription(
+            this.store,
+            p,
+            job.config,
+            signal,
+            async () => {
+              const client = new AIClient(job.config, key);
+              return client.analyze(await previewData(this.store, photoId), {
+                signal,
               });
-          }
+            },
+          );
           if (signal.aborted) return;
           const latest = this.get(id);
           update({

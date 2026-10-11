@@ -86,7 +86,7 @@ test("public photo listing isolates projects and omits private paths and model v
     store.put("photo", { id: "b", projectId: "elsewhere" });
     assert.equal(store.photoCount("p"), 1);
     assert.deepEqual(store.publicPhotos("p"), [
-      { id: "a", projectId: "p", name: "a.jpg" },
+      { id: "a", projectId: "p", name: "a.jpg", description: "" },
     ]);
     assert.equal(store.photos("p")[0].embedding.length, 2);
   } finally {

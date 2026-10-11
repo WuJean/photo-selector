@@ -21,7 +21,10 @@ export function sourcePhotos(store, projectId, scope = {}) {
       throw new Error("照片超出精筛或作品集范围");
     photos = scope.sourceIds.map((id) => photos.find((p) => p.id === id));
   }
-  return photos;
+  return photos.map((p) => ({
+    ...p,
+    description: store.publicPhoto(p).description,
+  }));
 }
 export function draftId(projectId, scopeId = "") {
   if (!/^[a-zA-Z0-9-]{0,100}$/.test(scopeId)) throw new Error("草稿标识无效");

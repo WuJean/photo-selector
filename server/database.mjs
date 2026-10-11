@@ -1,3 +1,4 @@
+import { descriptionRecord } from "./descriptions.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -116,7 +117,7 @@ export class Store {
         "SELECT json_remove(data,'$.embedding','$.hash','$.originalPath') AS data FROM documents WHERE kind='photo' AND json_extract(data,'$.projectId')=? ORDER BY rowid",
       )
       .all(projectId)
-      .map((r) => JSON.parse(r.data));
+      .map((r) => this.publicPhoto(JSON.parse(r.data)));
   }
   photoCount(projectId) {
     return this.db
@@ -127,7 +128,7 @@ export class Store {
   }
   publicPhoto(p) {
     const { embedding, hash, originalPath, ...photo } = p;
-    return photo;
+    return { ...photo, description: descriptionRecord(this, p)?.text || "" };
   }
   close() {
     this.db.close();

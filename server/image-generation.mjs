@@ -189,9 +189,8 @@ export function registerImageGeneration(app, store) {
   return async (job, signal) => {
     const config = job.imageConfig || imageConfig(store),
       key = await vault.get({ baseURL: config.keyBaseURL });
-    const images = await Promise.all(
-      job.plan.referenceIds.map((id) => previewData(store, id)),
-    );
+    // Portfolio creation uses persisted visual descriptions, never reference uploads.
+    const images = [];
     return generateImage(config, key, {
       prompt: job.plan.prompt,
       images,

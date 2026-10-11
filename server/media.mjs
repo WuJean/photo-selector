@@ -1,3 +1,4 @@
+import { descriptionRecord } from "./descriptions.mjs";
 import path from "node:path";
 import { mkdir, unlink, access, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -66,12 +67,14 @@ export function requiredMedia(store, url, body = {}) {
   } else if (/^\/projects\/library\/collections\/[^/]+\/create$/.test(url)) {
     const collection = requireItem(store, "collection", url.split("/")[4]);
     ids = sourcePhotos(store, "library", { collectionId: collection.id })
-      .filter((p) => body.kind === "cover" || !p.ai?.description)
+      .filter((p) => !descriptionRecord(store, p))
       .map((p) => p.id);
   } else if (/^\/creation-jobs\/[^/]+\/(resume|retry)$/.test(url)) {
     const job = requireItem(store, "creationJob", url.split("/")[2]);
     ids = job.photoIds.filter(
-      (id) => job.kind === "cover" || !job.descriptions[id],
+      (id) =>
+        !job.descriptions[id] &&
+        !descriptionRecord(store, store.get("photo", id)),
     );
   }
   return valid(ids || [])

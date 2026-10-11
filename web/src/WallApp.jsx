@@ -1186,6 +1186,15 @@ function Workspace({ onLogout }) {
                         <span key={t}>{t}</span>
                       ))}
                     </div>
+                    {p.description && (
+                      <details
+                        className="photo-description"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <summary>照片描述</summary>
+                        <p>{p.description}</p>
+                      </details>
+                    )}
                     {page === "work" && (
                       <div className="decision-buttons">
                         {round === "initial" && (
