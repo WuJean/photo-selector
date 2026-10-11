@@ -10,6 +10,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npm run build:vision
       - name: Test and build web application
         run: npm run check
       - name: Test native foundation

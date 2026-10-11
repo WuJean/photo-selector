@@ -9,6 +9,7 @@ let package = Package(
         .systemLibrary(name: "CSQLite"),
         .target(name: "PhotoCore", dependencies: ["CSQLite"]),
         .executableTarget(name: "PhotoSelector", dependencies: ["PhotoCore"]),
+        .executableTarget(name: "VisionWorker"),
         .executableTarget(name: "PhotoCoreTests", dependencies: ["PhotoCore"], path: "Tests/PhotoCoreTests")
     ],
     swiftLanguageModes: [.v5]
