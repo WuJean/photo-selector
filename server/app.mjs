@@ -34,8 +34,8 @@ export function createApp({root=path.resolve('.local'),onImport=()=>{}}={}) {
   if(!['thumb','preview','original'].includes(req.params.variant))return next();
   const photo=store.get('photo',req.params.id);if(!photo)return res.status(404).json({error:'照片不存在'});
   const folder={thumb:'thumbs',preview:'previews',original:'originals'}[req.params.variant];
-  if(req.params.variant==='original')res.attachment(photo.name);
-  res.set('Cache-Control','private, max-age=86400');res.sendFile(path.join(root,folder,photo.id+'.jpg'));
+  if(req.params.variant==='original'&&req.query.download==='1')res.attachment(photo.name);
+  res.set('Cache-Control','private, max-age=86400');res.sendFile(path.join(root,folder,photo.id+'.jpg'),{dotfiles:'allow'});
  });
  return {app,store,upload};
 }

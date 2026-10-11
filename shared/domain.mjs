@@ -4,7 +4,7 @@ export function focalCategory(equivalent,actual,cropFactor) {
  if(!value||!Number.isFinite(value))return '未知';
  return value<24?'超广角':value<35?'广角':value<70?'标准 / 50mm':value<135?'中焦 / 85mm':'长焦';
 }
-export const STATUS_LABELS={unseen:'待看',keep:'保留',reject:'淘汰'};
+export const STATUS_LABELS={unseen:'待定',keep:'保留',reject:'不要'};
 export function uniqueName(name,existing) {const dot=name.lastIndexOf('.');const base=dot>0?name.slice(0,dot):name;const ext=dot>0?name.slice(dot):'';let candidate=name,i=2;while(existing.has(candidate))candidate=`${base} (${i++})${ext}`;existing.add(candidate);return candidate;}
 export function tagsOf(p) {return [...new Set([...(p.manualTags||[]),...(p.ai?.tags||[]),p.ai?.scene,p.ai?.shot,p.ai?.style].filter(Boolean))];}
 export function filterPhotos(photos,filter={}) {

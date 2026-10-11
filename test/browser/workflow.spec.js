@@ -6,11 +6,11 @@ test('real photo import, favorite, cull, undo, compare, collection and reload',a
  await page.getByRole('button',{name:'新建旅行',exact:true}).click();await page.getByRole('dialog').getByRole('textbox').fill('界面验收 '+Date.now());await page.getByRole('button',{name:'确定',exact:true}).click();
  await expect(page.getByRole('heading',{name:'把旅途带进来'})).toBeVisible();
  await page.locator('input[type=file]:not([webkitdirectory])').setInputFiles([{name:'雪山近景.jpg',mimeType:'image/jpeg',buffer:await jpeg('#a6bcc0')},{name:'雪山远景.jpg',mimeType:'image/jpeg',buffer:await jpeg('#b6bfa8',1)}]);
- await expect(page.locator('.photo-card').first()).toBeVisible();await expect(page.getByRole('status')).toContainText('已导入 2 张');
+ await expect(page.locator('.photo-card').first()).toBeVisible();await expect.poll(()=>page.locator('.photo-card img').first().evaluate(el=>el.naturalWidth)).toBeGreaterThan(0);await expect(page.getByRole('status')).toContainText('已导入 2 张');
  await page.getByTitle('显示全部照片').click();await expect(page.locator('.photo-card')).toHaveCount(2);
  await page.locator('.photo-card').first().click();await page.keyboard.press('f');await expect(page.locator('.photo-heart').first()).toBeVisible();await page.keyboard.press('p');await expect(page.locator('.keep-badge').first()).toBeVisible();
  await page.getByTitle('撤销 ⌘Z').click();await expect(page.locator('.keep-badge')).toHaveCount(0);await expect(page.locator('.photo-heart')).toHaveCount(1);
- await page.keyboard.press('p');await page.getByRole('button',{name:'对比',exact:true}).click();await expect(page.getByRole('dialog',{name:'照片预览'})).toBeVisible();await page.getByRole('button',{name:'关闭',exact:true}).click();
+ await page.keyboard.press('p');await page.getByRole('button',{name:'沉浸对比',exact:true}).click();await expect(page.getByRole('dialog',{name:'沉浸选片'})).toBeVisible();await page.getByRole('button',{name:'关闭沉浸选片',exact:true}).click();
  await page.getByRole('button',{name:'加入新作品集',exact:true}).click();await page.getByRole('dialog').getByRole('textbox').fill('朋友圈精选');await page.getByRole('button',{name:'确定',exact:true}).click();await expect(page.locator('.collection-tray')).toBeVisible();
  await page.reload();await expect(page.locator('.photo-card').first()).toBeVisible();await expect(page.locator('.photo-heart').first()).toBeVisible();
  await page.screenshot({path:'test-results/library.png',fullPage:true});expect(errors).toEqual([]);
@@ -22,4 +22,19 @@ test('model settings persist endpoint and test actual HTTP image request against
  await new Promise(r=>fixture.listen(0,'127.0.0.1',r));
  try{await page.goto('/');await page.getByRole('button',{name:'模型与服务设置'}).click();const dialog=page.getByRole('dialog');await dialog.getByLabel('API Base URL').fill(`http://127.0.0.1:${fixture.address().port}/v1`);await dialog.getByLabel('模型名称').fill('fixture-vision');await dialog.getByRole('button',{name:'测试图片理解'}).click();await expect(dialog.getByRole('status')).toContainText('图片理解测试通过');expect(images).toBe(1);await dialog.getByRole('button',{name:'保存配置'}).click();await expect(dialog.getByRole('status')).toContainText('配置已保存');await page.reload();await page.getByRole('button',{name:'模型与服务设置'}).click();await expect(page.getByLabel('模型名称')).toHaveValue('fixture-vision');}
  finally{await new Promise(r=>fixture.close(r));}
+});
+
+test('immersive similar hover zoom and blurred neighbor decisions persist',async({page,request})=>{
+ const project=await (await request.post('/api/projects',{data:{name:'沉浸交互验收 '+Date.now()}})).json();
+ const form=new FormData();for(let i=0;i<4;i++)form.append('photos',new Blob([await jpeg(['#a5bcbf','#91abae','#b0b291','#b4a59a'][i],i)],{type:'image/jpeg'}),`moment-${i}.jpg`);
+ const imported=await (await fetch(`http://127.0.0.1:4174/api/projects/${project.id}/import`,{method:'POST',body:form})).json();const ids=imported.results.map(r=>r.photo.id);
+ await request.post(`/api/projects/${project.id}/groups`,{data:{ids:ids.slice(0,2),type:'similar',action:'merge'}});await request.post(`/api/projects/${project.id}/groups`,{data:{ids:ids.slice(2),type:'similar',action:'split'}});
+ await page.addInitScript(id=>localStorage.setItem('photo-project',id),project.id);await page.goto('/');await page.getByRole('button',{name:'沉浸选片',exact:true}).click();
+ const modal=page.getByRole('dialog',{name:'沉浸选片'});await expect(modal.locator('.similar-slot')).toHaveCount(2);await expect.poll(()=>modal.locator('.immersive-frame>img').first().evaluate(el=>el.naturalWidth)).toBeGreaterThan(0);const frames=modal.locator('.immersive-frame');await frames.nth(1).hover();await expect(frames.nth(1)).toHaveClass(/focused/);await page.waitForTimeout(400);expect((await modal.locator('.similar-slot').nth(1).boundingBox()).width).toBeGreaterThan((await modal.locator('.similar-slot').nth(0).boundingBox()).width);
+ await page.mouse.wheel(0,-300);await expect.poll(()=>frames.nth(1).getAttribute('data-zoom')).not.toBe('1.00');await modal.getByRole('button',{name:'重置缩放'}).click();await expect(frames.nth(1)).toHaveAttribute('data-zoom','1.00');
+ await modal.getByRole('button',{name:'保留'}).click();await expect(frames.nth(1).locator('.decision-badge')).toContainText('保留');
+ await page.screenshot({path:'test-results/immersive-similar.png',fullPage:true});
+ await modal.getByRole('button',{name:'下一组',exact:true}).click();await expect(modal.locator('.single-focus')).toBeVisible();await expect(modal.getByAltText('前一张照片（虚化）')).toBeVisible();await expect.poll(()=>modal.locator('.single-focus img').evaluate(el=>el.naturalWidth)).toBeGreaterThan(0);expect(await modal.getByAltText('前一张照片（虚化）').evaluate(el=>getComputedStyle(el).filter)).toContain('blur');
+ await modal.getByRole('button',{name:'不要'}).click();await expect(modal.locator('.single-focus .decision-badge')).toContainText('不要');await modal.getByRole('button',{name:'待定'}).click();await expect(modal.locator('.single-focus .decision-badge')).toContainText('待定');
+ await page.screenshot({path:'test-results/immersive-single.png',fullPage:true});await modal.getByRole('button',{name:'关闭沉浸选片'}).click();const saved=await (await request.get(`/api/projects/${project.id}/photos`)).json();expect(saved.find(p=>p.id===ids[1]).status).toBe('keep');expect(saved.find(p=>p.id===ids[2]).status).toBe('unseen');
 });
