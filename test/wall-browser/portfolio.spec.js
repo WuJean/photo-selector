@@ -54,6 +54,8 @@ test("independent portfolio cover, rename, drag order and reuse remain after ref
     .toEqual([ids[1], ids[0], ids[2]]);
   await page.getByLabel("选择 order-2.jpg").check();
   await page.getByRole("button", { name: "置顶", exact: true }).click();
+  await expect(page.locator(".selection-toolbar")).toHaveCount(0);
+  await page.getByLabel("选择 order-2.jpg").check();
   await page.getByRole("button", { name: "设为封面", exact: true }).click();
   await page.getByRole("button", { name: "改名", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("新的旅行");

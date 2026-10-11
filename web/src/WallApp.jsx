@@ -1,3 +1,4 @@
+import { selectPhoto, nextAfterDecision } from "../../shared/selection.mjs";
 import { pendingAI, cancelPending, resumePending } from "./ai-media";
 import { ShareManager, PublicShare } from "./Sharing";
 import { downloadPhotos } from "./downloads";
@@ -298,7 +299,11 @@ function Workspace({ onLogout }) {
   const input = useRef(),
     guard = useRef(false),
     alive = useRef(true),
-    undoFocus = useRef([]);
+    undoFocus = useRef([]),
+    selectionAnchor = useRef(null);
+  useEffect(() => {
+    undoFocus.current = [];
+  }, [batchId]);
   const notify = setToast;
   const refresh = async () => {
     const [p, c, b, j, networks, cleanups] = await Promise.all([
@@ -358,6 +363,20 @@ function Workspace({ onLogout }) {
   };
   const batch = batches.find((b) => b.id === batchId),
     collection = collections.find((c) => c.id === collectionId);
+  useEffect(() => {
+    setSelected([]);
+    selectionAnchor.current = null;
+  }, [
+    page,
+    batchId,
+    round,
+    collectionId,
+    processed,
+    JSON.stringify(filters),
+    collection?.photoIds.join("|"),
+    fold,
+    JSON.stringify([...expanded]),
+  ]);
   const memberIds = new Set(collections.flatMap((c) => c.photoIds));
   const source =
     page === "work"
@@ -398,22 +417,53 @@ function Workspace({ onLogout }) {
     () => setLimit(100),
     [page, batchId, collectionId, JSON.stringify(filters), round],
   );
+  const choosePhoto = (event, id, checkbox = false) => {
+    event.stopPropagation();
+    const next = selectPhoto(
+      { selected, anchor: selectionAnchor.current },
+      id,
+      visible.slice(0, limit).map((p) => p.id),
+      {
+        toggle: checkbox || event.metaKey || event.ctrlKey,
+        shift: event.shiftKey,
+        append: event.metaKey || event.ctrlKey,
+      },
+    );
+    setSelected(next.selected);
+    selectionAnchor.current = next.anchor;
+    setCursor(id);
+  };
   const decide = async (ids, patch, r = round) =>
     run(async () => {
       await api(
         `/batches/${batchId}/decisions`,
         json("PATCH", { ids, round: r, status: patch.status }),
       );
-      undoFocus.current.push(ids[0]);
-      const i = filtered.findIndex((p) => p.id === ids[0]);
-      setCursor(filtered[i + 1]?.id || filtered[i - 1]?.id || "");
+      undoFocus.current.push({
+        cursor,
+        selected: [...selected],
+        anchor: selectionAnchor.current,
+      });
+      setCursor(
+        nextAfterDecision(
+          filtered.map((p) => p.id),
+          ids,
+        ),
+      );
+      selectionAnchor.current = null;
       setSelected([]);
     });
   const undo = async () =>
     run(async () => {
       const result = await api(`/batches/${batchId}/undo`, json("POST", {}));
-      if (result.ok) setCursor(undoFocus.current.pop() || result.ids[0]);
-      else throw new Error("没有可撤销的决定");
+      if (result.ok) {
+        const snapshot = undoFocus.current.pop();
+        setCursor(snapshot?.cursor || result.ids[0]);
+        setSelected(
+          snapshot?.selected?.length ? snapshot.selected : result.ids,
+        );
+        selectionAnchor.current = snapshot?.anchor || result.ids[0];
+      } else throw new Error("没有可撤销的决定");
     });
   const openScreen = (id = cursor || filtered[0]?.id) => {
     if (id) setImmersive({ startId: id, scopeIds: filtered.map((p) => p.id) });
@@ -438,7 +488,7 @@ function Workspace({ onLogout }) {
         void undo();
         return;
       }
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       if (e.code === "Space") {
         e.preventDefault();
         if (page === "work") openScreen();
@@ -459,7 +509,9 @@ function Workspace({ onLogout }) {
         e.preventDefault();
         const id = cursor || filtered[0]?.id;
         if (id)
-          void decide([id], { status: decisionKeys[e.key.toLowerCase()] });
+          void decide(selected.length ? selected : [id], {
+            status: decisionKeys[e.key.toLowerCase()],
+          });
       }
       if (["ArrowLeft", "ArrowRight"].includes(e.key)) {
         e.preventDefault();
@@ -1001,6 +1053,30 @@ function Workspace({ onLogout }) {
         {!!selected.length && (
           <div className="selection-toolbar">
             <span>已选 {selected.length} 张</span>
+            {page === "work" && (
+              <>
+                {round === "initial" && (
+                  <Button
+                    disabled={!!busy}
+                    onClick={() => decide(selected, { status: "maybe" })}
+                  >
+                    待定所选 Z
+                  </Button>
+                )}
+                <Button
+                  disabled={!!busy}
+                  onClick={() => decide(selected, { status: "keep" })}
+                >
+                  保留所选 X
+                </Button>
+                <Button
+                  disabled={!!busy}
+                  onClick={() => decide(selected, { status: "reject" })}
+                >
+                  不要所选 C
+                </Button>
+              </>
+            )}
             <Button onClick={() => setSelected([])}>取消选择</Button>
             <Button
               onClick={() =>
@@ -1105,9 +1181,13 @@ function Workspace({ onLogout }) {
                 <article
                   key={p.id}
                   draggable={!!collection && page !== "work"}
-                  onDragStart={(e) =>
-                    e.dataTransfer.setData("application/x-photo-id", p.id)
-                  }
+                  onDragStart={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                      e.preventDefault();
+                      return;
+                    }
+                    e.dataTransfer.setData("application/x-photo-id", p.id);
+                  }}
                   onDragOver={(e) => {
                     if (collection && page !== "work") e.preventDefault();
                   }}
@@ -1126,15 +1206,33 @@ function Workspace({ onLogout }) {
                     );
                   }}
                   className={`wall-card ${cursor === p.id ? "focused" : ""} ${selected.includes(p.id) ? "selected" : ""}`}
-                  onClick={() => setCursor(p.id)}
-                  onDoubleClick={() =>
+                  onMouseDown={(e) => {
+                    if (
+                      e.shiftKey &&
+                      !e.target.closest("button,input,a,details")
+                    )
+                      e.preventDefault();
+                  }}
+                  onClick={(e) => {
+                    if (e.target.closest("button,input,a,details,label"))
+                      return;
+                    choosePhoto(e, p.id);
+                  }}
+                  onDoubleClick={(e) => {
+                    if (
+                      e.metaKey ||
+                      e.ctrlKey ||
+                      e.shiftKey ||
+                      e.target.closest("button,input,a,details,label")
+                    )
+                      return;
                     page === "work"
                       ? openScreen(p.id)
                       : setViewer({
                           photos: filtered,
                           index: filtered.findIndex((v) => v.id === p.id),
-                        })
-                  }
+                        });
+                  }}
                 >
                   <div className="wall-photo">
                     <PhotoImage
@@ -1147,13 +1245,8 @@ function Workspace({ onLogout }) {
                         type="checkbox"
                         aria-label={`选择 ${p.name}`}
                         checked={selected.includes(p.id)}
-                        onChange={(e) =>
-                          setSelected((ids) =>
-                            e.target.checked
-                              ? [...ids, p.id]
-                              : ids.filter((id) => id !== p.id),
-                          )
-                        }
+                        onChange={() => {}}
+                        onClick={(e) => choosePhoto(e, p.id, true)}
                       />
                     </label>
                     {page === "work" &&
