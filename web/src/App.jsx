@@ -104,13 +104,19 @@ export function Modal({ title, children, onClose, wide = false }) {
 }
 function InputDialog({ dialog, onClose }) {
   const [value, setValue] = useState(dialog.initial || "");
+  const [saving, setSaving] = useState(false);
   return (
     <Modal title={dialog.title} onClose={onClose}>
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          dialog.submit(value);
-          onClose();
+          setSaving(true);
+          try {
+            await dialog.submit(value);
+            onClose();
+          } finally {
+            setSaving(false);
+          }
         }}
       >
         <label className="field">
@@ -123,11 +129,11 @@ function InputDialog({ dialog, onClose }) {
           />
         </label>
         <footer>
-          <Button onClick={onClose} type="button">
+          <Button onClick={onClose} type="button" disabled={saving}>
             取消
           </Button>
-          <Button primary type="submit">
-            确定
+          <Button primary type="submit" disabled={saving}>
+            {saving ? "保存中…" : "确定"}
           </Button>
         </footer>
       </form>
@@ -494,6 +500,13 @@ export default function App() {
     });
   async function importFiles(files) {
     if (!files?.length) return;
+    // FileList is live: clearing the input after change empties it. Retain File
+    // objects before awaiting project creation or any other asynchronous action.
+    const list = Array.from(files).filter((f) => /\.jpe?g$/i.test(f.name));
+    if (!list.length) {
+      notify("请选择 JPEG 格式照片");
+      return;
+    }
     let id = projectId;
     if (!id) {
       const p = await api(
@@ -503,11 +516,6 @@ export default function App() {
       id = p.id;
       setProjectId(id);
       await refreshProjects();
-    }
-    const list = Array.from(files).filter((f) => /\.jpe?g$/i.test(f.name));
-    if (!list.length) {
-      notify("请选择 JPEG 格式照片");
-      return;
     }
     let failures = 0;
     uploadPaused.current = false;

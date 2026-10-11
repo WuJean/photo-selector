@@ -8,6 +8,39 @@ const jpeg = async (color, index = 0) =>
   )
     .jpeg()
     .toBuffer();
+test("first import retains chosen files while automatic project creation is delayed", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "把旅途带进来" }),
+  ).toBeVisible();
+  await page.route("**/api/projects", async (route) => {
+    if (route.request().method() === "POST")
+      await new Promise((r) => setTimeout(r, 250));
+    await route.continue();
+  });
+  await page
+    .locator("input[type=file]:not([webkitdirectory])")
+    .setInputFiles([
+      {
+        name: "first-trip.jpg",
+        mimeType: "image/jpeg",
+        buffer: await jpeg("#a5bec4"),
+      },
+    ]);
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await expect
+    .poll(() =>
+      page.locator(".photo-card img").evaluate((el) => el.naturalWidth),
+    )
+    .toBeGreaterThan(0);
+  await expect(page.getByRole("status")).toContainText("已导入 1 张");
+  const projects = await (await request.get("/api/projects")).json();
+  expect(projects).toHaveLength(1);
+  expect(projects[0].count).toBe(1);
+});
 test("real photo import, favorite, cull, undo, compare, collection and reload", async ({
   page,
 }) => {
@@ -20,6 +53,7 @@ test("real photo import, favorite, cull, undo, compare, collection and reload", 
     .getByRole("textbox")
     .fill("界面验收 " + Date.now());
   await page.getByRole("button", { name: "确定", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "把旅途带进来" }),
   ).toBeVisible();
