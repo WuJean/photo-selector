@@ -131,3 +131,35 @@ test("a failed download can resume from the persisted image URL without paying f
   });
   assert.equal(posts, 1);
 });
+
+test("text-only creative image sends no reference bytes", async () => {
+  const config = normalizeImageConfig();
+  const bytes = await sharp({
+    create: { width: 20, height: 20, channels: 3, background: "blue" },
+  })
+    .png()
+    .toBuffer();
+  let content;
+  await generateImage(config, null, {
+    prompt: "一道蓝色回环象征山间同行",
+    images: [],
+    fetchImpl: async (url, options) => {
+      if (options.method === "POST") {
+        content = JSON.parse(options.body).input.messages[0].content;
+        return Response.json({
+          output: {
+            choices: [
+              {
+                message: {
+                  content: [{ image: "https://image.test/result.png" }],
+                },
+              },
+            ],
+          },
+        });
+      }
+      return new Response(bytes);
+    },
+  });
+  assert.deepEqual(content, [{ text: "一道蓝色回环象征山间同行" }]);
+});

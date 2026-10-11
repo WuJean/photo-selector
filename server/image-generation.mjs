@@ -192,7 +192,11 @@ export function registerImageGeneration(app, store) {
     // Portfolio creation uses persisted visual descriptions, never reference uploads.
     const images = [];
     return generateImage(config, key, {
-      prompt: job.plan.prompt,
+      prompt:
+        job.pipelineVersion === 2
+          ? job.plan.prompt +
+            "\n独立艺术画面、单一视觉中心；禁止拼贴、宫格、多面板、照片重排，不添加文字。"
+          : job.plan.prompt,
       images,
       ratio: job.ratio,
       signal,

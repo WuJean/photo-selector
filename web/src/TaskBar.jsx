@@ -41,7 +41,7 @@ export default function TaskBar({ jobs, projectId, refresh, notify }) {
     if (j.projectId === projectId && creationTaskVisible(j))
       rows.push({
         key: j.id,
-        label: j.kind === "cover" ? "生成封面" : "生成文案",
+        label: j.kind === "cover" ? "生成创意图" : "生成文案",
         done: j.done || 0,
         total: j.total || 1,
         errors: j.state === "error" ? 1 : 0,

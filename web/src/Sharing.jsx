@@ -350,7 +350,7 @@ export function PublicShare({ token }) {
                   <span>
                     {c.origin === "guest"
                       ? "访客拼图"
-                      : { copy: "文案", cover: "AI 图片", collage: "拼图" }[
+                      : { copy: "文案", cover: "AI 创意图", collage: "拼图" }[
                           c.kind
                         ]}
                   </span>

@@ -90,7 +90,7 @@ export function PortfolioTools({
               ))}
             </div>
             <select
-              aria-label="封面画幅"
+              aria-label="创意图画幅"
               value={ratio}
               onChange={(e) => setRatio(e.target.value)}
             >
@@ -100,7 +100,7 @@ export function PortfolioTools({
             </select>
             {[
               ["copy", "生成文案"],
-              ["cover", "生成封面"],
+              ["cover", "生成创意图"],
             ].map(([kind, label]) => (
               <button
                 key={kind}
@@ -168,7 +168,7 @@ export function CreationGallery({ projectId, collectionId, photos, notify }) {
             <span>
               {item.origin === "guest"
                 ? "访客拼图"
-                : { copy: "文案", cover: "AI 生成", collage: "拼图" }[
+                : { copy: "文案", cover: "AI 创意图", collage: "拼图" }[
                     item.kind
                   ]}
             </span>
@@ -230,7 +230,19 @@ export function CreationGallery({ projectId, collectionId, photos, notify }) {
             <p>
               {item.model || "本地拼图"} · {item.sourceIds.length} 张来源照片
             </p>
-            {item.referenceIds?.map((id) => (
+            {item.concept && (
+              <details>
+                <summary>核心概念</summary>
+                <p>{item.concept}</p>
+              </details>
+            )}
+            {item.sourceIds?.length > 0 && (
+              <small>来源共 {item.sourceIds.length} 张照片</small>
+            )}
+            {(item.referenceIds?.length
+              ? item.referenceIds
+              : item.sourceIds?.slice(0, 4)
+            )?.map((id) => (
               <a
                 key={id}
                 className="creation-reference"
@@ -249,7 +261,7 @@ export function CreationGallery({ projectId, collectionId, photos, notify }) {
                 target="_blank"
                 rel="noreferrer"
               >
-                参考照片 {photos.find((p) => p.id === id)?.name || id}
+                来源照片 {photos.find((p) => p.id === id)?.name || id}
               </a>
             ))}
             <p>{item.prompt}</p>

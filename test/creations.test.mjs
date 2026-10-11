@@ -166,6 +166,7 @@ test("cancelled cover ignores a late generated image; paused cover retains compl
       projectId: p.id,
       collectionId: "c",
       kind: "cover",
+      pipelineVersion: 2,
       config: { baseURL: "http://localhost", model: "mock" },
       imageConfig: { model: "wan2.7-image" },
       photoIds: ["p"],
@@ -210,5 +211,108 @@ test("cancelled cover ignores a late generated image; paused cover retains compl
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("abstract creation uses all cached descriptions while local photos are offline and preserves concept provenance", async () => {
+  const { fixture } = await import("./support/library.mjs");
+  const f = await fixture();
+  const seen = [];
+  const server = createServer(async (req, res) => {
+    let raw = "";
+    for await (const c of req) raw += c;
+    const body = JSON.parse(raw);
+    assert.ok(body.messages.every((m) => typeof m.content === "string"));
+    const input = JSON.parse(body.messages.at(-1).content);
+    let result;
+    if (Array.isArray(input)) {
+      seen.push(...input.map((p) => p.id));
+      result = { summary: "蓝色山川与同行者的宁静" };
+    } else {
+      assert.match(body.messages[0].content, /视觉隐喻/);
+      result = {
+        title: "山的回声",
+        text: "宁静与同行",
+        concept: "以一道回环的山脊象征同行记忆，冷蓝色调",
+        prompt: "冷蓝色山脊形成一个回环，单一视觉中心",
+      };
+    }
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(result) } }],
+      }),
+    );
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const ids = Array.from({ length: 15 }, (_, i) => "abstract-" + i);
+    for (const id of ids)
+      f.store.put("photo", {
+        id,
+        projectId: "library",
+        status: "keep",
+        finalStatus: "keep",
+        storage: "local",
+        ai: { description: "蓝色山间远景 " + id, tags: ["风景", "远景"] },
+      });
+    f.store.put("collection", {
+      id: "abstract",
+      projectId: "library",
+      photoIds: ids,
+    });
+    f.store.put("settings", {
+      id: "ai",
+      baseURL: `http://127.0.0.1:${server.address().port}`,
+      model: "test",
+    });
+    const image = await (
+      await import("sharp")
+    )
+      .default({
+        create: { width: 100, height: 100, channels: 3, background: "blue" },
+      })
+      .png()
+      .toBuffer();
+    let generation;
+    const q = new CreationQueue(
+      f.store,
+      { get: async () => null },
+      async (j) => {
+        generation = j;
+        return image;
+      },
+    );
+    const j = q.start("library", "abstract", "cover");
+    await wait(() => !q.running.size);
+    assert.equal(q.get(j.id).state, "done", q.get(j.id).error);
+    assert.deepEqual(new Set(seen), new Set(ids));
+    assert.deepEqual(generation.plan.referenceIds, []);
+    assert.equal(generation.pipelineVersion, 2);
+    const creation = f.store.get("creation", j.id);
+    assert.match(creation.concept, /回环/);
+    assert.equal(Object.keys(creation.descriptionSnapshot).length, 15);
+    assert.equal(creation.creationMode, "abstract");
+    f.store.put("creationJob", {
+      ...q.get(j.id),
+      id: "legacy",
+      state: "paused",
+      pipelineVersion: undefined,
+      creationId: null,
+      plan: { prompt: "old collage" },
+    });
+    const recovered = new CreationQueue(
+      f.store,
+      { get: async () => null },
+      async () => image,
+    );
+    assert.match(recovered.get("legacy").error, /抽象/);
+    recovered.action("legacy", "resume");
+    await wait(() => !recovered.running.size);
+    assert.equal(recovered.get("legacy").state, "done");
+    assert.match(recovered.get("legacy").plan.prompt, /冷蓝/);
+  } finally {
+    await new Promise((r) => server.close(r));
+    await f.close();
   }
 });
