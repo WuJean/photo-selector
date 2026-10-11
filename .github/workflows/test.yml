@@ -15,3 +15,12 @@ jobs:
         run: npm run check
       - name: Test native foundation
         run: bash scripts/test.sh
+      - name: Install browser for UI tests
+        run: npx playwright install chromium
+      - name: End-to-end browser verification
+        run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-evidence
+          path: test-results/

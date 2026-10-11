@@ -13,7 +13,10 @@
     "test": "node --test test/*.test.mjs",
     "check": "npm run test && npm run build",
     "test:browser": "playwright test",
-    "build:vision": "swift build -c release --product VisionWorker"
+    "build:vision": "swift build -c release --product VisionWorker",
+    "test:all": "npm run check && npm run test:browser",
+    "benchmark": "node scripts/benchmark.mjs",
+    "format": "prettier --write \"server/**/*.mjs\" \"shared/**/*.mjs\" \"web/src/**/*.{js,jsx,css}\" \"test/**/*.{mjs,js}\" \"scripts/*.mjs\" *.js *.json"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -28,6 +31,7 @@
   "devDependencies": {
     "@playwright/test": "^1.56.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "prettier": "^3.9.10",
     "vite": "^7.1.9"
   }
 }

@@ -1,45 +1,961 @@
-import React,{useState,useEffect,useRef,useMemo} from 'react';
-import {ArrowLeft,Download,Sparkles,Send,Loader2,Lock,Unlock,Plus,RefreshCw,Undo2,Save,GripVertical,ImagePlus,X,Check,ArrowRight,Maximize,Settings2,Camera,ChevronDown} from 'lucide-react';
-import {api,json,photoURL} from './api';
-import {TEMPLATES,RATIOS,newDraft,slotFor,layoutRects,imagePlacement} from '../../shared/layout.mjs';
-import {tagsOf} from '../../shared/domain.mjs';
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import {
+  ArrowLeft,
+  Download,
+  Sparkles,
+  Send,
+  Loader2,
+  Lock,
+  Unlock,
+  Plus,
+  RefreshCw,
+  Undo2,
+  Save,
+  GripVertical,
+  ImagePlus,
+  X,
+  Check,
+  ArrowRight,
+  Maximize,
+  Settings2,
+  Camera,
+  ChevronDown,
+} from "lucide-react";
+import { api, json, photoURL } from "./api";
+import {
+  TEMPLATES,
+  RATIOS,
+  newDraft,
+  slotFor,
+  layoutRects,
+  imagePlacement,
+} from "../../shared/layout.mjs";
+import { tagsOf } from "../../shared/domain.mjs";
 
-async function download(url,body,name){const response=await fetch('/api'+url,json('POST',body));if(!response.ok){let message='导出失败';try{message=(await response.json()).error||message}catch{}throw new Error(message)}const blob=await response.blob(),href=URL.createObjectURL(blob),a=document.createElement('a');a.href=href;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(href),5000);}
-function Canvas({draft,photos,active,setActive,updateSlot}){
- const ref=useRef(),drag=useRef();const[width,setWidth]=useState(500);
- useEffect(()=>{const o=new ResizeObserver(([entry])=>setWidth(entry.contentRect.width));o.observe(ref.current);return()=>o.disconnect()},[]);
- const height=width/RATIOS[draft.ratio],rects=layoutRects(draft.template,width,height,draft.gap,draft.frame),wm=draft.watermark;
- const wmStyle={position:'absolute',fontFamily:'Arial,sans-serif',fontSize:width*wm.size,color:wm.color,opacity:wm.opacity,pointerEvents:'none',[wm.position.endsWith('r')?'right':'left']:Math.min(width,height)*wm.margin,[wm.position.startsWith('b')?'bottom':'top']:Math.min(width,height)*wm.margin};
- return <div className="story-canvas" ref={ref} style={{aspectRatio:RATIOS[draft.ratio],background:draft.background}}>{rects.map((rect,i)=>{const slot=draft.slots[i],photo=photos.find(p=>p.id===slot?.photoId),placement=photo?imagePlacement(photo,rect,slot):null;return <div key={i} className={`story-slot ${active===i?'active':''} ${!photo?'empty-slot':''}`} style={{left:rect.x,top:rect.y,width:rect.width,height:rect.height}} onClick={()=>setActive(i)} onPointerDown={e=>{setActive(i);if(!slot||e.target.closest('button'))return;drag.current={x:e.clientX,y:e.clientY,cx:slot.cx,cy:slot.cy,index:i,dx:rect.width-placement.width,dy:rect.height-placement.height};e.currentTarget.setPointerCapture(e.pointerId)}} onPointerMove={e=>{if(!drag.current)return;const d=drag.current;updateSlot(d.index,{cx:Math.max(0,Math.min(1,d.cx+(Math.abs(d.dx)>1?(e.clientX-d.x)/d.dx:0))),cy:Math.max(0,Math.min(1,d.cy+(Math.abs(d.dy)>1?(e.clientY-d.y)/d.dy:0)))});}} onPointerUp={()=>drag.current=null} onPointerCancel={()=>drag.current=null}>
- {photo?<img draggable="false" src={photoURL(photo.id,'preview')} alt={`拼图位置 ${i+1}：${photo.name}`} style={{width:placement.width,height:placement.height,left:placement.left,top:placement.top}}/>:<div><Plus size={23}/><span>选一张放在这里</span></div>}<span className="slot-number">{i+1}</span>{slot?.locked&&<Lock size={13} className="slot-lock"/>}</div>})}
- {draft.frame==='caption'&&<div className="canvas-caption" style={{left:width*.04,bottom:height*.028,fontSize:width*.017,color:'#3f433c'}}>{draft.template==='single'?(()=>{const p=photos.find(p=>p.id===draft.slots[0]?.photoId);return [p?.camera,p?.focal?`${p.focal}mm`:null,p?.aperture?`f/${p.aperture}`:null,p?.iso?`ISO ${p.iso}`:null].filter(Boolean).join(' · ')})():draft.title}</div>}
- {wm.text&&<div style={wmStyle}>{wm.text}</div>}{wm.assetId&&<img className="canvas-logo" src={`/api/assets/${wm.assetId}`} alt="图片水印" style={{...wmStyle,width:width*Math.min(.3,wm.size*5),maxHeight:height*.15,objectFit:'contain'}}/>}</div>
+async function download(url, body, name) {
+  const response = await fetch("/api" + url, json("POST", body));
+  if (!response.ok) {
+    let message = "导出失败";
+    try {
+      message = (await response.json()).error || message;
+    } catch {}
+    throw new Error(message);
+  }
+  const blob = await response.blob(),
+    href = URL.createObjectURL(blob),
+    a = document.createElement("a");
+  a.href = href;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(href), 5000);
 }
-export default function Studio({projectId,photos,selected,collection,onClose,notify,onSettings}){
- const initial=useMemo(()=>selected.length?selected.map(id=>photos.find(p=>p.id===id)).filter(Boolean):collection?collection.photoIds.map(id=>photos.find(p=>p.id===id)).filter(Boolean):photos.filter(p=>p.status==='keep'),[]);
- const[draft,setDraft]=useState(()=>newDraft(projectId,initial)),[loaded,setLoaded]=useState(false),[active,setActive]=useState(0),[query,setQuery]=useState(''),[prompt,setPrompt]=useState(''),[messages,setMessages]=useState([]),[busy,setBusy]=useState(''),[presets,setPresets]=useState([]),[saved,setSaved]=useState(false),[preview,setPreview]=useState(null),[candidate,setCandidate]=useState(null);
- const history=useRef([]),skipSave=useRef(true),logoRef=useRef(),generation=useRef(0);
- useEffect(()=>{Promise.all([api(`/projects/${projectId}/draft`),api('/presets')]).then(([value,p])=>{if(value)setDraft(value);setPresets(p);setLoaded(true)}).catch(e=>{notify(e.message);setLoaded(true)})},[projectId]);
- useEffect(()=>{if(!loaded)return;if(skipSave.current){skipSave.current=false;return;}setSaved(false);const version=++generation.current;const t=setTimeout(()=>{api(`/projects/${projectId}/draft`,json('PUT',draft)).then(()=>{if(version===generation.current)setSaved(true)}).catch(e=>notify(e.message))},600);return()=>clearTimeout(t)},[draft,loaded]);
- useEffect(()=>()=>{if(preview)URL.revokeObjectURL(preview)},[preview]);
- const change=(next)=>{history.current.push(draft);history.current=history.current.slice(-50);setDraft(typeof next==='function'?next(draft):next);setSaved(false)};
- const updateSlot=(i,patch)=>change(d=>({...d,slots:d.slots.map((slot,j)=>i===j?{...slot,...patch}:slot)}));
- const fillSlot=photo=>{const slots=[...draft.slots];if(active>slots.length){notify('请按顺序填入空位置');return;}if(slots[active]?.locked){notify('先解锁这个位置，再替换照片');return;}const existing=slots.findIndex(s=>s.photoId===photo.id);if(existing>=0&&existing!==active&&slots[existing].locked){notify('这张照片的位置已锁定');return;}if(existing>=0&&existing!==active){[slots[active],slots[existing]]=[slots[existing],slots[active]];if(!slots[existing])slots.splice(existing,1);}else slots[active]=slotFor(photo);change({...draft,slots});if(active<TEMPLATES[draft.template].count-1)setActive(active+1);};
- const available=photos.filter(p=>p.status!=='reject'&&(!query||[p.name,...tagsOf(p)].join(' ').includes(query)));
- const slot=draft.slots[active],photo=photos.find(p=>p.id===slot?.photoId);
- const setWatermark=patch=>change({...draft,watermark:{...draft.watermark,...patch}});
- const ask=async()=>{if(!prompt.trim()||busy)return;const text=prompt;setPrompt('');setMessages(v=>[...v,{role:'user',text}]);setBusy('chat');try{const recommendation=await api(`/projects/${projectId}/recommend`,json('POST',{prompt:text,collectionId:collection?.id,lockedIds:draft.slots.filter(s=>s.locked).map(s=>s.photoId),current:{template:draft.template,photoIds:draft.slots.map(s=>s.photoId)}}));setCandidate(recommendation);setMessages(v=>[...v,{role:'assistant',text:recommendation.reason+(recommendation.missing?`\n需要注意：${recommendation.missing}`:'')}]);}catch(e){setMessages(v=>[...v,{role:'assistant',text:e.message}])}finally{setBusy('')}};
- const applyRecommendation=()=>{change({...draft,title:candidate.title,template:candidate.template,slots:candidate.photoIds.map(id=>draft.slots.find(s=>s.photoId===id&&s.locked)||slotFor(photos.find(p=>p.id===id)))});setCandidate(null);setActive(0)};
- const exportImage=async(type)=>{setBusy(type);try{if(type==='preview'){const response=await fetch(`/api/projects/${projectId}/render?preview=1`,json('POST',draft));if(!response.ok)throw new Error((await response.json()).error);if(preview)URL.revokeObjectURL(preview);setPreview(URL.createObjectURL(await response.blob()));}else{await api(`/projects/${projectId}/draft`,json('PUT',draft));setSaved(true);await download(`/projects/${projectId}/render`,draft,`${draft.title}.jpg`);notify('拼图已导出');}}catch(e){notify(e.message)}finally{setBusy('')}};
- const batch=async mode=>{const ids=selected.length?selected:collection?.photoIds||photos.filter(p=>p.status==='keep').map(p=>p.id);if(!ids.length){notify('先保留照片，或在照片库里选择要导出的照片');return;}setBusy(mode);try{await download(`/projects/${projectId}/export`,{ids,mode,settings:draft},mode==='originals'?'入选原片.zip':'发布单张.zip');notify(`已导出 ${ids.length} 张照片`)}catch(e){notify(e.message)}finally{setBusy('')}};
- const close=async()=>{try{if(loaded)await api(`/projects/${projectId}/draft`,json('PUT',draft));onClose()}catch(e){notify(e.message)}};
- return <section className="studio" role="dialog" aria-modal="true" aria-label="拼图工作室"><header className="studio-header"><button className="immersive-back" onClick={close}><ArrowLeft size={17}/>返回照片库</button><div><span className="eyebrow">MAKE YOUR MOMENTS A STORY</span><input aria-label="作品名称" value={draft.title} onChange={e=>change({...draft,title:e.target.value})}/></div><div className="studio-header-actions"><span className="save-label">{saved?'已保存':'自动保存草稿'}</span><button className="icon-button" aria-label="撤销拼图修改" disabled={!history.current.length} onClick={()=>{const previous=history.current.pop();if(previous)setDraft(previous)}}><Undo2 size={17}/></button><button className="button" disabled={!!busy} onClick={()=>exportImage('preview')}>成品预览</button><button className="primary" disabled={!!busy||draft.slots.length!==TEMPLATES[draft.template].count} onClick={()=>exportImage('export')}>{busy==='export'?<Loader2 className="spin" size={15}/>:<Download size={15}/>}导出拼图</button></div></header>
- <div className="studio-body"><aside className="studio-source"><div className="section-heading">候选照片<span>{available.length}</span></div><input aria-label="搜索拼图候选" value={query} placeholder="搜索标签或照片名" onChange={e=>setQuery(e.target.value)}/><p className="source-hint">点击画布中的位置，再点击照片替换。<br/>当前在编辑第 {active+1} 格。</p><div className="source-grid">{available.slice(0,300).map(p=><button key={p.id} className={draft.slots.some(s=>s.photoId===p.id)?'used':''} onClick={()=>fillSlot(p)} title={`放入 ${p.name}`}><img loading="lazy" src={photoURL(p.id)} alt={p.name}/><span>{p.name}</span>{draft.slots.some(s=>s.photoId===p.id)&&<Check size={12}/>}</button>)}</div>{available.length>300&&<small className="muted">显示前 300 张，可搜索缩小范围。</small>}</aside>
- <main className="studio-main"><div className="canvas-toolbar"><select aria-label="拼图模板" value={draft.template} onChange={e=>{const template=e.target.value;const count=TEMPLATES[template].count;if(draft.slots.slice(count).some(s=>s.locked)){notify('请先解锁将被移除的位置');return;}change({...draft,template,slots:draft.slots.slice(0,count)});setActive(0)}}>{Object.entries(TEMPLATES).map(([id,t])=><option key={id} value={id}>{t.label}</option>)}</select><div className="ratio-buttons">{Object.keys(RATIOS).map(r=><button key={r} className={draft.ratio===r?'active':''} onClick={()=>change({...draft,ratio:r})}>{r}</button>)}</div><span className="canvas-tip">拖动照片调整构图</span></div><div className="canvas-space"><div className="canvas-holder" style={{'--ratio':RATIOS[draft.ratio]}}><Canvas draft={draft} photos={photos} active={active} setActive={setActive} updateSlot={updateSlot}/></div></div>
- <div className="crop-controls"><div><strong>第 {active+1} 格</strong><span>{photo?.name||'等待放入照片'}</span></div><button className={`icon-button ${slot?.locked?'active':''}`} aria-label="锁定当前拼图照片" disabled={!slot} onClick={()=>updateSlot(active,{locked:!slot.locked})}>{slot?.locked?<Lock size={16}/>:<Unlock size={16}/>}</button><label>缩放<input aria-label="拼图照片缩放" type="range" min="1" max="4" step=".01" value={slot?.zoom||1} disabled={!slot} onChange={e=>updateSlot(active,{zoom:Number(e.target.value)})}/>{Math.round((slot?.zoom||1)*100)}%</label><select aria-label="拼图适应方式" disabled={!slot} value={slot?.fit||'cover'} onChange={e=>updateSlot(active,{fit:e.target.value})}><option value="cover">填充</option><option value="contain">完整显示</option></select><button className="icon-button" aria-label="重置拼图裁剪" disabled={!slot} onClick={()=>updateSlot(active,{zoom:1,cx:.5,cy:.5})}><RefreshCw size={15}/></button>{slot&&draft.slots.length>1&&<button className="button" onClick={()=>{const j=(active+1)%draft.slots.length;if(slot.locked||draft.slots[j].locked){notify('先解锁照片再交换');return;}const slots=[...draft.slots];[slots[active],slots[j]]=[slots[j],slots[active]];change({...draft,slots})}}>与下一格交换</button>}</div>
- <div className="chat-panel"><div className="chat-heading"><Sparkles size={16}/><strong>AI 搭配助手</strong><button className="text-button" onClick={onSettings}>服务设置</button></div><div className="chat-messages">{!messages.length&&<p>试试：“选雪山场景，近景人像、远景人像和风景各一张，做清冷风格三拼。”</p>}{messages.map((m,i)=><div key={i} className={`chat-message ${m.role}`}>{m.text}</div>)}{candidate&&<div className="recommendation"><strong>{candidate.title}</strong><div>{candidate.photoIds.map(id=><img key={id} src={photoURL(id)} alt="推荐照片"/>)}</div><button className="primary" onClick={applyRecommendation}>应用到画布</button><button className="text-button" onClick={()=>setCandidate(null)}>保留当前作品</button></div>}</div><form onSubmit={e=>{e.preventDefault();ask()}}><textarea aria-label="向 AI 描述拼图" value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="描述场景、风格和搭配，或者告诉我想替换哪一张…" rows={2}/><button aria-label="发送拼图要求" type="submit" disabled={!!busy||!prompt.trim()}>{busy==='chat'?<Loader2 className="spin" size={18}/>:<Send size={18}/>}</button></form></div></main>
- <aside className="studio-style"><h3>作品样式</h3><label className="field">相框<select aria-label="相框样式" value={draft.frame} onChange={e=>change({...draft,frame:e.target.value})}><option value="none">无相框</option><option value="thin">细边</option><option value="white">留白</option><option value="caption">拍摄参数 / 标题底栏</option></select></label><label className="field">留白颜色<input aria-label="留白颜色" type="color" value={draft.background} onChange={e=>change({...draft,background:e.target.value})}/></label><label className="field">照片间距<input aria-label="照片间距" type="range" min="0" max=".06" step=".002" value={draft.gap} onChange={e=>change({...draft,gap:Number(e.target.value)})}/></label><div className="style-divider"/>
- <h3>水印</h3><label className="field">文字<input aria-label="水印文字" value={draft.watermark.text} onChange={e=>setWatermark({text:e.target.value})} placeholder="你的署名 / 旅行日期"/></label><div className="two-fields"><label className="field">颜色<input aria-label="水印颜色" type="color" value={draft.watermark.color} onChange={e=>setWatermark({color:e.target.value})}/></label><label className="field">位置<select aria-label="水印位置" value={draft.watermark.position} onChange={e=>setWatermark({position:e.target.value})}><option value="br">右下</option><option value="bl">左下</option><option value="tr">右上</option><option value="tl">左上</option></select></label></div><label className="field">大小<input aria-label="水印大小" type="range" min=".01" max=".08" step=".001" value={draft.watermark.size} onChange={e=>setWatermark({size:Number(e.target.value)})}/></label><label className="field">透明度<input aria-label="水印透明度" type="range" min="0" max="1" step=".05" value={draft.watermark.opacity} onChange={e=>setWatermark({opacity:Number(e.target.value)})}/></label><label className="field">边距<input aria-label="水印边距" type="range" min="0" max=".15" step=".005" value={draft.watermark.margin} onChange={e=>setWatermark({margin:Number(e.target.value)})}/></label><input ref={logoRef} type="file" accept="image/png" hidden onChange={async e=>{const file=e.target.files[0];if(!file)return;try{const body=new FormData();body.append('watermark',file);body.append('name',file.name);const result=await api('/assets/watermark',{method:'POST',body});setWatermark({assetId:result.id});}catch(e){notify(e.message)}}}/><button className="button" onClick={()=>logoRef.current.click()}><ImagePlus size={14}/>{draft.watermark.assetId?'替换 PNG 水印':'添加 PNG 水印'}</button>{draft.watermark.assetId&&<button className="text-button" onClick={()=>setWatermark({assetId:null})}>移除图片水印</button>}
- <div className="style-divider"/><label className="field">已存预设<select aria-label="使用预设" value="" onChange={e=>{const preset=presets.find(p=>p.id===e.target.value);if(preset)change({...draft,...preset.settings})}}><option value="">选择预设…</option>{presets.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button className="button" onClick={async()=>{try{const p=await api('/presets',json('POST',{name:draft.title+' · 样式',settings:draft}));setPresets(v=>[...v,p]);notify('样式预设已保存')}catch(e){notify(e.message)}}}><Save size={14}/>保存当前样式</button><div className="style-divider"/><h3>导出设置</h3><div className="two-fields"><label className="field">长边像素<input aria-label="导出长边" type="number" min="400" max="6000" value={draft.longEdge} onChange={e=>change({...draft,longEdge:Number(e.target.value)})}/></label><label className="field">JPEG 质量<input aria-label="JPEG质量" type="number" min="40" max="100" value={draft.quality} onChange={e=>change({...draft,quality:Number(e.target.value)})}/></label></div><button className="button" onClick={()=>batch('rendered')} disabled={!!busy}><Download size={14}/>批量导出单张成品</button><button className="button" onClick={()=>batch('originals')} disabled={!!busy}><Download size={14}/>拷贝入选原片 ZIP</button><small className="export-note">优先导出照片库已选照片；否则导出当前作品集或初筛保留照片。原片文件内容保持不变。</small></aside></div>
- {preview&&<div className="render-preview" onClick={()=>setPreview(null)}><button className="icon-button" aria-label="关闭成品预览"><X size={23}/></button><img src={preview} alt="实际渲染成品预览"/><span>实际渲染结果 · 点击关闭</span></div>}</section>
+function Canvas({ draft, photos, active, setActive, updateSlot }) {
+  const ref = useRef(),
+    drag = useRef();
+  const [width, setWidth] = useState(500);
+  useEffect(() => {
+    const o = new ResizeObserver(([entry]) =>
+      setWidth(entry.contentRect.width),
+    );
+    o.observe(ref.current);
+    return () => o.disconnect();
+  }, []);
+  const height = width / RATIOS[draft.ratio],
+    rects = layoutRects(draft.template, width, height, draft.gap, draft.frame),
+    wm = draft.watermark;
+  const wmStyle = {
+    position: "absolute",
+    fontFamily: "Arial,sans-serif",
+    fontSize: width * wm.size,
+    color: wm.color,
+    opacity: wm.opacity,
+    pointerEvents: "none",
+    [wm.position.endsWith("r") ? "right" : "left"]:
+      Math.min(width, height) * wm.margin,
+    [wm.position.startsWith("b") ? "bottom" : "top"]:
+      Math.min(width, height) * wm.margin,
+  };
+  return (
+    <div
+      className="story-canvas"
+      ref={ref}
+      style={{ aspectRatio: RATIOS[draft.ratio], background: draft.background }}
+    >
+      {rects.map((rect, i) => {
+        const slot = draft.slots[i],
+          photo = photos.find((p) => p.id === slot?.photoId),
+          placement = photo ? imagePlacement(photo, rect, slot) : null;
+        return (
+          <div
+            key={i}
+            className={`story-slot ${active === i ? "active" : ""} ${!photo ? "empty-slot" : ""}`}
+            style={{
+              left: rect.x,
+              top: rect.y,
+              width: rect.width,
+              height: rect.height,
+            }}
+            onClick={() => setActive(i)}
+            onPointerDown={(e) => {
+              setActive(i);
+              if (!slot || e.target.closest("button")) return;
+              drag.current = {
+                x: e.clientX,
+                y: e.clientY,
+                cx: slot.cx,
+                cy: slot.cy,
+                index: i,
+                dx: rect.width - placement.width,
+                dy: rect.height - placement.height,
+              };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (!drag.current) return;
+              const d = drag.current;
+              updateSlot(d.index, {
+                cx: Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    d.cx + (Math.abs(d.dx) > 1 ? (e.clientX - d.x) / d.dx : 0),
+                  ),
+                ),
+                cy: Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    d.cy + (Math.abs(d.dy) > 1 ? (e.clientY - d.y) / d.dy : 0),
+                  ),
+                ),
+              });
+            }}
+            onPointerUp={() => (drag.current = null)}
+            onPointerCancel={() => (drag.current = null)}
+          >
+            {photo ? (
+              <img
+                draggable="false"
+                src={photoURL(photo.id, "preview")}
+                alt={`拼图位置 ${i + 1}：${photo.name}`}
+                style={{
+                  width: placement.width,
+                  height: placement.height,
+                  left: placement.left,
+                  top: placement.top,
+                }}
+              />
+            ) : (
+              <div>
+                <Plus size={23} />
+                <span>选一张放在这里</span>
+              </div>
+            )}
+            <span className="slot-number">{i + 1}</span>
+            {slot?.locked && <Lock size={13} className="slot-lock" />}
+          </div>
+        );
+      })}
+      {draft.frame === "caption" && (
+        <div
+          className="canvas-caption"
+          style={{
+            left: width * 0.04,
+            bottom: height * 0.028,
+            fontSize: width * 0.017,
+            color: "#3f433c",
+          }}
+        >
+          {draft.template === "single"
+            ? (() => {
+                const p = photos.find((p) => p.id === draft.slots[0]?.photoId);
+                return [
+                  p?.camera,
+                  p?.focal ? `${p.focal}mm` : null,
+                  p?.aperture ? `f/${p.aperture}` : null,
+                  p?.iso ? `ISO ${p.iso}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+              })()
+            : draft.title}
+        </div>
+      )}
+      {wm.text && <div style={wmStyle}>{wm.text}</div>}
+      {wm.assetId && (
+        <img
+          className="canvas-logo"
+          src={`/api/assets/${wm.assetId}`}
+          alt="图片水印"
+          style={{
+            ...wmStyle,
+            width: width * Math.min(0.3, wm.size * 5),
+            maxHeight: height * 0.15,
+            objectFit: "contain",
+          }}
+        />
+      )}
+    </div>
+  );
+}
+export default function Studio({
+  projectId,
+  photos,
+  selected,
+  collection,
+  onClose,
+  notify,
+  onSettings,
+}) {
+  const initial = useMemo(
+    () =>
+      selected.length
+        ? selected.map((id) => photos.find((p) => p.id === id)).filter(Boolean)
+        : collection
+          ? collection.photoIds
+              .map((id) => photos.find((p) => p.id === id))
+              .filter(Boolean)
+          : photos.filter((p) => p.status === "keep"),
+    [],
+  );
+  const [draft, setDraft] = useState(() => newDraft(projectId, initial)),
+    [loaded, setLoaded] = useState(false),
+    [active, setActive] = useState(0),
+    [query, setQuery] = useState(""),
+    [prompt, setPrompt] = useState(""),
+    [messages, setMessages] = useState([]),
+    [busy, setBusy] = useState(""),
+    [presets, setPresets] = useState([]),
+    [saved, setSaved] = useState(false),
+    [preview, setPreview] = useState(null),
+    [candidate, setCandidate] = useState(null);
+  const history = useRef([]),
+    skipSave = useRef(true),
+    logoRef = useRef(),
+    generation = useRef(0);
+  useEffect(() => {
+    Promise.all([api(`/projects/${projectId}/draft`), api("/presets")])
+      .then(([value, p]) => {
+        if (value) setDraft(value);
+        setPresets(p);
+        setLoaded(true);
+      })
+      .catch((e) => {
+        notify(e.message);
+        setLoaded(true);
+      });
+  }, [projectId]);
+  useEffect(() => {
+    if (!loaded) return;
+    if (skipSave.current) {
+      skipSave.current = false;
+      return;
+    }
+    setSaved(false);
+    const version = ++generation.current;
+    const t = setTimeout(() => {
+      api(`/projects/${projectId}/draft`, json("PUT", draft))
+        .then(() => {
+          if (version === generation.current) setSaved(true);
+        })
+        .catch((e) => notify(e.message));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [draft, loaded]);
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview);
+    },
+    [preview],
+  );
+  const change = (next) => {
+    history.current.push(draft);
+    history.current = history.current.slice(-50);
+    setDraft(typeof next === "function" ? next(draft) : next);
+    setSaved(false);
+  };
+  const updateSlot = (i, patch) =>
+    change((d) => ({
+      ...d,
+      slots: d.slots.map((slot, j) => (i === j ? { ...slot, ...patch } : slot)),
+    }));
+  const fillSlot = (photo) => {
+    const slots = [...draft.slots];
+    if (active > slots.length) {
+      notify("请按顺序填入空位置");
+      return;
+    }
+    if (slots[active]?.locked) {
+      notify("先解锁这个位置，再替换照片");
+      return;
+    }
+    const existing = slots.findIndex((s) => s.photoId === photo.id);
+    if (existing >= 0 && existing !== active && slots[existing].locked) {
+      notify("这张照片的位置已锁定");
+      return;
+    }
+    if (existing >= 0 && existing !== active) {
+      [slots[active], slots[existing]] = [slots[existing], slots[active]];
+      if (!slots[existing]) slots.splice(existing, 1);
+    } else slots[active] = slotFor(photo);
+    change({ ...draft, slots });
+    if (active < TEMPLATES[draft.template].count - 1) setActive(active + 1);
+  };
+  const available = photos.filter(
+    (p) =>
+      p.status !== "reject" &&
+      (!query || [p.name, ...tagsOf(p)].join(" ").includes(query)),
+  );
+  const slot = draft.slots[active],
+    photo = photos.find((p) => p.id === slot?.photoId);
+  const setWatermark = (patch) =>
+    change({ ...draft, watermark: { ...draft.watermark, ...patch } });
+  const ask = async () => {
+    if (!prompt.trim() || busy) return;
+    const text = prompt;
+    setPrompt("");
+    setMessages((v) => [...v, { role: "user", text }]);
+    setBusy("chat");
+    try {
+      const recommendation = await api(
+        `/projects/${projectId}/recommend`,
+        json("POST", {
+          prompt: text,
+          collectionId: collection?.id,
+          lockedIds: draft.slots.filter((s) => s.locked).map((s) => s.photoId),
+          current: {
+            template: draft.template,
+            photoIds: draft.slots.map((s) => s.photoId),
+          },
+        }),
+      );
+      setCandidate(recommendation);
+      setMessages((v) => [
+        ...v,
+        {
+          role: "assistant",
+          text:
+            recommendation.reason +
+            (recommendation.missing
+              ? `\n需要注意：${recommendation.missing}`
+              : ""),
+        },
+      ]);
+    } catch (e) {
+      setMessages((v) => [...v, { role: "assistant", text: e.message }]);
+    } finally {
+      setBusy("");
+    }
+  };
+  const applyRecommendation = () => {
+    change({
+      ...draft,
+      title: candidate.title,
+      template: candidate.template,
+      slots: candidate.photoIds.map(
+        (id) =>
+          draft.slots.find((s) => s.photoId === id && s.locked) ||
+          slotFor(photos.find((p) => p.id === id)),
+      ),
+    });
+    setCandidate(null);
+    setActive(0);
+  };
+  const exportImage = async (type) => {
+    setBusy(type);
+    try {
+      if (type === "preview") {
+        const response = await fetch(
+          `/api/projects/${projectId}/render?preview=1`,
+          json("POST", draft),
+        );
+        if (!response.ok) throw new Error((await response.json()).error);
+        if (preview) URL.revokeObjectURL(preview);
+        setPreview(URL.createObjectURL(await response.blob()));
+      } else {
+        await api(`/projects/${projectId}/draft`, json("PUT", draft));
+        setSaved(true);
+        await download(
+          `/projects/${projectId}/render`,
+          draft,
+          `${draft.title}.jpg`,
+        );
+        notify("拼图已导出");
+      }
+    } catch (e) {
+      notify(e.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const batch = async (mode) => {
+    const ids = selected.length
+      ? selected
+      : collection?.photoIds ||
+        photos.filter((p) => p.status === "keep").map((p) => p.id);
+    if (!ids.length) {
+      notify("先保留照片，或在照片库里选择要导出的照片");
+      return;
+    }
+    setBusy(mode);
+    try {
+      await download(
+        `/projects/${projectId}/export`,
+        { ids, mode, settings: draft },
+        mode === "originals" ? "入选原片.zip" : "发布单张.zip",
+      );
+      notify(`已导出 ${ids.length} 张照片`);
+    } catch (e) {
+      notify(e.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const close = async () => {
+    try {
+      if (loaded) await api(`/projects/${projectId}/draft`, json("PUT", draft));
+      onClose();
+    } catch (e) {
+      notify(e.message);
+    }
+  };
+  if (!loaded)
+    return (
+      <section className="studio" role="dialog" aria-label="拼图工作室">
+        <header className="studio-header">
+          <button className="immersive-back" onClick={onClose}>
+            <ArrowLeft size={17} />
+            返回照片库
+          </button>
+          <span>正在恢复拼图草稿…</span>
+          <Loader2 size={18} className="spin" />
+        </header>
+      </section>
+    );
+  return (
+    <section
+      className="studio"
+      role="dialog"
+      aria-modal="true"
+      aria-label="拼图工作室"
+    >
+      <header className="studio-header">
+        <button className="immersive-back" onClick={close}>
+          <ArrowLeft size={17} />
+          返回照片库
+        </button>
+        <div>
+          <span className="eyebrow">MAKE YOUR MOMENTS A STORY</span>
+          <input
+            aria-label="作品名称"
+            value={draft.title}
+            onChange={(e) => change({ ...draft, title: e.target.value })}
+          />
+        </div>
+        <div className="studio-header-actions">
+          <span className="save-label">
+            {saved ? "已保存" : "自动保存草稿"}
+          </span>
+          <button
+            className="icon-button"
+            aria-label="撤销拼图修改"
+            disabled={!history.current.length}
+            onClick={() => {
+              const previous = history.current.pop();
+              if (previous) setDraft(previous);
+            }}
+          >
+            <Undo2 size={17} />
+          </button>
+          <button
+            className="button"
+            disabled={!!busy}
+            onClick={() => exportImage("preview")}
+          >
+            成品预览
+          </button>
+          <button
+            className="primary"
+            disabled={
+              !!busy || draft.slots.length !== TEMPLATES[draft.template].count
+            }
+            onClick={() => exportImage("export")}
+          >
+            {busy === "export" ? (
+              <Loader2 className="spin" size={15} />
+            ) : (
+              <Download size={15} />
+            )}
+            导出拼图
+          </button>
+        </div>
+      </header>
+      <div className="studio-body">
+        <aside className="studio-source">
+          <div className="section-heading">
+            候选照片<span>{available.length}</span>
+          </div>
+          <input
+            aria-label="搜索拼图候选"
+            value={query}
+            placeholder="搜索标签或照片名"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <p className="source-hint">
+            点击画布中的位置，再点击照片替换。
+            <br />
+            当前在编辑第 {active + 1} 格。
+          </p>
+          <div className="source-grid">
+            {available.slice(0, 300).map((p) => (
+              <button
+                key={p.id}
+                className={
+                  draft.slots.some((s) => s.photoId === p.id) ? "used" : ""
+                }
+                onClick={() => fillSlot(p)}
+                title={`放入 ${p.name}`}
+              >
+                <img loading="lazy" src={photoURL(p.id)} alt={p.name} />
+                <span>{p.name}</span>
+                {draft.slots.some((s) => s.photoId === p.id) && (
+                  <Check size={12} />
+                )}
+              </button>
+            ))}
+          </div>
+          {available.length > 300 && (
+            <small className="muted">显示前 300 张，可搜索缩小范围。</small>
+          )}
+        </aside>
+        <main className="studio-main">
+          <div className="canvas-toolbar">
+            <select
+              aria-label="拼图模板"
+              value={draft.template}
+              onChange={(e) => {
+                const template = e.target.value;
+                const count = TEMPLATES[template].count;
+                if (draft.slots.slice(count).some((s) => s.locked)) {
+                  notify("请先解锁将被移除的位置");
+                  return;
+                }
+                change({
+                  ...draft,
+                  template,
+                  slots: draft.slots.slice(0, count),
+                });
+                setActive(0);
+              }}
+            >
+              {Object.entries(TEMPLATES).map(([id, t]) => (
+                <option key={id} value={id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <div className="ratio-buttons">
+              {Object.keys(RATIOS).map((r) => (
+                <button
+                  key={r}
+                  className={draft.ratio === r ? "active" : ""}
+                  onClick={() => change({ ...draft, ratio: r })}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <span className="canvas-tip">拖动照片调整构图</span>
+          </div>
+          <div className="canvas-space">
+            <div
+              className="canvas-holder"
+              style={{ "--ratio": RATIOS[draft.ratio] }}
+            >
+              <Canvas
+                draft={draft}
+                photos={photos}
+                active={active}
+                setActive={setActive}
+                updateSlot={updateSlot}
+              />
+            </div>
+          </div>
+          <div className="crop-controls">
+            <div>
+              <strong>第 {active + 1} 格</strong>
+              <span>{photo?.name || "等待放入照片"}</span>
+            </div>
+            <button
+              className={`icon-button ${slot?.locked ? "active" : ""}`}
+              aria-label="锁定当前拼图照片"
+              disabled={!slot}
+              onClick={() => updateSlot(active, { locked: !slot.locked })}
+            >
+              {slot?.locked ? <Lock size={16} /> : <Unlock size={16} />}
+            </button>
+            <label>
+              缩放
+              <input
+                aria-label="拼图照片缩放"
+                type="range"
+                min="1"
+                max="4"
+                step=".01"
+                value={slot?.zoom || 1}
+                disabled={!slot}
+                onChange={(e) =>
+                  updateSlot(active, { zoom: Number(e.target.value) })
+                }
+              />
+              {Math.round((slot?.zoom || 1) * 100)}%
+            </label>
+            <select
+              aria-label="拼图适应方式"
+              disabled={!slot}
+              value={slot?.fit || "cover"}
+              onChange={(e) => updateSlot(active, { fit: e.target.value })}
+            >
+              <option value="cover">填充</option>
+              <option value="contain">完整显示</option>
+            </select>
+            <button
+              className="icon-button"
+              aria-label="重置拼图裁剪"
+              disabled={!slot}
+              onClick={() => updateSlot(active, { zoom: 1, cx: 0.5, cy: 0.5 })}
+            >
+              <RefreshCw size={15} />
+            </button>
+            {slot && draft.slots.length > 1 && (
+              <button
+                className="button"
+                onClick={() => {
+                  const j = (active + 1) % draft.slots.length;
+                  if (slot.locked || draft.slots[j].locked) {
+                    notify("先解锁照片再交换");
+                    return;
+                  }
+                  const slots = [...draft.slots];
+                  [slots[active], slots[j]] = [slots[j], slots[active]];
+                  change({ ...draft, slots });
+                }}
+              >
+                与下一格交换
+              </button>
+            )}
+          </div>
+          <div className="chat-panel">
+            <div className="chat-heading">
+              <Sparkles size={16} />
+              <strong>AI 搭配助手</strong>
+              <button className="text-button" onClick={onSettings}>
+                服务设置
+              </button>
+            </div>
+            <div className="chat-messages">
+              {!messages.length && (
+                <p>
+                  试试：“选雪山场景，近景人像、远景人像和风景各一张，做清冷风格三拼。”
+                </p>
+              )}
+              {messages.map((m, i) => (
+                <div key={i} className={`chat-message ${m.role}`}>
+                  {m.text}
+                </div>
+              ))}
+              {candidate && (
+                <div className="recommendation">
+                  <strong>{candidate.title}</strong>
+                  <div>
+                    {candidate.photoIds.map((id) => (
+                      <img key={id} src={photoURL(id)} alt="推荐照片" />
+                    ))}
+                  </div>
+                  <button className="primary" onClick={applyRecommendation}>
+                    应用到画布
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => setCandidate(null)}
+                  >
+                    保留当前作品
+                  </button>
+                </div>
+              )}
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                ask();
+              }}
+            >
+              <textarea
+                aria-label="向 AI 描述拼图"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="描述场景、风格和搭配，或者告诉我想替换哪一张…"
+                rows={2}
+              />
+              <button
+                aria-label="发送拼图要求"
+                type="submit"
+                disabled={!!busy || !prompt.trim()}
+              >
+                {busy === "chat" ? (
+                  <Loader2 className="spin" size={18} />
+                ) : (
+                  <Send size={18} />
+                )}
+              </button>
+            </form>
+          </div>
+        </main>
+        <aside className="studio-style">
+          <h3>作品样式</h3>
+          <label className="field">
+            相框
+            <select
+              aria-label="相框样式"
+              value={draft.frame}
+              onChange={(e) => change({ ...draft, frame: e.target.value })}
+            >
+              <option value="none">无相框</option>
+              <option value="thin">细边</option>
+              <option value="white">留白</option>
+              <option value="caption">拍摄参数 / 标题底栏</option>
+            </select>
+          </label>
+          <label className="field">
+            留白颜色
+            <input
+              aria-label="留白颜色"
+              type="color"
+              value={draft.background}
+              onChange={(e) => change({ ...draft, background: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            照片间距
+            <input
+              aria-label="照片间距"
+              type="range"
+              min="0"
+              max=".06"
+              step=".002"
+              value={draft.gap}
+              onChange={(e) =>
+                change({ ...draft, gap: Number(e.target.value) })
+              }
+            />
+          </label>
+          <div className="style-divider" />
+          <h3>水印</h3>
+          <label className="field">
+            文字
+            <input
+              aria-label="水印文字"
+              value={draft.watermark.text}
+              onChange={(e) => setWatermark({ text: e.target.value })}
+              placeholder="你的署名 / 旅行日期"
+            />
+          </label>
+          <div className="two-fields">
+            <label className="field">
+              颜色
+              <input
+                aria-label="水印颜色"
+                type="color"
+                value={draft.watermark.color}
+                onChange={(e) => setWatermark({ color: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              位置
+              <select
+                aria-label="水印位置"
+                value={draft.watermark.position}
+                onChange={(e) => setWatermark({ position: e.target.value })}
+              >
+                <option value="br">右下</option>
+                <option value="bl">左下</option>
+                <option value="tr">右上</option>
+                <option value="tl">左上</option>
+              </select>
+            </label>
+          </div>
+          <label className="field">
+            大小
+            <input
+              aria-label="水印大小"
+              type="range"
+              min=".01"
+              max=".08"
+              step=".001"
+              value={draft.watermark.size}
+              onChange={(e) => setWatermark({ size: Number(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            透明度
+            <input
+              aria-label="水印透明度"
+              type="range"
+              min="0"
+              max="1"
+              step=".05"
+              value={draft.watermark.opacity}
+              onChange={(e) =>
+                setWatermark({ opacity: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label className="field">
+            边距
+            <input
+              aria-label="水印边距"
+              type="range"
+              min="0"
+              max=".15"
+              step=".005"
+              value={draft.watermark.margin}
+              onChange={(e) => setWatermark({ margin: Number(e.target.value) })}
+            />
+          </label>
+          <input
+            ref={logoRef}
+            type="file"
+            accept="image/png"
+            hidden
+            onChange={async (e) => {
+              const file = e.target.files[0];
+              if (!file) return;
+              try {
+                const body = new FormData();
+                body.append("watermark", file);
+                body.append("name", file.name);
+                const result = await api("/assets/watermark", {
+                  method: "POST",
+                  body,
+                });
+                setWatermark({ assetId: result.id });
+              } catch (e) {
+                notify(e.message);
+              }
+            }}
+          />
+          <button className="button" onClick={() => logoRef.current.click()}>
+            <ImagePlus size={14} />
+            {draft.watermark.assetId ? "替换 PNG 水印" : "添加 PNG 水印"}
+          </button>
+          {draft.watermark.assetId && (
+            <button
+              className="text-button"
+              onClick={() => setWatermark({ assetId: null })}
+            >
+              移除图片水印
+            </button>
+          )}
+          <div className="style-divider" />
+          <label className="field">
+            已存预设
+            <select
+              aria-label="使用预设"
+              value=""
+              onChange={(e) => {
+                const preset = presets.find((p) => p.id === e.target.value);
+                if (preset) change({ ...draft, ...preset.settings });
+              }}
+            >
+              <option value="">选择预设…</option>
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="button"
+            onClick={async () => {
+              try {
+                const p = await api(
+                  "/presets",
+                  json("POST", {
+                    name: draft.title + " · 样式",
+                    settings: draft,
+                  }),
+                );
+                setPresets((v) => [...v, p]);
+                notify("样式预设已保存");
+              } catch (e) {
+                notify(e.message);
+              }
+            }}
+          >
+            <Save size={14} />
+            保存当前样式
+          </button>
+          <div className="style-divider" />
+          <h3>导出设置</h3>
+          <div className="two-fields">
+            <label className="field">
+              长边像素
+              <input
+                aria-label="导出长边"
+                type="number"
+                min="400"
+                max="6000"
+                value={draft.longEdge}
+                onChange={(e) =>
+                  change({ ...draft, longEdge: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="field">
+              JPEG 质量
+              <input
+                aria-label="JPEG质量"
+                type="number"
+                min="40"
+                max="100"
+                value={draft.quality}
+                onChange={(e) =>
+                  change({ ...draft, quality: Number(e.target.value) })
+                }
+              />
+            </label>
+          </div>
+          <button
+            className="button"
+            onClick={() => batch("rendered")}
+            disabled={!!busy}
+          >
+            <Download size={14} />
+            批量导出单张成品
+          </button>
+          <button
+            className="button"
+            onClick={() => batch("originals")}
+            disabled={!!busy}
+          >
+            <Download size={14} />
+            拷贝入选原片 ZIP
+          </button>
+          <small className="export-note">
+            优先导出照片库已选照片；否则导出当前作品集或初筛保留照片。原片文件内容保持不变。
+          </small>
+        </aside>
+      </div>
+      {preview && (
+        <div className="render-preview" onClick={() => setPreview(null)}>
+          <button className="icon-button" aria-label="关闭成品预览">
+            <X size={23} />
+          </button>
+          <img src={preview} alt="实际渲染成品预览" />
+          <span>实际渲染结果 · 点击关闭</span>
+        </div>
+      )}
+    </section>
+  );
 }
