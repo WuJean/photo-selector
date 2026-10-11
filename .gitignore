@@ -6,6 +6,7 @@ dist/
 *.sqlite*
 *.db*
 .env*
+!.env.example
 *.log
 *.jpg
 *.jpeg
@@ -20,3 +21,4 @@ node_modules/
 test-results/
 playwright-report/
 coverage/
+backups/

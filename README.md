@@ -1,8 +1,20 @@
 # 选片助手
 
-中文暗色的本机网页选片工具。照片与本地分析留在本机；AI 服务地址、模型和密钥由用户配置。
+中文暗色的旅行照片选片工具：导入 → 粗筛 → 精筛 → 作品集 → 拼图与创作。支持 Docker 部署网页版，也有独立的[微信小程序版本](wechat/README.md)。照片与本地分析保存在部署设备，AI 服务地址、模型和密钥由用户配置。
 
-## 启动
+## Docker 一键部署
+
+安装并启动 Docker 后，在项目目录执行：
+
+```sh
+./deploy.sh
+```
+
+打开 **http://localhost:4173**。无需安装 Node.js 或数据库，照片、选片结果、作品集和 AI 设置保存在持久化数据卷中，重建容器后仍保留。支持 Linux x86_64 和 Apple Silicon；Docker 内使用传统 CV，相似分组不依赖 Apple Vision。
+
+端口冲突时复制 `.env.example` 为 `.env`，修改 `PHOTO_SELECTOR_PORT` 后重试。默认仅本机可访问。远程服务器、AI 配置、更新、备份和恢复见 **[部署说明](docs/DEPLOYMENT.md)**。
+
+## 源码启动
 
 需要 Node.js 24+。Mac 的 Apple Vision 和钥匙串需要 Apple Command Line Tools。
 
@@ -12,7 +24,7 @@ npm run build:vision
 npm run dev
 ```
 
-打开 **http://127.0.0.1:4173/** 或 **http://localhost:4173/**。支持外部 Chrome，默认仅监听本机。不构建原生助手时使用传统感知哈希，密钥只保存在服务进程内存。
+打开 **http://127.0.0.1:4173/** 或 **http://localhost:4173/**。支持外部 Chrome，默认仅监听本机。不构建原生助手时使用传统感知哈希，密钥保存在数据目录的加密凭据文件中。
 
 生产模式：
 
@@ -65,9 +77,9 @@ NODE_ENV=production npm start
 https://token-plan.maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation
 ```
 
-默认引用图片理解服务的钥匙串密钥，也可单独填写地址和密钥。使用原生图片生成协议，并发 1，每次明确生成一张，不经过 Chat Completions。
+默认引用图片理解服务已保存的密钥，也可单独填写地址和密钥。使用原生图片生成协议，并发 1，每次明确生成一张，不经过 Chat Completions。
 
-Mac 构建原生助手后，密钥按服务地址隔离存入钥匙串，不写进 SQLite、浏览器缓存或 Git。图片理解与生成仅在用户启动时调用，参考图／分析图去除 EXIF，长边不超过 1536 像素。运行中任务保留配置快照，不保存密钥副本。
+Mac 构建原生助手后，密钥按服务地址隔离存入钥匙串；Docker／无原生助手时使用数据目录中的加密凭据，详见部署说明。密钥不写进 SQLite、浏览器缓存或 Git。图片理解与生成仅在用户启动时调用，参考图／分析图去除 EXIF，长边不超过 1536 像素。运行中任务保留配置快照，不保存密钥副本。
 
 ## 导出、数据与兼容
 
@@ -83,6 +95,8 @@ Mac 构建原生助手后，密钥按服务地址隔离存入钥匙串，不写�
 npm run test:all
 bash scripts/test.sh
 npm run benchmark
+# Docker 完整部署验收，需要已启动的 Docker
+npm run test:docker
 # 可选：使用本机已配置服务，发送三张合成照片，产生真实调用费用
 LIVE_AI_TEST=1 node scripts/live-smoke.mjs
 # 可选：使用 12 张合成素材测试真实看图搭配
@@ -93,4 +107,17 @@ LIVE_AI_TEST=1 node scripts/live-pairing.mjs
 
 `qwen3.8-flash` 图片理解和 `wan2.7-image` 参考图生成已用合成素材完成真实联调；模拟与真实验证分别记录在 [测试记录](docs/TESTING.md)。真实照片、数据库、缓存、输出、密钥和构建产物不提交。各功能分别测试、提交、推送私有仓库，macOS CI 验证。
 
-当前交付为网页版。SwiftUI 骨架不代表已完成原生桌面版；不含 RAW 显影、云同步、专业软件评级同步或自动发布。相似分组阈值仍需真实旅行样本校准。
+## 项目结构
+
+| 目录／文件 | 内容 |
+| --- | --- |
+| `web/` | React 网页与选片、拼图交互 |
+| `server/` | Express 接口、SQLite、图片处理及 AI 任务 |
+| `shared/` | 选片状态、标签、排版和搭配规则 |
+| `test/` | 自动化逻辑测试和浏览器验收 |
+| `Sources/` | macOS 原生能力；Docker 不构建此模块 |
+| `wechat/` | 微信小程序及云函数，独立部署 |
+| `Dockerfile`、`compose.yaml`、`deploy.sh` | 网页容器构建和一键启动 |
+| `docs/` | 部署、验证与设计记录 |
+
+SwiftUI 骨架不代表已完成原生桌面版；网页版不含 RAW 显影、云同步、专业软件评级同步或自动发布。相似分组阈值仍需真实旅行样本校准。

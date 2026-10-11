@@ -1,0 +1,12 @@
+# Allowlist: never send photos, keys, databases, Git history or local configs.
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!vite.config.js
+!server/
+!server/**
+!shared/
+!shared/**
+!web/
+!web/**

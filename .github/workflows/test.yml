@@ -1,6 +1,24 @@
-name: macOS checks
+name: Application checks
 on: [push, pull_request]
 jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build container and verify deployment with isolated photos
+        run: npm run test:docker
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-browser-evidence
+          path: test-results/docker/
   test:
     runs-on: macos-15
     steps:
