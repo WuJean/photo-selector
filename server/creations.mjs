@@ -402,7 +402,8 @@ export function registerCreations(app, store, { generate } = {}) {
   app.get("/api/creations/:id/image", (req, res) => {
     const item = store.get("creation", req.params.id);
     if (!item?.file) return res.status(404).json({ error: "图片不存在" });
-    if (req.query.download) res.attachment(item.title + ".png");
+    if (req.query.download)
+      res.attachment(item.title + path.extname(item.file));
     res.sendFile(path.join(store.root, "creations", item.file), {
       dotfiles: "allow",
     });

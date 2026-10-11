@@ -14,9 +14,34 @@ test("local collage exports without uploading originals, persists as creation, a
   await expect(
     page.getByRole("status").filter({ hasText: "已读取 1 张，失败 0 张" }),
   ).toBeVisible();
-  await page.keyboard.press("x");
+  await expect(
+    page.locator(".wall-card").filter({ hasText: "creation-local.jpg" }),
+  ).toBeVisible();
+  await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/decisions") &&
+        r.request().method() === "PATCH" &&
+        r.ok(),
+    ),
+    page.keyboard.press("x"),
+  ]);
+  await expect(
+    page.locator(".wall-card").filter({ hasText: "creation-local.jpg" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "精筛", exact: true }).click();
-  await page.keyboard.press("x");
+  await expect(
+    page.locator(".wall-card").filter({ hasText: "creation-local.jpg" }),
+  ).toBeVisible();
+  await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/decisions") &&
+        r.request().method() === "PATCH" &&
+        r.ok(),
+    ),
+    page.keyboard.press("x"),
+  ]);
   // Exercise the production renderer and media adapter with real FileSystem handles.
   const values = await page.evaluate(async () => {
     const { api, json } = await import("/src/api.js"),

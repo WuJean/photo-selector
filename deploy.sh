@@ -16,5 +16,5 @@ fi
 docker compose up -d --build --wait --wait-timeout 120
 echo '选片助手已启动。访问地址：'
 docker compose exec -T web node -e 'console.log(process.env.PHOTO_SELECTOR_PUBLIC_URL)'
-echo '首次密码：docker compose exec -T web cat /data/admin-initial-password'
+echo '首次密码：passwd。首次登录后必须设置自己的新密码；已修改过的密码保持不变。'
 echo '本地原片留在电脑，上传文件、分享副本和设置保存在数据卷。更新时重新运行 ./deploy.sh。'

@@ -2,11 +2,19 @@ import React, { useEffect, useState } from "react";
 import { api, json } from "./api";
 import { photoBlob, processPhoto } from "./local-media";
 import { Modal, Button } from "./LibraryParts";
+import GuestStudio from "./GuestStudio";
+const sharePassword = () => {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return String(values[0] % 1000000).padStart(6, "0");
+};
 export function ShareManager({ collection, onClose, notify }) {
   const [shares, setShares] = useState([]),
     [download, setDownload] = useState("display"),
     [days, setDays] = useState(7),
-    [password, setPassword] = useState(""),
+    [password, setPassword] = useState(sharePassword),
+    [secrets, setSecrets] = useState({}),
+    [allowCollage, setAllowCollage] = useState(true),
     [busy, setBusy] = useState("");
   const load = () =>
     api(`/collections/${collection.id}/shares`).then(setShares);
@@ -63,9 +71,10 @@ export function ShareManager({ collection, onClose, notify }) {
     try {
       const share = await api(
         `/collections/${collection.id}/shares`,
-        json("POST", { download, days, password }),
+        json("POST", { download, days, password, allowCollage }),
       );
-      setPassword("");
+      setSecrets((v) => ({ ...v, [share.id]: password }));
+      setPassword(sharePassword());
       await prepare(share);
     } catch (e) {
       notify(e.message);
@@ -99,11 +108,20 @@ export function ShareManager({ collection, onClose, notify }) {
         <label className="field">
           访问密码（可选）
           <input
-            type="password"
+            type="text"
             minLength={4}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={allowCollage && download !== "none"}
+            disabled={download === "none"}
+            onChange={(e) => setAllowCollage(e.target.checked)}
+          />
+          允许访客拼图、保存到此作品集和下载
         </label>
         <Button primary onClick={create} disabled={!!busy}>
           创建分享
@@ -129,15 +147,25 @@ export function ShareManager({ collection, onClose, notify }) {
                   aria-label="分享链接"
                   value={location.origin + "/s/" + s.token}
                 />
+                {secrets[s.id] && (
+                  <span>
+                    访问密码：<strong>{secrets[s.id]}</strong>
+                  </span>
+                )}
                 <Button
                   onClick={async () => {
                     await navigator.clipboard.writeText(
-                      location.origin + "/s/" + s.token,
+                      location.origin +
+                        "/s/" +
+                        s.token +
+                        (secrets[s.id] ? "\n访问密码：" + secrets[s.id] : "") +
+                        "\n有效期至：" +
+                        new Date(s.expiresAt).toLocaleString(),
                     );
-                    notify("链接已复制");
+                    notify("分享信息已复制");
                   }}
                 >
-                  复制链接
+                  复制分享信息
                 </Button>
               </>
             )}
@@ -170,7 +198,8 @@ export function PublicShare({ token }) {
     [password, setPassword] = useState(""),
     [query, setQuery] = useState(""),
     [active, setActive] = useState(null),
-    [zoom, setZoom] = useState(1);
+    [zoom, setZoom] = useState(1),
+    [studio, setStudio] = useState(false);
   const base = "/api/public/shares/" + encodeURIComponent(token);
   const load = async () => {
     const r = await fetch(base);
@@ -256,6 +285,7 @@ export function PublicShare({ token }) {
           <div>
             <h1>{share.name}</h1>
             <p>{share.description}</p>
+            <small>有效期至 {new Date(share.expiresAt).toLocaleString()}</small>
           </div>
           {share.download !== "none" && (
             <a className="button" href={base + "/download"}>
@@ -263,6 +293,11 @@ export function PublicShare({ token }) {
             </a>
           )}
         </div>
+        {share.allowCollage && !!share.photos.length && (
+          <Button primary onClick={() => setStudio(true)}>
+            制作拼图
+          </Button>
+        )}
         <div className="wall-toolbar">
           <input
             placeholder="搜索照片或标签"
@@ -313,11 +348,11 @@ export function PublicShare({ token }) {
                 <header>
                   <strong>{c.title}</strong>
                   <span>
-                    {
-                      { copy: "文案", cover: "AI 图片", collage: "拼图" }[
-                        c.kind
-                      ]
-                    }
+                    {c.origin === "guest"
+                      ? "访客拼图"
+                      : { copy: "文案", cover: "AI 图片", collage: "拼图" }[
+                          c.kind
+                        ]}
                   </span>
                 </header>
                 {c.hasImage ? (
@@ -325,9 +360,20 @@ export function PublicShare({ token }) {
                 ) : (
                   <p>{c.text}</p>
                 )}
+                {c.hasImage && share.download !== "none" && (
+                  <a href={url(c.id) + "?download=1"}>下载作品</a>
+                )}
               </article>
             ))}
           </section>
+        )}
+        {studio && (
+          <GuestStudio
+            share={share}
+            base={base}
+            onClose={() => setStudio(false)}
+            onSaved={load}
+          />
         )}
         {active !== null && photos[active] && (
           <div className="wall-viewer" role="dialog" aria-label="查看照片">

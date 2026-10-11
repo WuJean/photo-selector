@@ -35,7 +35,11 @@ function parameters(photo) {
 export async function renderDraft(
   store,
   draft,
-  { preview = false, preserveOriginal = false } = {},
+  {
+    preview = false,
+    preserveOriginal = false,
+    sourcePath = (id) => originalPath(store, id),
+  } = {},
 ) {
   if (draft.slots.length !== TEMPLATES[draft.template].count)
     throw new Error(`请为模板放入 ${TEMPLATES[draft.template].count} 张照片`);
@@ -94,7 +98,7 @@ export async function renderDraft(
         photo.height - sourceY,
         Math.max(1, Math.ceil(visibleHeight / p.scale)),
       );
-    const input = await sharp(originalPath(store, photo.id))
+    const input = await sharp(sourcePath(photo.id))
       .rotate()
       .extract({
         left: sourceX,

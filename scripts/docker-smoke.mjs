@@ -114,7 +114,10 @@ try {
   const auth = await request("/api/auth/login", "POST", { password });
   cookie = auth.headers.get("set-cookie").split(";")[0];
   assert.equal((await auth.json()).mustChangePassword, true);
-  assert.equal((await request("/api/assets")).status, 403);
+  assert.equal(
+    (await fetch(base + "/api/assets", { headers: { cookie } })).status,
+    403,
+  );
   password = "docker-fixture-password-123";
   await json("/api/auth/password", "PUT", { password });
   cookie = (await request("/api/auth/login", "POST", { password })).headers

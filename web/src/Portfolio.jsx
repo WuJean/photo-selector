@@ -166,7 +166,11 @@ export function CreationGallery({ projectId, collectionId, photos, notify }) {
         <article className="creation-card" key={item.id}>
           <header>
             <span>
-              {{ copy: "文案", cover: "AI 生成", collage: "拼图" }[item.kind]}
+              {item.origin === "guest"
+                ? "访客拼图"
+                : { copy: "文案", cover: "AI 生成", collage: "拼图" }[
+                    item.kind
+                  ]}
             </span>
             <small>{new Date(item.createdAt).toLocaleString()}</small>
           </header>

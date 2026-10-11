@@ -368,3 +368,62 @@
 .viewer-image:active {
   cursor: grabbing;
 }
+
+.guest-studio {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(250px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.guest-canvas {
+  position: sticky;
+  top: 0;
+  width: 100%;
+}
+.guest-controls {
+  display: grid;
+  gap: 12px;
+}
+.guest-slot-tabs,
+.guest-actions,
+.guest-role {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.guest-photo-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+.guest-photo-picker button {
+  padding: 0;
+  overflow: hidden;
+  font-size: 11px;
+}
+.guest-photo-picker img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+}
+.guest-photo-picker span {
+  display: block;
+  padding: 4px;
+}
+@media (max-width: 700px) {
+  .guest-studio {
+    grid-template-columns: 1fr;
+  }
+  .guest-canvas {
+    position: relative;
+    max-width: 400px;
+    margin: auto;
+  }
+}
+
+.guest-controls .field {
+  margin: 0;
+}

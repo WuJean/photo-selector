@@ -37,7 +37,14 @@ import PairingPresets from "./PairingPresets";
 import { randomPairing } from "../../shared/pairing.mjs";
 import { tagsOf, inFinal } from "../../shared/domain.mjs";
 
-function Canvas({ draft, photos, active, setActive, updateSlot }) {
+export function Canvas({
+  draft,
+  photos,
+  active,
+  setActive,
+  updateSlot,
+  imageURL = photoURL,
+}) {
   const ref = useRef(),
     drag = useRef();
   const [width, setWidth] = useState(500);
@@ -124,7 +131,7 @@ function Canvas({ draft, photos, active, setActive, updateSlot }) {
             {photo ? (
               <PhotoImage
                 draggable="false"
-                src={photoURL(photo.id, "preview")}
+                src={imageURL(photo.id, "preview")}
                 alt={`拼图位置 ${i + 1}：${photo.name}`}
                 style={{
                   width: placement.width,

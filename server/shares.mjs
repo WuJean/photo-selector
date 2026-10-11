@@ -1,12 +1,21 @@
 import path from "node:path";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
-import { mkdir, unlink, copyFile, access, rm } from "node:fs/promises";
+import {
+  mkdir,
+  unlink,
+  copyFile,
+  access,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import sharp from "sharp";
 import archiver from "archiver";
 import { requireItem, timestamp } from "./library.mjs";
 import { originalPath, digest } from "./images.mjs";
 import { hashPassword, verifyPassword, cookies } from "./auth.mjs";
 import { tagsOf, uniqueName } from "../shared/domain.mjs";
+import { renderDraft } from "./render.mjs";
+import { validateDraft } from "../shared/layout.mjs";
 const hash = (s) => createHash("sha256").update(s).digest("hex");
 const directory = (store, s) => path.join(store.root, "shares", s.id);
 const filename = (store, s, id, variant) =>
@@ -17,7 +26,9 @@ const filename = (store, s, id, variant) =>
 const expired = (s) => s.expiresAt && Date.parse(s.expiresAt) <= Date.now();
 export function registerShares(app, store, upload) {
   const attempts = new Map();
-  let archives = 0;
+  let archives = 0,
+    rendering = 0;
+  const creationLimits = new Map();
   const admin = (s) => {
     const { password, ...rest } = s;
     return { ...rest, protected: !!password };
@@ -104,6 +115,7 @@ export function registerShares(app, store, upload) {
         id: v.id,
         title: v.title,
         kind: v.kind,
+        origin: v.origin,
         text: v.kind === "copy" ? v.text : "",
         file: v.file || null,
       }));
@@ -125,6 +137,7 @@ export function registerShares(app, store, upload) {
       })),
       creations,
       download: mode,
+      allowCollage: mode !== "none" && req.body.allowCollage !== false,
       password: password ? hashPassword(password) : null,
       expiresAt: new Date(Date.now() + days * 86400000).toISOString(),
       state: "preparing",
@@ -245,6 +258,7 @@ export function registerShares(app, store, upload) {
         hasImage: !!file,
       })),
       download: s.download,
+      allowCollage: s.download !== "none" && !!s.allowCollage,
       expiresAt: s.expiresAt,
     });
   });
@@ -267,6 +281,109 @@ export function registerShares(app, store, upload) {
     res
       .type("image/jpeg")
       .sendFile(filename(store, s, id, variant), { dotfiles: "allow" });
+  });
+  app.post("/api/public/shares/:token/collages/:action", async (req, res) => {
+    const s = valid(req.params.token);
+    authorize(req, s);
+    if (!s.allowCollage || s.download === "none")
+      return res.status(403).json({ error: "此分享未开放拼图" });
+    if (!["render", "save"].includes(req.params.action))
+      return res.status(404).end();
+    if (rendering >= 2)
+      return res.status(429).json({ error: "拼图处理中，请稍后重试" });
+    const now = Date.now(),
+      limit = creationLimits.get(s.id);
+    if (limit && limit.until > now && limit.count >= 30)
+      return res.status(429).json({ error: "拼图操作较频繁，请稍后再试" });
+    creationLimits.set(s.id, {
+      until: limit?.until > now ? limit.until : now + 600000,
+      count: limit?.until > now ? limit.count + 1 : 1,
+    });
+    // A public share is a narrow capability: never accept private asset paths or destination IDs.
+    const draft = validateDraft(
+      { ...req.body, projectId: "library", watermark: {} },
+      s.photos,
+    );
+    draft.longEdge = Math.min(3000, draft.longEdge);
+    rendering++;
+    let output,
+      saved = false;
+    const id = randomUUID(),
+      file = id + ".jpg";
+    try {
+      const photos = await Promise.all(
+        s.photos
+          .filter((p) => draft.slots.some((slot) => slot.photoId === p.id))
+          .map(async (p) => {
+            const metadata = await sharp(
+              filename(store, s, p.id, "display"),
+            ).metadata();
+            return {
+              ...p,
+              projectId: "library",
+              width: metadata.width,
+              height: metadata.height,
+            };
+          }),
+      );
+      const bytes = await renderDraft(
+        {
+          get: (kind, id) =>
+            kind === "photo" ? photos.find((p) => p.id === id) : null,
+        },
+        draft,
+        { sourcePath: (id) => filename(store, s, id, "display") },
+      );
+      let latest = valid(s.token);
+      authorize(req, latest);
+      if (req.params.action === "render")
+        return res
+          .set("Cache-Control", "no-store")
+          .attachment("拼图.jpg")
+          .type("image/jpeg")
+          .send(bytes);
+      requireItem(store, "collection", s.collectionId);
+      await mkdir(path.join(store.root, "creations"), { recursive: true });
+      output = path.join(store.root, "creations", file);
+      await writeFile(output, bytes, { flag: "wx" });
+      await writeFile(filename(store, s, id, "display"), bytes, { flag: "wx" });
+      latest = valid(s.token);
+      authorize(req, latest);
+      requireItem(store, "collection", s.collectionId);
+      const creation = {
+        id,
+        file,
+        kind: "collage",
+        origin: "guest",
+        title: draft.title,
+        projectId: "library",
+        collectionId: s.collectionId,
+        shareId: s.id,
+        sourceIds: draft.slots.map((v) => v.photoId),
+        draft,
+        createdAt: timestamp(),
+      };
+      store.transaction(() => {
+        store.put("creation", creation);
+        store.put("share", {
+          ...latest,
+          creations: [
+            ...latest.creations,
+            { id, file, kind: "collage", origin: "guest", title: draft.title },
+          ],
+        });
+      });
+      saved = true;
+      res
+        .status(201)
+        .json({ id, title: draft.title, kind: "collage", origin: "guest" });
+    } finally {
+      rendering--;
+      if (!saved && output) {
+        await unlink(output).catch(() => {});
+        await unlink(filename(store, s, id, "display")).catch(() => {});
+      }
+    }
   });
   app.get("/api/public/shares/:token/download", async (req, res, next) => {
     const s = valid(req.params.token);

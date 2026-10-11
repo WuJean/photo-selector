@@ -136,7 +136,7 @@ docker compose up -d --wait
 
 ### 登录和本地目录
 
-初次启动生成随机管理员密码，以 600 权限存放；数据库只存密码哈希。读取：
+初次启动使用 `passwd`，登录后强制修改；数据库只存密码哈希。自定义环境初始密码也必须修改。部署数据目录以 600 权限保存未认领的初始凭据，可读取：
 
 ```sh
 docker compose exec -T web cat /data/admin-initial-password
