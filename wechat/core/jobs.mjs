@@ -57,7 +57,7 @@ export async function jobActions(
       workerReady: !!config.workerReady,
       model: config.model || "",
       imageModel: config.imageModel || "wan2.7-image",
-      dailyLimit: config.dailyLimit || 100,
+      dailyLimit: config.dailyLimit || 5000,
       canGenerate: !!config.canGenerate,
     };
   if (action === "tags.library") {
@@ -290,7 +290,7 @@ export async function jobActions(
               t.step !== "describe" ||
               !all.find((p) => p.id === t.photoId)?.ai?.description,
           ).length;
-    if (quota.used + units > (config.dailyLimit || 100))
+    if (quota.used + units > (config.dailyLimit || 5000))
       fail("今日 AI 额度不足，请联系管理员");
     await tx.put("quota", { ...quota, used: quota.used + units, day });
     await tx.put("job", job);

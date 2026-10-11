@@ -1,0 +1,29 @@
+{
+  "envId": "cloud1-d4gpza9qcc9ead069",
+  "functionRoot": "dist/wechat/cloudfunctions",
+  "functions": [
+    {
+      "name": "photoApiV2",
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "timeout": 60,
+      "memorySize": 512,
+      "installDependency": false
+    },
+    {
+      "name": "photoWorker",
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "timeout": 900,
+      "memorySize": 1024,
+      "installDependency": false,
+      "triggers": [
+        {
+          "name": "photo-queue",
+          "type": "timer",
+          "config": "0 */2 * * * * *"
+        }
+      ]
+    }
+  ]
+}

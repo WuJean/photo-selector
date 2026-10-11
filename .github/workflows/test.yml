@@ -13,6 +13,8 @@ jobs:
       - run: npm run build:vision
       - name: Test and build web application
         run: npm run check
+      - name: Test and build WeChat application
+        run: npm run test:wechat && npm run build:wechat
       - name: Test native foundation
         run: bash scripts/test.sh
       - name: Install browser for UI tests
