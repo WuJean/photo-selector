@@ -15,3 +15,11 @@ test('real photo import, favorite, cull, undo, compare, collection and reload',a
  await page.reload();await expect(page.locator('.photo-card').first()).toBeVisible();await expect(page.locator('.photo-heart').first()).toBeVisible();
  await page.screenshot({path:'test-results/library.png',fullPage:true});expect(errors).toEqual([]);
 });
+
+test('model settings persist endpoint and test actual HTTP image request against fixture service',async({page})=>{
+ const {createServer}=await import('node:http');let images=0;
+ const fixture=createServer(async(req,res)=>{let data='';for await(const part of req)data+=part;const body=JSON.parse(data);if(body.messages.some(m=>Array.isArray(m.content)&&m.content.some(c=>c.type==='image_url')))images++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{message:{content:JSON.stringify({color:'red'})}}],usage:{prompt_tokens:12,completion_tokens:4}}));});
+ await new Promise(r=>fixture.listen(0,'127.0.0.1',r));
+ try{await page.goto('/');await page.getByRole('button',{name:'模型与服务设置'}).click();const dialog=page.getByRole('dialog');await dialog.getByLabel('API Base URL').fill(`http://127.0.0.1:${fixture.address().port}/v1`);await dialog.getByLabel('模型名称').fill('fixture-vision');await dialog.getByRole('button',{name:'测试图片理解'}).click();await expect(dialog.getByRole('status')).toContainText('图片理解测试通过');expect(images).toBe(1);await dialog.getByRole('button',{name:'保存配置'}).click();await expect(dialog.getByRole('status')).toContainText('配置已保存');await page.reload();await page.getByRole('button',{name:'模型与服务设置'}).click();await expect(page.getByLabel('模型名称')).toHaveValue('fixture-vision');}
+ finally{await new Promise(r=>fixture.close(r));}
+});
