@@ -5,7 +5,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Build and test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Test and build web application
+        run: npm run check
+      - name: Test native foundation
         run: bash scripts/test.sh
-      - name: Package application
-        run: bash scripts/build-app.sh

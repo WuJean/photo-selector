@@ -1,0 +1,33 @@
+{
+  "name": "photo-selector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node server/index.mjs",
+    "start": "node server/index.mjs",
+    "build": "vite build",
+    "test": "node --test test/*.test.mjs",
+    "check": "npm run test && npm run build",
+    "test:browser": "playwright test",
+    "build:vision": "swift build -c release --product VisionWorker"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "exifr": "^7.1.3",
+    "express": "^5.1.0",
+    "lucide-react": "^0.468.0",
+    "multer": "^2.0.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "vite": "^7.1.9"
+  }
+}
