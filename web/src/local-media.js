@@ -200,3 +200,45 @@ export async function bindSaved(id, directory, path, file, hash) {
   const thumbnail = await processPhoto(file, { mode: "preview", edge: 520 });
   await storage("thumb:" + id, thumbnail);
 }
+export async function saveNetworkPhotos(
+  directory,
+  photos,
+  onProgress = () => {},
+) {
+  let done = 0;
+  for (const p of photos) {
+    const response = await fetch(`/api/photos/${p.id}/original`);
+    if (!response.ok) throw new Error("服务器原片不可访问");
+    let name = p.name.replace(/[\\/:*?"<>|]/g, "_"),
+      number = 1;
+    const base = name.replace(/\.jpe?g$/i, "");
+    while (true) {
+      try {
+        await directory.getFileHandle(name);
+        name = `${base} (${++number}).jpg`;
+      } catch (e) {
+        if (e.name === "NotFoundError") break;
+        throw e;
+      }
+    }
+    const handle = await directory.getFileHandle(name, { create: true }),
+      writer = await handle.createWritable();
+    try {
+      await response.body.pipeTo(writer);
+    } catch (e) {
+      throw new Error(`保存 ${name} 失败，服务器副本已保留`);
+    }
+    const file = await handle.getFile(),
+      metadata = await processPhoto(file);
+    if (file.size !== p.size || metadata.hash !== p.hash)
+      throw new Error("保存后的图片校验失败，服务器副本已保留");
+    await bindSaved(p.id, directory, name, file, metadata.hash);
+    await api(
+      `/assets/${p.id}/local-receipt`,
+      json("POST", { hash: metadata.hash, size: file.size }),
+    );
+    assets.set(p.id, { ...p, storage: "local" });
+    onProgress(`已保存 ${++done}/${photos.length}`);
+  }
+  window.dispatchEvent(new Event("photo-files-reconnected"));
+}

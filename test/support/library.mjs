@@ -54,6 +54,7 @@ export async function fixture(register = () => {}) {
     json,
     async close() {
       await new Promise((r) => server.close(r));
+      app.locals.cleanupQueue?.close();
       store.close();
       await rm(root, { recursive: true, force: true });
     },

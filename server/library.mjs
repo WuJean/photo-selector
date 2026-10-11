@@ -31,6 +31,9 @@ export function publicAsset(store, p) {
   return { ...store.publicPhoto(p), hash: p.hash };
 }
 export function addEntry(store, batchId, assetId, direct = false) {
+  const asset = requireItem(store, "photo", assetId);
+  if (asset.deleted || asset.deleting)
+    throw new Error("照片正在清理，请重新导入");
   const old = entries(store, batchId).find((e) => e.assetId === assetId);
   if (old) return old;
   const value = store.put("entry", {
@@ -102,7 +105,9 @@ export function registerLibrary(
       !/^[01]{64}$/.test(m.phash)
     )
       throw new Error("照片资料无效");
-    let p = store.photos(LIBRARY).find((p) => p.hash === m.hash && !p.deleted);
+    let p = store
+      .photos(LIBRARY)
+      .find((p) => p.hash === m.hash && !p.deleted && !p.deleting);
     if (!p) {
       p = {
         id: randomUUID(),
@@ -303,7 +308,12 @@ export function registerLibrary(
   app.put("/api/collections/:id", (req, res) => {
     const old = requireItem(store, "collection", req.params.id);
     const ids = [...new Set(req.body.photoIds || old.photoIds)];
-    if (ids.some((id) => !inFinal(requireItem(store, "photo", id))))
+    if (
+      ids.some((id) => {
+        const p = requireItem(store, "photo", id);
+        return p.deleted || p.deleting || !inFinal(p);
+      })
+    )
       throw new Error("请先完成精筛");
     const value = {
       ...old,

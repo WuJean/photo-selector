@@ -3,6 +3,7 @@ import {
   chooseFolder,
   importFolder,
   photoBlob,
+  saveNetworkPhotos,
 } from "./local-media";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -186,6 +187,10 @@ function Workspace({ onLogout }) {
     [mode, setMode] = useState("photos"),
     [expanded, setExpanded] = useState(new Set()),
     [fold, setFold] = useState(true);
+  const [networkDialog, setNetworkDialog] = useState(false),
+    [networkURLs, setNetworkURLs] = useState(""),
+    [networkJobs, setNetworkJobs] = useState([]),
+    [cleanupJobs, setCleanupJobs] = useState([]);
   const [importMenu, setImportMenu] = useState(false),
     [direct, setDirect] = useState(false);
   const input = useRef(),
@@ -194,11 +199,13 @@ function Workspace({ onLogout }) {
     undoFocus = useRef([]);
   const notify = setToast;
   const refresh = async () => {
-    const [p, c, b, j] = await Promise.all([
+    const [p, c, b, j, networks, cleanups] = await Promise.all([
       api("/assets"),
       api("/collections"),
       api("/batches"),
       api("/jobs"),
+      api("/network-jobs"),
+      api("/cleanup-jobs"),
     ]);
     if (!alive.current) return;
     registerAssets(p);
@@ -206,6 +213,8 @@ function Workspace({ onLogout }) {
     setCollections(c);
     setBatches(b);
     setJobs(j);
+    setNetworkJobs(networks);
+    setCleanupJobs(cleanups);
     if (batchId) setBatchPhotos(await api(`/batches/${batchId}/photos`));
   };
   useEffect(() => {
@@ -467,6 +476,55 @@ function Workspace({ onLogout }) {
           refresh={refresh}
           notify={notify}
         />
+        {networkJobs
+          .filter((j) => !["done", "cancelled"].includes(j.state))
+          .map((j) => (
+            <div className="task-row" key={j.id}>
+              <strong>网络导入</strong>
+              <progress
+                value={j.items.filter((i) => i.state === "done").length}
+                max={j.items.length}
+              />
+              <span>
+                {j.items.filter((i) => i.state === "done").length}/
+                {j.items.length} · 失败{" "}
+                {j.items.filter((i) => i.state === "error").length}
+              </span>
+              {["pause", "resume", "retry", "cancel"].map((a) => (
+                <button
+                  key={a}
+                  onClick={() =>
+                    run(() =>
+                      api(`/network-jobs/${j.id}/${a}`, json("POST", {})),
+                    )
+                  }
+                >
+                  {
+                    {
+                      pause: "暂停",
+                      resume: "继续",
+                      retry: "重试失败",
+                      cancel: "取消",
+                    }[a]
+                  }
+                </button>
+              ))}
+            </div>
+          ))}
+        {cleanupJobs.some((j) => j.state !== "done") && (
+          <div className="task-row">
+            <span>
+              正在清理 {cleanupJobs.filter((j) => j.state !== "done").length} 项
+            </span>
+            <button
+              onClick={() =>
+                run(() => api("/cleanup-jobs/retry", json("POST", {})))
+              }
+            >
+              重试
+            </button>
+          </div>
+        )}
         <div className="wall-title">
           <div>
             <h1>
@@ -572,6 +630,59 @@ function Workspace({ onLogout }) {
                   沉浸选片
                 </Button>
                 <Button onClick={undo}>撤销</Button>
+                <Button
+                  disabled={
+                    !!busy ||
+                    batch.state === "completed" ||
+                    (round === "initial" && batch.state !== "initial")
+                  }
+                  onClick={() =>
+                    run(async () => {
+                      await api(
+                        `/batches/${batchId}/finish`,
+                        json("POST", { round }),
+                      );
+                      setProcessed(false);
+                      if (round === "initial") setRound("final");
+                      else {
+                        setPage("collections");
+                        setBatchId("");
+                      }
+                    })
+                  }
+                >
+                  {round === "initial"
+                    ? `完成初筛并清理 ${batchPhotos.filter((p) => p.status === "reject" && !p.cleaned).length} 张`
+                    : "完成精筛"}
+                </Button>
+                {batch.source === "network" &&
+                  batchPhotos.some(
+                    (p) => inInitial(p) && p.storage !== "local",
+                  ) && (
+                    <Button
+                      onClick={async () => {
+                        try {
+                          const directory = await chooseFolder("readwrite");
+                          await run(() =>
+                            saveNetworkPhotos(
+                              directory,
+                              batchPhotos.filter(
+                                (p) =>
+                                  inInitial(p) &&
+                                  p.storage !== "local" &&
+                                  !p.cleaned,
+                              ),
+                              setBusy,
+                            ),
+                          );
+                        } catch (e) {
+                          if (e.name !== "AbortError") notify(e.message);
+                        }
+                      }}
+                    >
+                      入选照片保存到电脑
+                    </Button>
+                  )}
               </>
             )}
           </div>
@@ -914,6 +1025,51 @@ function Workspace({ onLogout }) {
           {busy}
         </div>
       )}
+      {networkDialog && (
+        <Modal title="网络导入" onClose={() => setNetworkDialog(false)}>
+          <form
+            className="import-options"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                const b = await api(
+                  "/batches",
+                  json("POST", {
+                    source: "network",
+                    name: "网络导入 " + new Date().toLocaleDateString(),
+                    direct,
+                  }),
+                );
+                await api(
+                  `/batches/${b.id}/network`,
+                  json("POST", {
+                    urls: networkURLs.split(/\s+/).filter(Boolean),
+                  }),
+                );
+                setBatchId(b.id);
+                setPage("work");
+                setRound("initial");
+                setNetworkDialog(false);
+                setNetworkURLs("");
+              });
+            }}
+          >
+            <label className="field">
+              图片地址，一行一个
+              <textarea
+                aria-label="网络图片地址"
+                rows={8}
+                value={networkURLs}
+                onChange={(e) => setNetworkURLs(e.target.value)}
+                required
+              />
+            </label>
+            <Button primary type="submit" disabled={!!busy}>
+              开始导入
+            </Button>
+          </form>
+        </Modal>
+      )}
       {importMenu && (
         <Modal title="导入照片" onClose={() => setImportMenu(false)}>
           <div className="import-options">
@@ -957,6 +1113,14 @@ function Workspace({ onLogout }) {
               }}
             >
               普通上传到服务器
+            </Button>
+            <Button
+              onClick={() => {
+                setImportMenu(false);
+                setNetworkDialog(true);
+              }}
+            >
+              网络图片链接
             </Button>
           </div>
         </Modal>

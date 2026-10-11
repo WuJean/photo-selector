@@ -2,7 +2,7 @@ import sharp from "sharp";
 import exifr from "exifr";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { rename, unlink, copyFile, access } from "node:fs/promises";
+import { rename, unlink, copyFile, access, stat } from "node:fs/promises";
 import path from "node:path";
 import { focalCategory } from "../shared/domain.mjs";
 
@@ -62,7 +62,7 @@ export async function importPhoto(store, projectId, file, name, lastModified) {
     height,
     hash,
     originalPath: source,
-    size: info.size || 0,
+    size: (await stat(source)).size,
     takenAt,
     importedAt: new Date().toISOString(),
     camera: [exif.Make, exif.Model].filter(Boolean).join(" "),
