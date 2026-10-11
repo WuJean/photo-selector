@@ -44,11 +44,13 @@ const run = (args, { input, capture = false } = {}) =>
         : reject(new Error(`Docker command failed (${code})`)),
     );
   });
+let cookie = "";
 const request = async (url, method = "GET", body) => {
   const response = await fetch(base + url, {
     method,
     headers: {
       Origin: base,
+      Cookie: cookie,
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -101,7 +103,20 @@ try {
     ).status,
     403,
   );
-  const project = await json("/api/projects", "POST", { name: "Docker 验收" });
+  assert.equal((await fetch(base + "/api/assets")).status, 401);
+  const password = (
+    await run(["exec", "-T", "web", "cat", "/data/admin-initial-password"], {
+      capture: true,
+    })
+  )
+    .toString()
+    .trim();
+  const auth = await request("/api/auth/login", "POST", { password });
+  cookie = auth.headers.get("set-cookie").split(";")[0];
+  const project = await json("/api/batches", "POST", {
+    name: "Docker 验收",
+    source: "upload",
+  });
   const form = new FormData();
   const originals = [];
   for (const color of ["#729eae", "#638d72", "#dfb076"]) {
@@ -120,9 +135,9 @@ try {
       `photo-${originals.length}.jpg`,
     );
   }
-  const upload = await fetch(base + `/api/projects/${project.id}/import`, {
+  const upload = await fetch(base + `/api/batches/${project.id}/import`, {
     method: "POST",
-    headers: { Origin: base },
+    headers: { Origin: base, Cookie: cookie },
     body: form,
   });
   assert.ok(upload.ok);
@@ -143,33 +158,33 @@ try {
     }
   }
   for (let i = 0; i < 50; i++) {
-    const current = await json(`/api/projects/${project.id}/photos`);
+    const current = await json(`/api/batches/${project.id}/photos`);
     if (current.every((p) => p.analysisStatus === "done")) break;
     assert.ok(i < 49, "Local CV did not finish");
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   assert.match((await json("/api/jobs")).local.model, /传统 CV/);
   for (const round of ["initial", "final"])
-    await json(`/api/projects/${project.id}/photos`, "PATCH", {
+    await json(`/api/batches/${project.id}/decisions`, "PATCH", {
       ids: photos.map((p) => p.id),
       round,
-      patch: { status: "keep" },
+      status: "keep",
     });
   const draft = {
-    ...newDraft(project.id, photos),
+    ...newDraft("library", photos),
     longEdge: 800,
     frame: "caption",
   };
   draft.watermark.text = "旅行 · 选片助手";
   const image = Buffer.from(
     await (
-      await request(`/api/projects/${project.id}/render`, "POST", draft)
+      await request("/api/projects/library/render", "POST", draft)
     ).arrayBuffer(),
   );
   const metadata = await sharp(image).metadata();
   assert.equal(metadata.height, 800);
   assert.equal(metadata.exif, undefined);
-  await json(`/api/projects/${project.id}/draft`, "PUT", draft);
+  await json("/api/projects/library/draft", "PUT", draft);
   const settings = await json("/api/settings", "PUT", {
     ...config,
     apiKey: fixtureKey,
@@ -190,12 +205,12 @@ try {
   ]);
   assert.equal((await json("/api/settings")).hasKey, true);
   assert.ok(
-    (await json(`/api/projects/${project.id}/photos`)).every(
+    (await json(`/api/batches/${project.id}/photos`)).every(
       (p) => p.status === "keep" && p.finalStatus === "keep",
     ),
   );
   assert.equal(
-    (await json(`/api/projects/${project.id}/draft`)).watermark.text,
+    (await json("/api/projects/library/draft")).watermark.text,
     draft.watermark.text,
   );
   assert.deepEqual(
@@ -208,6 +223,10 @@ try {
   );
   await mock();
   assert.equal((await json("/api/settings/test", "POST", config)).ok, true);
+  const collection = await json("/api/collections", "POST", { name: "作品集" });
+  await json(`/api/collections/${collection.id}`, "PUT", {
+    photoIds: photos.map((p) => p.id),
+  });
   browser = await chromium.launch({
     channel: process.env.CI ? undefined : "chrome",
   });
@@ -224,13 +243,14 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`http://${host}:${port}`);
-    await page.getByRole("button", { name: /^作品集/ }).click();
-    const card = page.locator(".photo-card img").first();
+    await page.getByLabel("管理员密码").fill(password);
+    await page.getByRole("button", { name: "登录", exact: true }).click();
+    const card = page.locator(".wall-card img").first();
     await card.waitFor();
     await card.evaluate((image) => image.decode());
     assert.ok(await card.evaluate((image) => image.naturalWidth > 0));
     await page.reload();
-    await page.getByRole("button", { name: /^作品集/ }).click();
+
     await card.waitFor();
     await card.evaluate((image) => image.decode());
     await page.screenshot({ path: `test-results/docker/${host}.png` });
@@ -285,7 +305,7 @@ try {
   ]);
   assert.equal((await json("/api/settings")).hasKey, true);
   assert.equal(
-    (await json(`/api/projects/${project.id}/draft`)).watermark.text,
+    (await json("/api/projects/library/draft")).watermark.text,
     draft.watermark.text,
   );
   assert.deepEqual(

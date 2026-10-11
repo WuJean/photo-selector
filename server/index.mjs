@@ -1,3 +1,4 @@
+import { registerLibrary } from "./library.mjs";
 import { registerImageGeneration } from "./image-generation.mjs";
 import { registerCreations } from "./creations.mjs";
 import path from "node:path";
@@ -15,11 +16,13 @@ const native = new NativeBridge();
 let local;
 const { app, store, upload } = createApp({
   root,
+  authentication: true,
   publicURL: process.env.PHOTO_SELECTOR_PUBLIC_URL || "",
   onImport: (photo) => local.enqueue(photo.id),
 });
 local = new LocalQueue(store, native);
 void local.drain();
+registerLibrary(app, store, upload, { onImport: (p) => local.enqueue(p.id) });
 registerCuration(app, store);
 registerTags(app, store);
 const aiQueue = registerAI(app, store, native);

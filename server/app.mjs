@@ -1,3 +1,4 @@
+import { registerAuth } from "./auth.mjs";
 import { accessPolicy } from "./access.mjs";
 import express from "express";
 import multer from "multer";
@@ -10,6 +11,8 @@ export function createApp({
   root = path.resolve(".local"),
   onImport = () => {},
   publicURL = "",
+  authentication = false,
+  password,
 } = {}) {
   const app = express();
   const store = new Store(root);
@@ -17,6 +20,8 @@ export function createApp({
   app.disable("x-powered-by");
   app.use(accessPolicy(publicURL));
   app.use(express.json({ limit: "2mb" }));
+  app.locals.publicURL = publicURL;
+  if (authentication) registerAuth(app, store, { password });
   const upload = multer({
     dest: path.join(root, "temp"),
     limits: { fileSize: 100 * 1024 * 1024, files: 20 },
