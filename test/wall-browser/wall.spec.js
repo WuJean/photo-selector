@@ -41,15 +41,16 @@ test("login, upload, two decisions, independent portfolio and photo-wall downloa
     .getByLabel("加入作品集", { exact: true })
     .selectOption({ label: "旅途" });
   await page.getByRole("button", { name: "照片墙", exact: true }).click();
+  const photo = page.getByRole("button", {
+    name: "查看 test.jpg",
+    exact: true,
+  });
+  await expect(photo).toHaveCount(1);
   await expect(
-    page.locator(".wall-card").filter({ hasText: "test.jpg" }),
-  ).toHaveCount(1);
-  await page
-    .locator(".wall-card")
-    .filter({ hasText: "test.jpg" })
-    .locator("img")
-    .evaluate((el) => el.decode());
-  await page.locator(".wall-card").filter({ hasText: "test.jpg" }).dblclick();
+    page.locator(".wall-toolbar,.selection-toolbar,.task-row,.tag-chips"),
+  ).toHaveCount(0);
+  await photo.locator("img").evaluate((el) => el.decode());
+  await photo.click();
   await expect(page.getByRole("dialog", { name: "查看照片" })).toBeVisible();
   const download = page.waitForEvent("download");
   await page
@@ -59,8 +60,8 @@ test("login, upload, two decisions, independent portfolio and photo-wall downloa
   expect((await download).suggestedFilename()).toBe("test.jpg");
   await page.keyboard.press("Escape");
   await page.reload();
-  await expect(
-    page.locator(".wall-card").filter({ hasText: "test.jpg" }),
-  ).toHaveCount(1);
+  await expect(photo).toHaveCount(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".gallery-masonry")).toHaveCSS("column-count", "2");
   await page.screenshot({ path: "test-results/wall-home.png" });
 });

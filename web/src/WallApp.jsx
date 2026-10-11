@@ -29,6 +29,7 @@ import TagFilters from "./TagFilters";
 import TaskBar from "./TaskBar";
 import AIWizard from "./AIWizard";
 import Studio from "./Studio";
+import Gallery from "./Gallery";
 import { CreationGallery, PortfolioTools } from "./Portfolio";
 import {
   filterPhotos,
@@ -420,6 +421,7 @@ function Workspace({ onLogout }) {
   useEffect(() => {
     const key = (e) => {
       if (
+        page === "wall" ||
         e.repeat ||
         isTyping(e.target) ||
         document.querySelector("[role=dialog]") ||
@@ -538,6 +540,24 @@ function Workspace({ onLogout }) {
       const ids = selected.length ? selected : filtered.map((p) => p.id);
       await api("/projects/library/analyze", json("POST", { ids }));
     });
+  if (page === "wall")
+    return (
+      <>
+        <Gallery
+          photos={photos}
+          collections={collections}
+          navigate={setPage}
+          onOpen={setViewer}
+        />
+        {viewer && (
+          <Viewer
+            {...viewer}
+            onClose={() => setViewer(null)}
+            onDownload={download}
+          />
+        )}
+      </>
+    );
   return (
     <div className="wall-app">
       <header className="wall-header">

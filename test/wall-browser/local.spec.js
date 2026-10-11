@@ -41,6 +41,7 @@ test("folder files are read in a worker, registered without original upload, and
     page.locator(".wall-card").filter({ hasText: "local.jpg" }),
   ).toHaveCount(1);
   await page.reload();
+  await page.getByRole("link", { name: "作品集", exact: true }).click();
   await page.getByRole("button", { name: "作品集", exact: true }).click();
   await expect
     .poll(() =>

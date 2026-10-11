@@ -42,6 +42,7 @@ test("independent portfolio cover, rename, drag order and reuse remain after ref
     data: { photoIds: [ids[0]] },
   });
   await page.reload();
+  await page.getByRole("link", { name: "作品集", exact: true }).click();
   await page.getByRole("button", { name: "排序验收 3", exact: true }).click();
   const card = (name) => page.locator(".wall-card").filter({ hasText: name });
   await card("order-0.jpg").dragTo(card("order-2.jpg"));
@@ -58,6 +59,7 @@ test("independent portfolio cover, rename, drag order and reuse remain after ref
   await page.getByRole("dialog").getByRole("textbox").fill("新的旅行");
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await page.reload();
+  await page.getByRole("link", { name: "作品集", exact: true }).click();
   await page.getByRole("button", { name: "新的旅行 3", exact: true }).click();
   await expect(page.locator(".wall-card").first()).toContainText("order-2.jpg");
   const collections = await (await page.request.get("/api/collections")).json();

@@ -427,3 +427,107 @@
 .guest-controls .field {
   margin: 0;
 }
+
+.gallery-page {
+  min-height: 100vh;
+  background: #111111;
+  color: #e7e5e1;
+}
+.gallery-header {
+  height: 72px;
+  border: 0;
+  background: #111111ed;
+  padding: 0 3vw;
+}
+.gallery-header a {
+  color: #b8b6b1;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 400;
+}
+.gallery-header .gallery-brand {
+  font-size: 16px;
+  letter-spacing: 1px;
+  color: #ecebe8;
+}
+.gallery-header nav {
+  gap: 28px;
+}
+.gallery-body {
+  padding: 8px 3vw 40px;
+  max-width: 2100px;
+  margin: auto;
+}
+.gallery-masonry {
+  columns: 4;
+  column-gap: 10px;
+}
+.gallery-photo {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #191919;
+  margin: 0 0 10px;
+  break-inside: avoid;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.gallery-photo img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+.gallery-unavailable {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #777;
+  font-size: 12px;
+}
+.gallery-photo:focus-visible {
+  outline: 2px solid #ccc;
+  outline-offset: 2px;
+}
+.gallery-empty {
+  height: 60vh;
+  display: grid;
+  place-items: center;
+}
+.gallery-empty a {
+  color: #aaa;
+  text-decoration: none;
+}
+.gallery-sentinel {
+  height: 1px;
+}
+@media (max-width: 1200px) {
+  .gallery-masonry {
+    columns: 3;
+  }
+}
+@media (max-width: 700px) {
+  .gallery-masonry {
+    columns: 2;
+    column-gap: 7px;
+  }
+  .gallery-photo {
+    margin-bottom: 7px;
+  }
+  .gallery-header nav {
+    gap: 14px;
+  }
+  .gallery-header {
+    padding: 0 16px;
+    height: 64px;
+  }
+  .gallery-body {
+    padding: 0 10px 24px;
+  }
+}

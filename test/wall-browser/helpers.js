@@ -16,6 +16,7 @@ export async function login(page) {
   await page.getByLabel("管理员密码").fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.locator(".wall-header")).toBeVisible();
+  await page.getByRole("link", { name: "作品集", exact: true }).click();
 }
 export async function jpeg(color = "#93a989") {
   return sharp({
