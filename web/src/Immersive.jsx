@@ -378,7 +378,7 @@ export default function Immersive({
           <Check size={40} />
           <h2>本轮已完成</h2>
           <button className="primary" onClick={onComplete}>
-            {round === "final" ? "查看最终作品" : "查看初筛结果"}
+            {round === "final" ? "查看最终作品" : "开始精筛"}
           </button>
           <button className="button" onClick={exit}>
             返回

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api, json } from "./api";
+import { api, json, photoURL } from "./api";
 import PhotoImage from "./PhotoImage";
 export function PortfolioTools({
   projectId,
@@ -225,9 +225,15 @@ export function CreationGallery({ projectId, collectionId, photos, notify }) {
               {item.model || "本地拼图"} · {item.sourceIds.length} 张来源照片
             </p>
             {item.referenceIds?.map((id) => (
-              <span key={id}>
-                {photos.find((p) => p.id === id)?.name || id}{" "}
-              </span>
+              <a
+                key={id}
+                className="creation-reference"
+                href={photoURL(id, "preview")}
+                target="_blank"
+                rel="noreferrer"
+              >
+                参考照片 {photos.find((p) => p.id === id)?.name || id}
+              </a>
             ))}
             <p>{item.prompt}</p>
           </details>

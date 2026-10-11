@@ -119,6 +119,15 @@ test("three stages advance without labels; refinement has two decisions and rest
   request,
 }) => {
   const p = await seed(request, 4, { group: false });
+  let rejectFinal = true;
+  await page.route("**/api/projects/*/photos", (route) => {
+    const request = route.request();
+    return rejectFinal &&
+      request.method() === "PATCH" &&
+      request.postDataJSON().round === "final"
+      ? route.fulfill({ status: 500, json: { error: "测试保存失败" } })
+      : route.continue();
+  });
   await open(page, p);
   await page.locator(".photo-card").first().click();
   await page.keyboard.press("z");
@@ -162,18 +171,13 @@ test("three stages advance without labels; refinement has two decisions and rest
   await expect(view.getByRole("button", { name: /待定/ })).toHaveCount(0);
   await page.keyboard.press("z");
   expect((await saved(request, p))[0].finalStatus).toBe("unseen");
-  await page.route("**/photos", (r) =>
-    r.request().method() === "PATCH"
-      ? r.fulfill({ status: 500, json: { error: "测试保存失败" } })
-      : r.continue(),
-  );
   await page.keyboard.press("x");
   await expect(page.getByRole("status")).toContainText("测试保存失败");
   await expect(view.locator(".focused")).toHaveAttribute(
     "data-photo-id",
     p.ids[0],
   );
-  await page.unroute("**/photos");
+  rejectFinal = false;
   await page.keyboard.press("x");
   await expect
     .poll(async () => (await saved(request, p))[0].finalStatus)
@@ -352,7 +356,7 @@ test("model settings persist endpoint and test actual HTTP image request against
   }
 });
 
-test("studio defaults to final maybe photos and exports an actual JPEG without AI", async ({
+test("studio defaults to refined keep photos and exports an actual JPEG without AI", async ({
   page,
   request,
 }) => {
@@ -690,4 +694,155 @@ test("portfolio descriptions and collage creations stay separate from original p
     .toBeGreaterThan(0);
   expect((await saved(request, p)).length).toBe(4);
   await page.screenshot({ path: "test-results/portfolio-creations.png" });
+});
+
+test("direct parallel classification and one-click collection copy and reference cover use configured services", async ({
+  page,
+  request,
+}) => {
+  const { createServer } = await import("node:http");
+  let active = 0,
+    peak = 0,
+    analyses = 0,
+    imageCalls = 0;
+  const output = await sharp({
+    create: { width: 300, height: 400, channels: 3, background: "#b2c4a8" },
+  })
+    .png()
+    .toBuffer();
+  const fixture = createServer(async (req, res) => {
+    let raw = "";
+    for await (const part of req) raw += part;
+    const body = JSON.parse(raw);
+    let payload;
+    if (req.url === "/image") {
+      imageCalls++;
+      expect(body.model).toBe("wan2.7-image");
+      expect(body.parameters.n).toBe(1);
+      expect(
+        body.input.messages[0].content.filter((c) => c.image).length,
+      ).toBeGreaterThan(0);
+      payload = {
+        output: {
+          choices: [
+            {
+              message: {
+                content: [
+                  {
+                    image: "data:image/png;base64," + output.toString("base64"),
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+    } else {
+      let result;
+      const last = body.messages.at(-1);
+      if (Array.isArray(last.content)) {
+        active++;
+        peak = Math.max(peak, active);
+        analyses++;
+        await new Promise((r) => setTimeout(r, 80));
+        active--;
+        result = { description: "山间风景", tags: ["风景", "远景", "雪山"] };
+      } else {
+        const input = JSON.parse(last.content);
+        result = Array.isArray(input)
+          ? { summary: "山间远景的合集" }
+          : {
+              title: "山行",
+              text: "山间的风景与旅程。",
+              prompt: "根据参考照片设计清冷山川封面",
+              referenceIds: input.batches[0].photoIds.slice(0, 2),
+            };
+      }
+      payload = { choices: [{ message: { content: JSON.stringify(result) } }] };
+    }
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(payload));
+  });
+  await new Promise((r) => fixture.listen(0, "127.0.0.1", r));
+  try {
+    const p = await seed(request, 3, { group: false, final: true }),
+      origin = `http://127.0.0.1:${fixture.address().port}`;
+    await request.put("/api/settings", {
+      data: {
+        baseURL: origin + "/v1",
+        model: "fixture",
+        analysisConcurrency: 8,
+        serviceConcurrency: 8,
+      },
+    });
+    await request.patch(`/api/projects/${p.id}/photos`, {
+      data: { ids: p.ids, round: "final", patch: { status: "unseen" } },
+    });
+    await open(page, p);
+    await page.getByRole("button", { name: /^精筛/ }).click();
+    await expect(page.getByLabel("精筛照片", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "AI 分类", exact: true }).click();
+    await expect(
+      page.getByRole("dialog", { name: "AI 分类", exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          (await saved(request, p)).filter((p) => p.aiStatus === "done").length,
+      )
+      .toBe(3);
+    expect(analyses).toBe(3);
+    expect(peak).toBeGreaterThan(1);
+    await expect(page.getByLabel("任务进度")).toContainText("3/3");
+    await request.patch(`/api/projects/${p.id}/photos`, {
+      data: { ids: p.ids, round: "final", patch: { status: "keep" } },
+    });
+    await page.getByRole("button", { name: "模型与服务设置" }).click();
+    await page.getByRole("tab", { name: "图片生成", exact: true }).click();
+    await page
+      .getByLabel("生图 API 地址", { exact: true })
+      .fill(origin + "/image");
+    await page
+      .getByRole("button", { name: "保存生图配置", exact: true })
+      .click();
+    await expect(page.getByRole("status")).toContainText("生图配置已保存");
+    await page.getByRole("button", { name: "关闭", exact: true }).click();
+    const c = await (
+      await request.post(`/api/projects/${p.id}/collections`, {
+        data: { name: "封面测试", photoIds: p.ids, description: "清冷的山行" },
+      })
+    ).json();
+    await page.reload();
+    await page.getByRole("button", { name: /^作品集/ }).click();
+    await page.getByLabel("浏览作品集").selectOption(c.id);
+    await page.getByRole("button", { name: "生成文案", exact: true }).click();
+    await expect(page.locator(".creation-card")).toHaveCount(1);
+    await page.getByLabel("创作文案").fill("我修改后的作品集文案");
+    await page.getByRole("button", { name: "保存文字", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("作品已保存");
+    await page.getByRole("button", { name: "生成封面", exact: true }).click();
+    await expect(page.locator(".creation-card")).toHaveCount(2);
+    await expect
+      .poll(() =>
+        page.locator(".creation-card img").evaluate((el) => el.naturalWidth),
+      )
+      .toBe(300);
+    expect(imageCalls).toBe(1);
+    expect(analyses).toBe(3);
+    const cover = page.locator(".creation-card").last();
+    await cover.locator("summary").click();
+    const popupPromise = page.waitForEvent("popup");
+    await cover
+      .getByRole("link", { name: /^参考照片/ })
+      .first()
+      .click();
+    const reference = await popupPromise;
+    await expect
+      .poll(() => reference.locator("img").evaluate((el) => el.naturalWidth))
+      .toBeGreaterThan(0);
+    await reference.close();
+    await page.screenshot({ path: "test-results/ai-creations.png" });
+  } finally {
+    await new Promise((r) => fixture.close(r));
+  }
 });

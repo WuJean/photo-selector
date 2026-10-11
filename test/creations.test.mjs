@@ -140,3 +140,75 @@ test("collection and selected scopes reject foreign photos and isolate drafts", 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("cancelled cover ignores a late generated image; paused cover retains completed work", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "cover-cancel-"));
+  const store = new Store(root);
+  try {
+    const p = store.project("cover");
+    store.put("photo", {
+      id: "p",
+      projectId: p.id,
+      status: "keep",
+      finalStatus: "keep",
+    });
+    store.put("collection", { id: "c", projectId: p.id, photoIds: ["p"] });
+    let finish;
+    const queue = new CreationQueue(
+      store,
+      { get: async () => null },
+      () =>
+        new Promise((r) => {
+          finish = r;
+        }),
+    );
+    const base = {
+      projectId: p.id,
+      collectionId: "c",
+      kind: "cover",
+      config: { baseURL: "http://localhost", model: "mock" },
+      imageConfig: { model: "wan2.7-image" },
+      photoIds: ["p"],
+      descriptions: { p: { id: "p", description: "风景" } },
+      summaries: { 0: { summary: "山", photoIds: ["p"] } },
+      plan: { title: "山", text: "山间", prompt: "山", referenceIds: ["p"] },
+      state: "paused",
+      total: 4,
+    };
+    store.put("creationJob", { ...base, id: "cancel" });
+    queue.action("cancel", "resume");
+    await wait(() => finish);
+    queue.action("cancel", "cancel");
+    finish(Buffer.from("late response"));
+    await wait(() => !queue.running.size);
+    assert.equal(queue.get("cancel").state, "cancelled");
+    assert.equal(store.all("creation").length, 0);
+    finish = null;
+    store.put("creationJob", { ...base, id: "pause" });
+    queue.action("pause", "resume");
+    await wait(() => finish);
+    queue.action("pause", "pause");
+    const sharp = (await import("sharp")).default;
+    finish(
+      await sharp({
+        create: { width: 10, height: 10, channels: 3, background: "green" },
+      })
+        .png()
+        .toBuffer(),
+    );
+    await wait(() => !queue.running.size);
+    assert.equal(queue.get("pause").state, "done");
+    assert.equal(store.all("creation").length, 1);
+    const visible = queue.public({
+      ...queue.get("pause"),
+      generatedURL: "data:image/png;base64,test",
+      reductions: { data: "private summary" },
+    });
+    assert.equal(visible.generatedURL, undefined);
+    assert.equal(visible.reductions, undefined);
+    assert.equal(visible.imageConfig, undefined);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

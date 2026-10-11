@@ -10,6 +10,7 @@ export default function TaskBar({ jobs, projectId, refresh, notify }) {
       done: ai.done + (ai.skipped || 0),
       total: ai.total,
       errors: ai.errors,
+      error: ai.error,
       active: ai.runningIds?.length || 0,
       paused: ai.paused,
       pending: !!ai.photoIds.length,
@@ -39,7 +40,8 @@ export default function TaskBar({ jobs, projectId, refresh, notify }) {
         done: j.done || 0,
         total: j.total || 1,
         errors: j.state === "error" ? 1 : 0,
-        pending: j.state === "running",
+        pending: ["running", "paused"].includes(j.state),
+        error: j.error,
         paused: j.state === "paused",
         action: (a) => api(`/creation-jobs/${j.id}/${a}`, json("POST", {})),
       });
@@ -62,6 +64,11 @@ export default function TaskBar({ jobs, projectId, refresh, notify }) {
           </span>
           {!!row.active && <small>处理中 {row.active}</small>}
           {!!row.errors && <small>失败 {row.errors}</small>}
+          {row.error && (
+            <small className="task-error" title={row.error}>
+              {row.error}
+            </small>
+          )}
           {row.pending && (
             <>
               <button onClick={() => act(row, row.paused ? "resume" : "pause")}>

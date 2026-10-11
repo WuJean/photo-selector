@@ -1,4 +1,5 @@
 import test from "node:test";
+import { getEventListeners } from "node:events";
 import assert from "node:assert/strict";
 import { Scheduler, workers } from "../server/scheduler.mjs";
 test("shared service slots bound concurrent workers; cancellation drops queued work and 429 reduces capacity", async () => {
@@ -38,4 +39,13 @@ test("shared service slots bound concurrent workers; cancellation drops queued w
   await hold;
   s.limited("service", 1);
   assert.equal(s.state("service", 3).limit, 1);
+});
+
+test("shared scheduler releases abort listeners after acquiring slots", async () => {
+  const s = new Scheduler(),
+    controller = new AbortController();
+  for (let i = 0; i < 30; i++) {
+    await s.run("service", 8, controller.signal, async () => {});
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  }
 });

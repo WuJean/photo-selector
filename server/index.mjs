@@ -1,3 +1,4 @@
+import { registerImageGeneration } from "./image-generation.mjs";
 import { registerCreations } from "./creations.mjs";
 import path from "node:path";
 import { createApp, errors } from "./app.mjs";
@@ -22,7 +23,8 @@ registerTags(app, store);
 const aiQueue = registerAI(app, store, native);
 registerVocabulary(app, store);
 registerExports(app, store, upload);
-const creations = registerCreations(app, store);
+const generate = registerImageGeneration(app, store);
+const creations = registerCreations(app, store, { generate });
 app.get("/api/jobs", (req, res) =>
   res.json({
     creations: store.all("creationJob").map((j) => creations.public(j)),

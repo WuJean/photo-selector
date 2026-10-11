@@ -215,7 +215,7 @@ export default function App() {
       result = [];
     for (const p of filtered) {
       const members = memberMap.get(p.similarId) || [p];
-      const open = !fold || expanded.has(p.similarId);
+      const open = portfolio || refining || !fold || expanded.has(p.similarId);
       if (!p.similarId || members.length === 1) {
         result.push({ photo: p, count: 1 });
         continue;
@@ -236,7 +236,7 @@ export default function App() {
       });
     }
     return result;
-  }, [filtered, fold, expanded, groups]);
+  }, [filtered, fold, expanded, groups, portfolio, refining]);
   const changeSpace = (value) => {
     setSpace(value);
     setSelected([]);
@@ -601,14 +601,7 @@ export default function App() {
                       ? "已粗筛"
                       : "粗筛"}
               </h1>
-              {portfolio && collection && collectionMode === "creations" ? (
-                <CreationGallery
-                  projectId={projectId}
-                  collectionId={collection.id}
-                  photos={photos}
-                  notify={notify}
-                />
-              ) : refining ? (
+              {refining ? (
                 <button
                   className="text-button"
                   onClick={() => {
@@ -619,14 +612,16 @@ export default function App() {
                   {reviewed ? "返回待精筛" : "已精筛"}
                 </button>
               ) : portfolio ? (
-                <select
-                  aria-label="候选范围"
-                  value={candidateMode}
-                  onChange={(e) => setCandidateMode(e.target.value)}
-                >
-                  <option value="unassigned">未归入作品集</option>
-                  <option value="all">全部</option>
-                </select>
+                !collection && (
+                  <select
+                    aria-label="候选范围"
+                    value={candidateMode}
+                    onChange={(e) => setCandidateMode(e.target.value)}
+                  >
+                    <option value="unassigned">未归入作品集</option>
+                    <option value="all">全部</option>
+                  </select>
+                )
               ) : (
                 <button
                   className="text-button"
@@ -641,7 +636,7 @@ export default function App() {
               )}
             </div>
             <div className="toolbar-actions">
-              {(portfolio || refining) && (
+              {(portfolio || refining) && collectionMode !== "creations" && (
                 <Button
                   disabled={!filtered.length}
                   onClick={() =>
@@ -649,7 +644,7 @@ export default function App() {
                       await api(
                         `/projects/${projectId}/analyze`,
                         json("POST", {
-                          ids: (selected.length
+                          ids: (selected.length && !refining
                             ? filtered.filter((p) => selected.includes(p.id))
                             : filtered
                           ).map((p) => p.id),
@@ -662,12 +657,12 @@ export default function App() {
                   AI 分类
                 </Button>
               )}
-              {(portfolio || refining) && (
+              {(portfolio || refining) && collectionMode !== "creations" && (
                 <Button
                   disabled={!filtered.length}
                   onClick={() =>
                     setAIWizard(
-                      (selected.length
+                      (selected.length && !refining
                         ? initial.filter((p) => selected.includes(p.id))
                         : filtered
                       ).map((p) => p.id),
@@ -677,7 +672,7 @@ export default function App() {
                   细化分类
                 </Button>
               )}
-              {(portfolio || refining) && (
+              {(portfolio || refining) && collectionMode !== "creations" && (
                 <Button
                   onClick={() => {
                     setTagPanel((v) => !v);
@@ -744,56 +739,61 @@ export default function App() {
               setMode={setCollectionMode}
             />
           )}
-          {!!photos.length && (
-            <div className="compact-tools">
-              <input
-                className="search-input"
-                aria-label="搜索照片"
-                placeholder="搜索"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <Button
-                icon={SlidersHorizontal}
-                onClick={() => setShowFilters((v) => !v)}
-              >
-                筛选
-              </Button>
-              <Button
-                icon={Layers}
-                onClick={() => {
-                  setFold((v) => !v);
-                  setExpanded(new Set());
-                }}
-              >
-                {fold ? "全部展开" : "全部叠放"}
-              </Button>
-              {expanded.size > 0 && fold && (
-                <button
-                  className="text-button"
-                  onClick={() => setExpanded(new Set())}
+          {!!photos.length &&
+            !(portfolio && collection && collectionMode === "creations") && (
+              <div className="compact-tools">
+                <input
+                  className="search-input"
+                  aria-label="搜索照片"
+                  placeholder="搜索"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                <Button
+                  icon={SlidersHorizontal}
+                  onClick={() => setShowFilters((v) => !v)}
                 >
-                  全部叠放
+                  筛选
+                </Button>
+                {!portfolio && !refining && (
+                  <>
+                    <Button
+                      icon={Layers}
+                      onClick={() => {
+                        setFold((v) => !v);
+                        setExpanded(new Set());
+                      }}
+                    >
+                      {fold ? "全部展开" : "全部叠放"}
+                    </Button>
+                    {expanded.size > 0 && fold && (
+                      <button
+                        className="text-button"
+                        onClick={() => setExpanded(new Set())}
+                      >
+                        全部叠放
+                      </button>
+                    )}
+                  </>
+                )}
+                <span className="count">{filtered.length} 张</span>
+                <button
+                  className="icon-button"
+                  aria-label="照片信息"
+                  onClick={() => setInspector((v) => !v)}
+                >
+                  <Info size={18} />
                 </button>
-              )}
-              <span className="count">{filtered.length} 张</span>
-              <button
-                className="icon-button"
-                aria-label="照片信息"
-                onClick={() => setInspector((v) => !v)}
-              >
-                <Info size={18} />
-              </button>
-              <button
-                className="icon-button"
-                aria-label="更多操作"
-                onClick={() => setMore((v) => !v)}
-              >
-                <MoreHorizontal size={20} />
-              </button>
-            </div>
-          )}
-          {(portfolio || refining) && (
+                <button
+                  className="icon-button"
+                  aria-label="更多操作"
+                  onClick={() => setMore((v) => !v)}
+                >
+                  <MoreHorizontal size={20} />
+                </button>
+              </div>
+            )}
+          {(portfolio || refining) && collectionMode !== "creations" && (
             <TagFilters
               projectId={projectId}
               photos={refining ? initial : final}
@@ -886,6 +886,22 @@ export default function App() {
                 <option value="standard">标准相似</option>
                 <option value="loose">宽松相似</option>
               </select>
+              {(portfolio || refining) && collectionMode !== "creations" && (
+                <Button
+                  disabled={!selected.length}
+                  onClick={() =>
+                    run(async () => {
+                      await api(
+                        `/projects/${projectId}/analyze`,
+                        json("POST", { ids: selected, force: true }),
+                      );
+                      await refresh();
+                    })
+                  }
+                >
+                  重新分析所选
+                </Button>
+              )}
               <Button
                 disabled={!selected.length}
                 onClick={() => groupAction("split")}
@@ -1070,7 +1086,14 @@ export default function App() {
           )}
           <div className="photo-workspace">
             <section className="photo-main">
-              {refining ? (
+              {portfolio && collection && collectionMode === "creations" ? (
+                <CreationGallery
+                  projectId={projectId}
+                  collectionId={collection.id}
+                  photos={photos}
+                  notify={notify}
+                />
+              ) : refining ? (
                 <Refine
                   photos={filtered}
                   selected={selected}
@@ -1184,7 +1207,7 @@ export default function App() {
                         ["快门", active.shutter],
                         ["ISO", active.iso],
                         ["尺寸", `${active.width} × ${active.height}`],
-                        ["初筛", STATUS_LABELS[active.status]],
+                        ["粗筛", STATUS_LABELS[active.status]],
                         ["精筛", STATUS_LABELS[active.finalStatus || "unseen"]],
                       ].map(([key, value]) => (
                         <React.Fragment key={key}>

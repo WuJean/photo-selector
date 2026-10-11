@@ -1,5 +1,6 @@
+import { imageConfig } from "./image-generation.mjs";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile, rename } from "node:fs/promises";
+import { mkdir, writeFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { AIClient, signature } from "./ai.mjs";
@@ -8,7 +9,7 @@ import { previewData } from "./images.mjs";
 import { tagsOf } from "../shared/domain.mjs";
 import { sourcePhotos, collectionFor, scopedDraft } from "./sources.mjs";
 import { renderDraft } from "./render.mjs";
-export async function saveCreation(store, value, bytes) {
+export async function saveCreation(store, value, bytes, signal) {
   const id = value.id || randomUUID();
   let file = null;
   if (bytes) {
@@ -18,6 +19,11 @@ export async function saveCreation(store, value, bytes) {
     const temp = path.join(dir, id + ".tmp");
     await sharp(bytes).png().toFile(temp);
     await rename(temp, path.join(dir, file));
+  }
+  if (signal?.aborted) {
+    if (file)
+      await rm(path.join(store.root, "creations", file), { force: true });
+    throw new Error("任务已取消");
   }
   return store.put("creation", {
     ...value,
@@ -35,7 +41,10 @@ export class CreationQueue {
     for (const j of store.all("creationJob"))
       if (j.state === "running") {
         j.state = "paused";
-        if (j.stage === "image") j.error = "上次生图结果未知，继续将重新提交";
+        if (j.stage === "image")
+          j.error = j.generatedURL
+            ? "图片待下载，继续将恢复下载"
+            : "上次生图结果未知，继续将重新提交";
         store.put("creationJob", j);
       }
   }
@@ -45,7 +54,16 @@ export class CreationQueue {
     return j;
   }
   public(j) {
-    const { config, imageConfig, descriptions, summaries, plan, ...rest } = j;
+    const {
+      config,
+      imageConfig,
+      descriptions,
+      summaries,
+      reductions,
+      plan,
+      generatedURL,
+      ...rest
+    } = j;
     return rest;
   }
   start(projectId, collectionId, kind, ratio = "3:4") {
@@ -76,7 +94,7 @@ export class CreationQueue {
         name: collection.name,
         photoIds: photos.map((p) => p.id),
         config: structuredClone(config),
-        imageConfig: this.store.get("settings", "image-generation"),
+        imageConfig: imageConfig(this.store),
         state: "running",
         stage: "understand",
         descriptions: {},
@@ -342,6 +360,7 @@ export class CreationQueue {
             job.kind === "cover" ? job.imageConfig?.model : job.config.model,
         },
         bytes,
+        signal,
       );
       update({ creationId: creation.id, state: "done", stage: "done" });
     } catch (e) {

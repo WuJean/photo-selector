@@ -26,6 +26,7 @@ export class Scheduler {
     }
     while (s.active < s.limit && s.waiting.length) {
       const task = s.waiting.shift();
+      task.cleanup();
       if (task.signal?.aborted) {
         task.reject(new Error("任务已取消"));
         continue;
@@ -40,19 +41,22 @@ export class Scheduler {
   async run(key, limit, signal, fn) {
     const s = this.state(key, limit);
     const release = await new Promise((resolve, reject) => {
-      const task = { resolve, reject, signal };
+      const abort = () => {
+        const i = s.waiting.indexOf(task);
+        if (i >= 0) {
+          s.waiting.splice(i, 1);
+          task.cleanup();
+          reject(new Error("任务已取消"));
+        }
+      };
+      const task = {
+        resolve,
+        reject,
+        signal,
+        cleanup: () => signal?.removeEventListener("abort", abort),
+      };
       s.waiting.push(task);
-      signal?.addEventListener(
-        "abort",
-        () => {
-          const i = s.waiting.indexOf(task);
-          if (i >= 0) {
-            s.waiting.splice(i, 1);
-            reject(new Error("任务已取消"));
-          }
-        },
-        { once: true },
-      );
+      signal?.addEventListener("abort", abort, { once: true });
       this.pump(s);
     });
     try {
