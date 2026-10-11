@@ -1,3 +1,5 @@
+import { ShareManager, PublicShare } from "./Sharing";
+import { downloadPhotos } from "./downloads";
 import {
   registerAssets,
   chooseFolder,
@@ -146,6 +148,8 @@ function Viewer({ photos, index: initial, onClose, onDownload }) {
   );
 }
 export default function WallApp() {
+  if (location.pathname.startsWith("/s/"))
+    return <PublicShare token={location.pathname.split("/")[2]} />;
   const [authenticated, setAuthenticated] = useState(null);
   useEffect(() => {
     api("/auth/session")
@@ -187,6 +191,7 @@ function Workspace({ onLogout }) {
     [mode, setMode] = useState("photos"),
     [expanded, setExpanded] = useState(new Set()),
     [fold, setFold] = useState(true);
+  const [sharing, setSharing] = useState(false);
   const [networkDialog, setNetworkDialog] = useState(false),
     [networkURLs, setNetworkURLs] = useState(""),
     [networkJobs, setNetworkJobs] = useState([]),
@@ -420,17 +425,7 @@ function Workspace({ onLogout }) {
       }
       setBatchPhotos(await api(`/batches/${id}/photos`));
     });
-  const download = async (list) =>
-    run(async () => {
-      for (const p of list) {
-        const url = URL.createObjectURL(await photoBlob(p.id, "original"));
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = p.name;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-      }
-    });
+  const download = async (list) => run(() => downloadPhotos(list, setBusy));
   const classify = () =>
     run(async () => {
       const ids = selected.length ? selected : filtered.map((p) => p.id);
@@ -820,6 +815,22 @@ function Workspace({ onLogout }) {
             />
           </section>
         )}
+        {collection && page !== "work" && (
+          <div className="wall-actions">
+            <Button onClick={() => setSharing(true)}>分享作品集</Button>
+            <Button
+              onClick={() =>
+                download(
+                  collection.photoIds
+                    .map((id) => photos.find((p) => p.id === id))
+                    .filter(Boolean),
+                )
+              }
+            >
+              下载作品集
+            </Button>
+          </div>
+        )}
         {!!selected.length && (
           <div className="selection-toolbar">
             <span>已选 {selected.length} 张</span>
@@ -1024,6 +1035,13 @@ function Workspace({ onLogout }) {
         <div className="work-progress" role="status">
           {busy}
         </div>
+      )}
+      {sharing && collection && (
+        <ShareManager
+          collection={collection}
+          onClose={() => setSharing(false)}
+          notify={notify}
+        />
       )}
       {networkDialog && (
         <Modal title="网络导入" onClose={() => setNetworkDialog(false)}>

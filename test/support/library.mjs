@@ -55,6 +55,7 @@ export async function fixture(register = () => {}) {
     async close() {
       await new Promise((r) => server.close(r));
       app.locals.cleanupQueue?.close();
+      app.locals.closeShares?.();
       store.close();
       await rm(root, { recursive: true, force: true });
     },

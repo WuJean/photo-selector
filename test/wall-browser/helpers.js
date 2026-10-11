@@ -9,9 +9,9 @@ export async function login(page) {
     page.getByRole("heading", { name: "每一张，值得留下" }),
   ).toBeVisible();
 }
-export async function jpeg() {
+export async function jpeg(color = "#93a989") {
   return sharp({
-    create: { width: 800, height: 600, channels: 3, background: "#93a989" },
+    create: { width: 800, height: 600, channels: 3, background: color },
   })
     .jpeg()
     .toBuffer();

@@ -21,7 +21,12 @@ export function keptReference(store, id, exceptBatch) {
     store.all("collection").some((c) => c.photoIds.includes(id)) ||
     store
       .all("share")
-      .some((s) => s.state === "active" && s.assetIds.includes(id)) ||
+      .some(
+        (s) =>
+          ["preparing", "active"].includes(s.state) &&
+          (!s.expiresAt || Date.parse(s.expiresAt) > Date.now()) &&
+          s.assetIds.includes(id),
+      ) ||
     store
       .all("entry")
       .some(

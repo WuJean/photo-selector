@@ -338,3 +338,18 @@
   justify-content: center;
   padding: 20px;
 }
+.share-record {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  border-top: 1px solid #384333;
+  padding-top: 20px;
+}
+.share-record input {
+  width: 100%;
+  font-size: 12px;
+}
+.creation-gallery img {
+  max-width: 100%;
+}
