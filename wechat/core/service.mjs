@@ -1,3 +1,4 @@
+import { curation } from './curation.mjs';
 import { uid } from './store.mjs';
 export const fail = (message, code = 'INVALID') => { throw Object.assign(new Error(message), {code}); };
 export async function owned(store, kind, id) { return await store.get(kind,id) || fail('内容不存在或无权访问','NOT_FOUND'); }
@@ -5,6 +6,8 @@ export const title = (v, fallback='未命名旅行') => String(v || fallback).tr
 export function createService({store, files, env, media}) {
   return async (action, input={}) => {
     if(!store.owner) fail('请在微信中登录','AUTH');
+    const handled = await curation(store, action, input);
+    if(handled !== undefined) return handled;
     switch(action) {
       case 'session': return {owner:store.owner, env, version:1};
       case 'projects.list': return store.all('project');

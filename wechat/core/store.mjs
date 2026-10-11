@@ -4,8 +4,10 @@ export const uid = () => randomUUID().replaceAll('-', '');
 export class CloudStore {
   constructor(db, owner, transactional = false) { this.db = db; this.owner = owner; this.transactional = transactional; }
   async get(kind, id) {
-    const result = await this.db.collection(COLLECTION).where({_id: `${kind}:${id}`, owner: this.owner}).get();
-    return result.data[0] || null;
+    try {
+      const {data} = await this.db.collection(COLLECTION).doc(`${kind}:${id}`).get();
+      return data?.owner === this.owner ? data : null;
+    } catch (e) { if(/not exist|not found|不存在|-502005/i.test(e.message)) return null; throw e; }
   }
   async list(kind, where = {}, {after = '', limit = 100} = {}) {
     let query = this.db.collection(COLLECTION).where({ ...where, kind, owner: this.owner, ...(after ? {_id: this.db.command.gt(after)} : {}) });
