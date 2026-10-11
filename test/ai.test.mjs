@@ -149,3 +149,19 @@ test("non-mac key fallback is memory-only and isolated per endpoint", async () =
   await vault.remove(config);
   assert.equal(await vault.get(config), null);
 });
+
+test("visual request timeout is reported without automatically resending the images", async () => {
+  let calls = 0;
+  const client = new AIClient(config, "secret", {
+    fetchImpl: async () => {
+      calls++;
+      throw new DOMException("timeout", "TimeoutError");
+    },
+    sleep: async () => assert.fail("timed out request retried"),
+  });
+  await assert.rejects(
+    () => client.complete([], (v) => v, { timeoutMs: 180000 }),
+    /超时/,
+  );
+  assert.equal(calls, 1);
+});

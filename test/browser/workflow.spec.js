@@ -507,6 +507,19 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
       result = {
         tags: [{ name: "云海", category: "环境", description: "山间大片云层" }],
       };
+    } else if (system.includes("你是选片搭配助手")) {
+      const input = JSON.parse(last.content[0].text);
+      expect(last.content.filter((c) => c.type === "image_url")).toHaveLength(
+        input.candidates.length,
+      );
+      expect(system).toContain("人物视线与身体朝向");
+      result = {
+        template: "rows",
+        photoIds: input.current.photoIds.slice(0, 3),
+        reason: "色彩协调，构图互补",
+        title: "雪山",
+        missing: "",
+      };
     } else if (Array.isArray(last.content)) {
       analyses++;
       prompts.push(system);

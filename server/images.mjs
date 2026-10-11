@@ -94,10 +94,10 @@ export function originalPath(store, id) {
   if (!p) throw new Error("照片不存在");
   return path.join(store.root, "originals", id + ".jpg");
 }
-export async function previewData(store, id) {
+export async function previewData(store, id, maxEdge = 1536) {
   return sharp(originalPath(store, id))
     .rotate()
-    .resize(1536, 1536, { fit: "inside", withoutEnlargement: true })
+    .resize(maxEdge, maxEdge, { fit: "inside", withoutEnlargement: true })
     .toColourspace("srgb")
     .jpeg({ quality: 82 })
     .toBuffer();
