@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   focalCategory,
   inInitial,
+  inFinal,
   decisionField,
   tagsOf,
 } from "../shared/domain.mjs";
@@ -209,11 +210,13 @@ export function registerCuration(app, store) {
   );
   app.post("/api/projects/:id/collections", (req, res) => {
     const ids = req.body.photoIds || [];
-    if (ids.length) photos(req.params.id, ids);
+    if (ids.length && photos(req.params.id, ids).some((p) => !inFinal(p)))
+      throw new Error("请先完成精筛");
     const value = {
       id: randomUUID(),
       projectId: req.params.id,
       name: String(req.body.name || "新的作品集").slice(0, 80),
+      description: String(req.body.description ?? "").slice(0, 4000),
       photoIds: [...new Set(ids)],
       lockedIds: [],
     };
@@ -225,11 +228,21 @@ export function registerCuration(app, store) {
     if (!old || old.projectId !== req.params.id)
       throw new Error("作品集不存在");
     const ids = req.body.photoIds || old.photoIds;
-    if (ids.length) photos(req.params.id, ids);
+    if (
+      ids.length &&
+      photos(req.params.id, ids).some(
+        (p) => !inFinal(p) && !old.photoIds.includes(p.id),
+      )
+    )
+      throw new Error("新增照片请先完成精筛");
     const locks = req.body.lockedIds || old.lockedIds;
     const value = {
       ...old,
       name: String(req.body.name || old.name).slice(0, 80),
+      description: String(req.body.description ?? old.description ?? "").slice(
+        0,
+        4000,
+      ),
       photoIds: [...new Set(ids)],
       lockedIds: [...new Set(locks)].filter((id) => ids.includes(id)),
     };

@@ -1,3 +1,4 @@
+import { sourcePhotos } from "./sources.mjs";
 import { tagLibrary } from "./tags.mjs";
 import { structuredTags, tagCategory } from "../shared/tags.mjs";
 import { scheduler, concurrency, workers } from "./scheduler.mjs";
@@ -590,7 +591,7 @@ export function registerAI(app, store, native) {
       : null;
     if (collection && collection.projectId !== req.params.id)
       throw new Error("作品集不属于当前项目");
-    const all = store.photos(req.params.id).filter(inFinal),
+    const all = sourcePhotos(store, req.params.id, req.body),
       locked = [
         ...new Set([
           ...(req.body.lockedIds || []),
@@ -602,9 +603,7 @@ export function registerAI(app, store, native) {
     if (locked.length > 4) throw new Error("三拼或四拼最多锁定 4 张");
     const candidates = rankCandidates(
       all.filter(
-        (p) =>
-          (p.ai || p.manualTags?.length) &&
-          (!collection || collection.photoIds.includes(p.id)),
+        (p) => true && (!collection || collection.photoIds.includes(p.id)),
       ),
       query,
       locked,

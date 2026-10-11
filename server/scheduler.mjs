@@ -82,7 +82,7 @@ export const scheduler = new Scheduler();
 export const concurrency = (value, fallback) =>
   Math.max(1, Math.min(16, Math.trunc(Number(value) || fallback)));
 export async function workers(count, next, work) {
-  await Promise.all(
+  const results = await Promise.allSettled(
     Array.from({ length: count }, async () => {
       for (;;) {
         const item = next();
@@ -91,4 +91,6 @@ export async function workers(count, next, work) {
       }
     }),
   );
+  const failed = results.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
 }

@@ -1,3 +1,4 @@
+import { scopedDraft, draftId } from "./sources.mjs";
 import archiver from "archiver";
 import sharp from "sharp";
 import { randomUUID } from "node:crypto";
@@ -8,17 +9,18 @@ import { renderDraft } from "./render.mjs";
 import { uniqueName, inFinal } from "../shared/domain.mjs";
 import { originalPath } from "./images.mjs";
 export function registerExports(app, store, upload) {
-  const draft = (projectId, input) =>
-    validateDraft(
-      { ...input, projectId },
-      store.photos(projectId).filter(inFinal),
-    );
+  const draft = (projectId, input) => scopedDraft(store, projectId, input);
   app.get("/api/projects/:id/draft", (req, res) =>
-    res.json(store.get("draft", "draft-" + req.params.id)),
+    res.json(
+      store.get(
+        "draft",
+        draftId(req.params.id, String(req.query.scopeId || "")),
+      ),
+    ),
   );
   app.put("/api/projects/:id/draft", (req, res) => {
     const value = draft(req.params.id, req.body);
-    const old = store.get("draft", "draft-" + req.params.id);
+    const old = store.get("draft", value.id);
     const invalid = old?.slots.some(
       (slot) => !inFinal(store.get("photo", slot.photoId) || {}),
     );

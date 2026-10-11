@@ -420,7 +420,7 @@ test("manual tag chips classify initial photos, filter by multiple tags and pers
     .getByRole("button", { name: "人像", exact: true })
     .click();
   await expect(page.locator(".photo-card")).toHaveCount(2);
-  await page.locator(".tag-filter summary").filter({hasText:"环境"}).click();
+  await page.locator(".tag-filter summary").filter({ hasText: "环境" }).click();
   await page
     .locator(".tag-filter")
     .getByRole("button", { name: "雪山", exact: true })
@@ -646,4 +646,48 @@ test("legacy studio draft waits for explicit rebuild without losing the original
   ).json();
   expect(rebuilt.slots.some((s) => s.photoId === p.ids[0])).toBe(false);
   expect(errors).toEqual([]);
+});
+
+test("portfolio descriptions and collage creations stay separate from original photos", async ({
+  page,
+  request,
+}) => {
+  const p = await seed(request, 4, { group: false, final: true });
+  const c = await (
+    await request.post(`/api/projects/${p.id}/collections`, {
+      data: { name: "山川", photoIds: p.ids.slice(0, 3) },
+    })
+  ).json();
+  await open(page, p);
+  await page.getByRole("button", { name: /^作品集/ }).click();
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.getByLabel("浏览作品集").selectOption(c.id);
+  await expect(page.locator(".photo-card")).toHaveCount(3);
+  await page.getByLabel("作品集描述").fill("山间的清冷旅行");
+  await page.getByRole("heading", { name: "山川", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (
+          await (await request.get(`/api/projects/${p.id}/collections`)).json()
+        )[0].description,
+    )
+    .toBe("山间的清冷旅行");
+  await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
+  const studio = page.getByRole("dialog", { name: "拼图工作室" });
+  await expect(studio.locator(".source-grid button")).toHaveCount(3);
+  await studio
+    .getByRole("button", { name: "保存到作品集", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("拼图已保存到作品集");
+  await studio.getByRole("button", { name: "返回照片库", exact: true }).click();
+  await page.getByRole("tab", { name: "创作", exact: true }).click();
+  await expect(page.locator(".creation-card")).toHaveCount(1);
+  await expect
+    .poll(() =>
+      page.locator(".creation-card img").evaluate((el) => el.naturalWidth),
+    )
+    .toBeGreaterThan(0);
+  expect((await saved(request, p)).length).toBe(4);
+  await page.screenshot({ path: "test-results/portfolio-creations.png" });
 });

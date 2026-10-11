@@ -1,3 +1,4 @@
+import { registerCreations } from "./creations.mjs";
 import path from "node:path";
 import { createApp, errors } from "./app.mjs";
 import { NativeBridge } from "./native.mjs";
@@ -21,8 +22,10 @@ registerTags(app, store);
 const aiQueue = registerAI(app, store, native);
 registerVocabulary(app, store);
 registerExports(app, store, upload);
+const creations = registerCreations(app, store);
 app.get("/api/jobs", (req, res) =>
   res.json({
+    creations: store.all("creationJob").map((j) => creations.public(j)),
     local: local.state(),
     ai: aiQueue.state(),
     vocabulary: store.all("vocabularyJob").map(({ config, ...job }) => job),

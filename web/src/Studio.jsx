@@ -219,7 +219,26 @@ export default function Studio({
           : photos.filter(inFinal),
     [],
   );
-  const [draft, setDraft] = useState(() => newDraft(projectId, initial)),
+  const [scopeId] = useState(
+    () => collection?.id || (selected.length ? crypto.randomUUID() : ""),
+  );
+  const scope = {
+    scopeId,
+    collectionId: collection?.id || null,
+    sourceIds: selected.length ? initial.map((p) => p.id) : null,
+  };
+  const draftPath = `/projects/${projectId}/draft?scopeId=${scopeId}`;
+  const [destinations, setDestinations] = useState([]),
+    [destination, setDestination] = useState(collection?.id || "");
+  useEffect(() => {
+    api(`/projects/${projectId}/collections`)
+      .then(setDestinations)
+      .catch((e) => notify(e.message));
+  }, [projectId]);
+  const [draft, setDraft] = useState(() => ({
+      ...newDraft(projectId, initial),
+      ...scope,
+    })),
     [loaded, setLoaded] = useState(false),
     [previousDraft, setPreviousDraft] = useState(null),
     [active, setActive] = useState(0),
@@ -236,15 +255,15 @@ export default function Studio({
     logoRef = useRef(),
     generation = useRef(0);
   useEffect(() => {
-    Promise.all([api(`/projects/${projectId}/draft`), api("/presets")])
+    Promise.all([api(draftPath), api("/presets")])
       .then(([value, p]) => {
         if (value) {
           if (
             value.slots.every((slot) =>
-              photos.some((p) => p.id === slot.photoId),
+              initial.some((p) => p.id === slot.photoId),
             )
           )
-            setDraft(value);
+            setDraft({ ...value, ...scope });
           else setPreviousDraft(value);
         }
         setPresets(p);
@@ -265,7 +284,7 @@ export default function Studio({
     setSaved(false);
     const version = ++generation.current;
     const t = setTimeout(() => {
-      api(`/projects/${projectId}/draft`, json("PUT", draft))
+      api(draftPath, json("PUT", draft))
         .then(() => {
           if (version === generation.current) setSaved(true);
         })
@@ -312,7 +331,7 @@ export default function Studio({
     change({ ...draft, slots });
     if (active < TEMPLATES[draft.template].count - 1) setActive(active + 1);
   };
-  const available = photos.filter(
+  const available = initial.filter(
     (p) =>
       p.status !== "reject" &&
       (!query || [p.name, ...tagsOf(p)].join(" ").includes(query)),
@@ -333,6 +352,7 @@ export default function Studio({
         json("POST", {
           prompt: text,
           collectionId: collection?.id,
+          sourceIds: scope.sourceIds,
           lockedIds: draft.slots.filter((s) => s.locked).map((s) => s.photoId),
           current: {
             template: draft.template,
@@ -384,7 +404,7 @@ export default function Studio({
         if (preview) URL.revokeObjectURL(preview);
         setPreview(URL.createObjectURL(await response.blob()));
       } else {
-        await api(`/projects/${projectId}/draft`, json("PUT", draft));
+        await api(draftPath, json("PUT", draft));
         setSaved(true);
         await download(
           `/projects/${projectId}/render`,
@@ -423,7 +443,7 @@ export default function Studio({
   };
   const close = async () => {
     try {
-      if (loaded) await api(`/projects/${projectId}/draft`, json("PUT", draft));
+      if (loaded) await api(draftPath, json("PUT", draft));
       onClose();
     } catch (e) {
       notify(e.message);
@@ -449,7 +469,7 @@ export default function Studio({
             className="primary"
             onClick={async () => {
               try {
-                await api(`/projects/${projectId}/draft`, json("PUT", draft));
+                await api(draftPath, json("PUT", draft));
                 setPreviousDraft(null);
               } catch (e) {
                 notify(e.message);
@@ -971,6 +991,54 @@ export default function Studio({
           >
             <Download size={14} />
             拷贝入选原片 ZIP
+          </button>
+          <label className="field">
+            <span>保存作品集</span>
+            <select
+              aria-label="保存作品集"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+            >
+              <option value="">新建作品集</option>
+              {destinations.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="primary"
+            disabled={!!busy}
+            onClick={async () => {
+              setBusy("save-creation");
+              try {
+                let target = destination;
+                if (!target) {
+                  const c = await api(
+                    `/projects/${projectId}/collections`,
+                    json("POST", {
+                      name: draft.title,
+                      photoIds: draft.slots.map((s) => s.photoId),
+                    }),
+                  );
+                  target = c.id;
+                  setDestinations((v) => [...v, c]);
+                  setDestination(target);
+                }
+                await api(
+                  `/projects/${projectId}/collections/${target}/collage`,
+                  json("POST", draft),
+                );
+                notify("拼图已保存到作品集");
+              } catch (e) {
+                notify(e.message);
+              } finally {
+                setBusy("");
+              }
+            }}
+          >
+            保存到作品集
           </button>
         </aside>
       </div>

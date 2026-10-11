@@ -76,6 +76,11 @@ test("curation API isolates projects, keeps collections independent and validate
       patch: { status: "keep", favorite: true },
     });
     assert.equal(store.get("photo", "a").favorite, true);
+    await request(`/api/projects/${p.id}/photos`, "PATCH", {
+      ids: ["a"],
+      round: "final",
+      patch: { status: "keep" },
+    });
     const c = await request(`/api/projects/${p.id}/collections`, "POST", {
       photoIds: ["a"],
       name: "朋友圈",

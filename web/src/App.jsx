@@ -40,6 +40,7 @@ import TagsPanel from "./TagsPanel";
 import AIWizard from "./AIWizard";
 import TaskBar from "./TaskBar";
 import Refine from "./Refine";
+import { PortfolioTools, CreationGallery } from "./Portfolio";
 import TagFilters from "./TagFilters";
 import {
   filterPhotos,
@@ -72,6 +73,7 @@ export default function App() {
     [expanded, setExpanded] = useState(new Set()),
     [inspector, setInspector] = useState(false),
     [more, setMore] = useState(false);
+  const [collectionMode, setCollectionMode] = useState("photos");
   const [tagPanel, setTagPanel] = useState(false);
   const [aiWizard, setAIWizard] = useState(null);
   const [dialog, setDialog] = useState(null),
@@ -241,6 +243,7 @@ export default function App() {
     setFilters({});
     setQuery("");
     setCollectionId("");
+    setCollectionMode("photos");
     setMore(false);
     setReviewed(false);
     setTagPanel(value === "refine");
@@ -598,7 +601,14 @@ export default function App() {
                       ? "已粗筛"
                       : "粗筛"}
               </h1>
-              {refining ? (
+              {portfolio && collection && collectionMode === "creations" ? (
+                <CreationGallery
+                  projectId={projectId}
+                  collectionId={collection.id}
+                  photos={photos}
+                  notify={notify}
+                />
+              ) : refining ? (
                 <button
                   className="text-button"
                   onClick={() => {
@@ -717,6 +727,23 @@ export default function App() {
               )}
             </div>
           </div>
+          {portfolio && (
+            <PortfolioTools
+              projectId={projectId}
+              collections={collections}
+              collection={collection}
+              selected={selected}
+              onChoose={(id) => {
+                setCollectionId(id);
+                setSelected([]);
+                setCollectionMode("photos");
+              }}
+              refresh={refresh}
+              notify={notify}
+              mode={collectionMode}
+              setMode={setCollectionMode}
+            />
+          )}
           {!!photos.length && (
             <div className="compact-tools">
               <input
