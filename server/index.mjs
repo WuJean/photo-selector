@@ -1,3 +1,4 @@
+import { registerMedia } from "./media.mjs";
 import { registerShares } from "./shares.mjs";
 import { registerNetwork } from "./network-import.mjs";
 import { registerCleanup } from "./cleanup.mjs";
@@ -29,6 +30,7 @@ registerLibrary(app, store, upload, { onImport: (p) => local.enqueue(p.id) });
 registerNetwork(app, store, (p) => local.enqueue(p.id));
 registerCleanup(app, store);
 registerShares(app, store, upload);
+registerMedia(app, store, upload);
 registerCuration(app, store);
 registerTags(app, store);
 const aiQueue = registerAI(app, store, native);

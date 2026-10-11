@@ -1,5 +1,7 @@
+import { prepareAI, completePending } from "./ai-media";
 import { mediaAddress } from "./local-media";
 export async function api(url, options = {}) {
+  await prepareAI(url, options);
   const response = await fetch("/api" + url, {
     ...options,
     headers:
@@ -14,6 +16,7 @@ export async function api(url, options = {}) {
     } catch {}
     throw new Error(message);
   }
+  completePending(url, options);
   return response.json();
 }
 export const json = (method, body) => ({

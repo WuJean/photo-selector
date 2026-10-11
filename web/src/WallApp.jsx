@@ -1,3 +1,4 @@
+import { pendingAI, cancelPending, resumePending } from "./ai-media";
 import { ShareManager, PublicShare } from "./Sharing";
 import { downloadPhotos } from "./downloads";
 import {
@@ -165,6 +166,24 @@ export default function WallApp() {
   );
 }
 function Workspace({ onLogout }) {
+  const [waitingAI, setWaitingAI] = useState(pendingAI),
+    [mediaProgress, setMediaProgress] = useState(null);
+  useEffect(() => {
+    const update = () => setWaitingAI(pendingAI()),
+      progress = (e) => setMediaProgress(e.detail),
+      error = (e) => setToast(e.detail);
+    window.addEventListener("photo-ai-pending", update);
+    window.addEventListener("photo-media-progress", progress);
+    window.addEventListener("photo-ai-error", error);
+    window.addEventListener("photo-files-reconnected", resumePending);
+    return () => {
+      window.removeEventListener("photo-ai-pending", update);
+      window.removeEventListener("photo-media-progress", progress);
+      window.removeEventListener("photo-ai-error", error);
+      window.removeEventListener("photo-files-reconnected", resumePending);
+    };
+  }, []);
+
   const [page, setPage] = useState("wall"),
     [photos, setPhotos] = useState([]),
     [collections, setCollections] = useState([]),
@@ -471,6 +490,22 @@ function Workspace({ onLogout }) {
           refresh={refresh}
           notify={notify}
         />
+        {waitingAI.map((j) => (
+          <div className="task-row" key={j.id}>
+            <span>AI 任务待发送 · 等待连接电脑文件夹</span>
+            <button onClick={resumePending}>继续</button>
+            <button onClick={() => cancelPending(j.id)}>取消</button>
+          </div>
+        ))}
+        {mediaProgress && (
+          <div className="task-row">
+            <span>准备 AI 预览</span>
+            <progress value={mediaProgress.done} max={mediaProgress.total} />
+            <span>
+              {mediaProgress.done}/{mediaProgress.total}
+            </span>
+          </div>
+        )}
         {networkJobs
           .filter((j) => !["done", "cancelled"].includes(j.state))
           .map((j) => (

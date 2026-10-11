@@ -1,3 +1,5 @@
+import { photoBlob } from "./local-media";
+import { saveBlob } from "./downloads";
 import React, { useEffect, useState } from "react";
 import { api, json, photoURL } from "./api";
 import PhotoImage from "./PhotoImage";
@@ -228,7 +230,18 @@ export function CreationGallery({ projectId, collectionId, photos, notify }) {
               <a
                 key={id}
                 className="creation-reference"
-                href={photoURL(id, "preview")}
+                href="#"
+                onClick={async (e) => {
+                  e.preventDefault();
+                  try {
+                    saveBlob(
+                      await photoBlob(id),
+                      photos.find((p) => p.id === id)?.name || "photo.jpg",
+                    );
+                  } catch (error) {
+                    notify(error.message);
+                  }
+                }}
                 target="_blank"
                 rel="noreferrer"
               >

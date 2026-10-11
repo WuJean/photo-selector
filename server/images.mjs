@@ -95,12 +95,25 @@ export function originalPath(store, id) {
   return path.join(store.root, "originals", id + ".jpg");
 }
 export async function previewData(store, id, maxEdge = 1536) {
-  return sharp(originalPath(store, id))
+  const photo = store.get("photo", id);
+  let source = originalPath(store, id);
+  if (photo?.storage === "local") {
+    source = path.join(store.root, "analysis-previews", id + ".jpg");
+    try {
+      await access(source);
+    } catch {
+      throw new Error("等待连接电脑文件夹并准备 AI 预览");
+    }
+  }
+  const buffer = await sharp(source)
     .rotate()
     .resize(maxEdge, maxEdge, { fit: "inside", withoutEnlargement: true })
     .toColourspace("srgb")
     .jpeg({ quality: 82 })
     .toBuffer();
+  const media = store.get("analysisMedia", id);
+  if (media) store.put("analysisMedia", { ...media, used: true });
+  return buffer;
 }
 
 const repairs = new Map();

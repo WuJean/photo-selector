@@ -9,10 +9,14 @@ export function saveBlob(blob, name) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
-export async function downloadPhotos(photos, progress = () => {}) {
+export async function downloadPhotos(
+  photos,
+  progress = () => {},
+  blobFor = (p) => photoBlob(p.id),
+) {
   if (!photos.length) return;
   if (photos.length === 1) {
-    saveBlob(await photoBlob(photos[0].id), photos[0].name);
+    saveBlob(await blobFor(photos[0]), photos[0].name);
     return;
   }
   let output;
@@ -49,7 +53,7 @@ export async function downloadPhotos(photos, progress = () => {}) {
     for (let i = 0; i < photos.length; i++) {
       progress(`下载 ${i + 1}/${photos.length}`);
       const p = photos[i],
-        blob = await photoBlob(p.id),
+        blob = await blobFor(p),
         entry = new ZipPassThrough(uniqueName(p.name, names));
       zip.add(entry);
       const reader = blob.stream().getReader();

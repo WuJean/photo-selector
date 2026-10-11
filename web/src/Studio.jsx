@@ -1,3 +1,5 @@
+import { renderLocal } from "./render-local";
+import { downloadPhotos, saveBlob } from "./downloads";
 import PhotoImage from "./PhotoImage";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -35,23 +37,6 @@ import PairingPresets from "./PairingPresets";
 import { randomPairing } from "../../shared/pairing.mjs";
 import { tagsOf, inFinal } from "../../shared/domain.mjs";
 
-async function download(url, body, name) {
-  const response = await fetch("/api" + url, json("POST", body));
-  if (!response.ok) {
-    let message = "导出失败";
-    try {
-      message = (await response.json()).error || message;
-    } catch {}
-    throw new Error(message);
-  }
-  const blob = await response.blob(),
-    href = URL.createObjectURL(blob),
-    a = document.createElement("a");
-  a.href = href;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(href), 5000);
-}
 function Canvas({ draft, photos, active, setActive, updateSlot }) {
   const ref = useRef(),
     drag = useRef();
@@ -433,22 +418,16 @@ export default function Studio({
   const exportImage = async (type) => {
     setBusy(type);
     try {
+      const blob = await renderLocal(draft, photos, {
+        preview: type === "preview",
+      });
       if (type === "preview") {
-        const response = await fetch(
-          `/api/projects/${projectId}/render?preview=1`,
-          json("POST", draft),
-        );
-        if (!response.ok) throw new Error((await response.json()).error);
         if (preview) URL.revokeObjectURL(preview);
-        setPreview(URL.createObjectURL(await response.blob()));
+        setPreview(URL.createObjectURL(blob));
       } else {
         await api(draftPath, json("PUT", draft));
         setSaved(true);
-        await download(
-          `/projects/${projectId}/render`,
-          draft,
-          `${draft.title}.jpg`,
-        );
+        saveBlob(blob, `${draft.title}.jpg`);
         notify("拼图已导出");
       }
     } catch (e) {
@@ -467,10 +446,17 @@ export default function Studio({
     }
     setBusy(mode);
     try {
-      await download(
-        `/projects/${projectId}/export`,
-        { ids, mode, settings: draft },
-        mode === "originals" ? "入选原片.zip" : "发布单张.zip",
+      await downloadPhotos(
+        photos.filter((p) => ids.includes(p.id)),
+        notify,
+        mode === "originals"
+          ? undefined
+          : (p) =>
+              renderLocal(
+                { ...draft, template: "single", slots: [slotFor(p)] },
+                photos,
+                { preserveOriginal: true },
+              ),
       );
       notify(`已导出 ${ids.length} 张照片`);
     } catch (e) {
@@ -1074,10 +1060,17 @@ export default function Studio({
                   setDestinations((v) => [...v, c]);
                   setDestination(target);
                 }
-                await api(
-                  `/projects/${projectId}/collections/${target}/collage`,
-                  json("POST", draft),
+                const form = new FormData();
+                form.append(
+                  "photo",
+                  await renderLocal(draft, photos),
+                  "collage.jpg",
                 );
+                form.append("draft", JSON.stringify(draft));
+                await api(`/collections/${target}/collage-upload`, {
+                  method: "POST",
+                  body: form,
+                });
                 notify("拼图已保存到作品集");
               } catch (e) {
                 notify(e.message);
