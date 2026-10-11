@@ -752,3 +752,9 @@
  .immersive-photo-bottom { padding:4px; }
  .immersive-photo-bottom>div:first-child { display:none; }
 }
+.upload-progress { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:12px; margin-bottom:16px; border:1px solid #465140; border-radius:10px; }
+.upload-progress details { flex-basis:100%; }
+.classification-settings { display:grid; gap:16px; }
+.classification-settings details { padding:12px 0; border-bottom:1px solid #414738; }
+.tag-edit-row { display:flex; gap:8px; margin:10px 0; }
+.tag-edit-row input { width:40%; min-width:0; }

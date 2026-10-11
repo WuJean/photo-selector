@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 import { entries, requireItem, reconcileMany, timestamp } from "./library.mjs";
 import { inInitial } from "../shared/domain.mjs";
 export function activeReference(store, id) {
+  const automatic=store.get("analysisTask",id);
+  if(automatic?.state === "running")return true;
   const ai = store.get("job", "ai");
   if (ai && [...(ai.photoIds || []), ...(ai.runningIds || [])].includes(id))
     return true;

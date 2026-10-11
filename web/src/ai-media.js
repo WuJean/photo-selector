@@ -90,3 +90,19 @@ export function completePending(url, options) {
       ),
     );
 }
+
+const attemptedAutomatic = new Set();
+let automaticPreparing=false;
+window.addEventListener("photo-files-reconnected",()=>attemptedAutomatic.clear());
+export async function prepareAutomaticMedia(ids=[]) {
+ if(automaticPreparing || !ids.length)return;
+ automaticPreparing=true;
+ try {
+  let next=0;
+  await Promise.all([0,1].map(async()=>{while(next<ids.length){
+   const id=ids[next++]; if(attemptedAutomatic.has(id))continue;
+   attemptedAutomatic.add(id);
+   try {const blob=await photoBlob(id,"preview");const form=new FormData();form.append("photo",blob,"preview.jpg");await api(`/assets/${id}/analysis-preview`,{method:"POST",body:form});}catch{}
+  }}));
+ }finally{automaticPreparing=false;}
+}

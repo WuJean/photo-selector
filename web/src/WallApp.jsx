@@ -1,6 +1,6 @@
 import usePhotoGesture from "./usePhotoGesture";
 import { selectPhoto, nextAfterDecision } from "../../shared/selection.mjs";
-import { pendingAI, cancelPending, resumePending } from "./ai-media";
+import { pendingAI, cancelPending, resumePending, prepareAutomaticMedia } from "./ai-media";
 import { ShareManager, PublicShare } from "./Sharing";
 import { downloadPhotos } from "./downloads";
 import {
@@ -314,6 +314,7 @@ function Workspace({ onLogout }) {
     setCollections(c);
     setBatches(b);
     setJobs(j);
+    void prepareAutomaticMedia(j.automatic?.waitingMedia);
     setNetworkJobs(networks);
     setCleanupJobs(cleanups);
     if (batchId) setBatchPhotos(await api(`/batches/${batchId}/photos`));
@@ -955,18 +956,6 @@ function Workspace({ onLogout }) {
             >
               {fold ? "全部展开" : "全部叠放"}
             </Button>
-          )}
-          {(page !== "work" || round === "final") && filtered.length > 0 && (
-            <>
-              <Button onClick={classify}>AI 分类</Button>
-              <Button
-                onClick={() =>
-                  setAI(selected.length ? selected : filtered.map((p) => p.id))
-                }
-              >
-                细化分类
-              </Button>
-            </>
           )}
           {page !== "work" && filtered.length > 0 && (
             <Button onClick={() => setStudio(true)}>拼图与创作</Button>

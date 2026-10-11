@@ -11,6 +11,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { api, json } from "./api";
+import ClassificationSettings from "./ClassificationSettings";
 import ImageSettings from "./ImageSettings";
 export default function Settings({ onClose, notify }) {
   const [config, setConfig] = useState({
@@ -79,8 +80,9 @@ export default function Settings({ onClose, notify }) {
         >
           图片生成
         </button>
+        <button role="tab" aria-selected={section === "tags"} onClick={()=>setSection("tags")}>分类标签</button>
       </div>
-      {section === "image" ? (
+      {section === "tags" ? <ClassificationSettings notify={notify}/> : section === "image" ? (
         <ImageSettings notify={notify} />
       ) : (
         <>

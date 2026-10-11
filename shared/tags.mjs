@@ -87,7 +87,7 @@ export const CORE_TAGS = DEFAULT_TAGS.filter((t) =>
 export const structuredTags = (tags) =>
   normalizeTags(
     [
-      ...CORE_TAGS,
+      ...CORE_TAGS.map(core => ({...core,description:tags.find(t=>t.name===core.name)?.description || core.description})),
       ...tags.filter((t) => !["主体", "景别"].includes(t.category)),
     ].slice(0, 100),
   );

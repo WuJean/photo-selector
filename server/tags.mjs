@@ -35,22 +35,7 @@ export function registerTags(app, store) {
       });
     const tags = normalizeTags(req.body.tags);
     const value = { ...old, version: old.version + 1, tags };
-    const names = new Set(tags.map((t) => t.name)),
-      removed = old.tags.filter((t) => !names.has(t.name)).map((t) => t.name);
     const changes = [{ kind: "tagLibrary", value }];
-    if (removed.length)
-      for (const p of store.photos(req.params.id))
-        changes.push({
-          kind: "photo",
-          fields: ["manualTags", "excludedTags"],
-          value: {
-            ...p,
-            manualTags: (p.manualTags || []).filter(
-              (t) => !removed.includes(t),
-            ),
-            excludedTags: [...new Set([...(p.excludedTags || []), ...removed])],
-          },
-        });
     apply(req.params.id, changes, "编辑标签库");
     res.json(value);
   });

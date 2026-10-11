@@ -26,7 +26,7 @@ export function reconcileMany(store, ids) {
     decisions.set(e.assetId, value);
   }
   const collected = new Set(store.all("collection").flatMap((c) => c.photoIds));
-  return [...new Set(ids)].map((id) => {
+  const result = [...new Set(ids)].map((id) => {
     const p = requireItem(store, "photo", id),
       choice = decisions.get(id),
       final = collected.has(id) || p.direct || choice?.final;
@@ -36,6 +36,8 @@ export function reconcileMany(store, ids) {
       finalStatus: final ? "keep" : "unseen",
     });
   });
+  store.onEligibilityChange?.(ids);
+  return result;
 }
 export function reconcile(store, id) {
   return reconcileMany(store, [id])[0];

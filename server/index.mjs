@@ -1,3 +1,4 @@
+import { registerAutomaticAI } from "./automatic-ai.mjs";
 import { registerMedia } from "./media.mjs";
 import { registerShares } from "./shares.mjs";
 import { registerNetwork } from "./network-import.mjs";
@@ -10,7 +11,7 @@ import { createApp, errors } from "./app.mjs";
 import { NativeBridge } from "./native.mjs";
 import { LocalQueue } from "./analysis.mjs";
 import { registerCuration } from "./curation.mjs";
-import { registerAI } from "./ai.mjs";
+import { registerAI, AIClient } from "./ai.mjs";
 import { registerVocabulary } from "./vocabulary.mjs";
 import { registerTags } from "./tags.mjs";
 import { registerPairingPresets } from "./pairing-presets.mjs";
@@ -35,6 +36,7 @@ registerMedia(app, store, upload);
 registerCuration(app, store);
 registerTags(app, store);
 const aiQueue = registerAI(app, store, native);
+const automaticAI=registerAutomaticAI(app,store,app.locals.aiVault,(config,key)=>new AIClient(config,key));
 registerVocabulary(app, store);
 registerExports(app, store, upload);
 registerPairingPresets(app, store);
@@ -45,6 +47,7 @@ app.get("/api/jobs", (req, res) =>
     creations: store.all("creationJob").map((j) => creations.public(j)),
     local: local.state(),
     ai: aiQueue.state(),
+    automatic: automaticAI.state(),
     vocabulary: store.all("vocabularyJob").map(({ config, ...job }) => job),
   }),
 );

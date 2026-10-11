@@ -6,6 +6,8 @@ import {
 } from "../../shared/tasks.mjs";
 export default function TaskBar({ jobs, projectId, refresh, notify }) {
   const rows = [];
+  const auto=jobs?.automatic;
+  if(auto && (auto.photoIds.length || auto.errors)) rows.push({key:"automatic",label:"自动分类",done:auto.done,total:auto.total,errors:auto.errors,error:auto.error,active:auto.runningIds.length,paused:auto.paused,pending:!!auto.photoIds.length,action:a=>api(`/automatic-ai/${a}`,json("POST",{}))});
   const ai = jobs?.ai;
   const activity = analysisTaskActivity(ai);
   if (ai?.projectId === projectId && ai.total && activity.visible)
