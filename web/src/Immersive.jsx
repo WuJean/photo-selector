@@ -108,7 +108,7 @@ export function Frame({
       {...gesture}
     >
       <PhotoImage
-        src={photoURL(photo.id, natural ? "original" : "preview")}
+        src={photoURL(photo.id, natural ? (photo.originalExtension && photo.originalExtension !== "jpg" ? "render" : "original") : "preview")}
         draggable="false"
         alt={photo.name}
         style={{

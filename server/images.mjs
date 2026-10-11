@@ -1,8 +1,9 @@
 import sharp from "sharp";
+import { decodeHeif } from "./heif.mjs";
 import exifr from "exifr";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { rename, unlink, copyFile, access, stat } from "node:fs/promises";
+import { rename, unlink, copyFile, access, stat, open } from "node:fs/promises";
 import path from "node:path";
 import { focalCategory } from "../shared/domain.mjs";
 
@@ -16,8 +17,16 @@ export async function digest(file) {
 export async function importPhoto(store, projectId, file, name, lastModified) {
   const project = store.get("project", projectId);
   if (!project) throw new Error("项目不存在");
-  const info = await sharp(file, { limitInputPixels: 120_000_000 }).metadata();
-  if (info.format !== "jpeg") throw new Error("首版支持 JPEG 照片");
+  const handle = await open(file, "r");
+  const head = Buffer.alloc(64); try { await handle.read(head,0,64,0); } finally { await handle.close(); }
+  const isHeif = head.toString("ascii",4,8) === "ftyp" && /heic|heix|hevc|hevx|mif1/.test(head.toString("ascii",8));
+  const decoded = isHeif ? path.join(store.root,"temp", randomUUID()+".jpg") : file;
+  if (isHeif) await decodeHeif(file,decoded);
+  let info;
+  try { info = await sharp(decoded, { limitInputPixels: 120_000_000 }).metadata(); }
+  catch(e) { if(isHeif) await unlink(decoded).catch(()=>{}); throw e; }
+  if (!["jpeg","png"].includes(info.format)) throw new Error("支持 JPEG、PNG、HEIC/HEIF 静态照片");
+  const originalExtension = isHeif ? "heic" : info.format === "png" ? "png" : "jpg";
   const id = randomUUID();
   const hash = await digest(file);
   let exif = {};
@@ -28,8 +37,10 @@ export async function importPhoto(store, projectId, file, name, lastModified) {
   const width = rotation ? info.height : info.width,
     height = rotation ? info.width : info.height;
   const source = path.join(store.root, "originals", id + ".jpg");
-  await copyFile(file, source);
+  const rawSource = originalExtension === "jpg" ? source : path.join(store.root,"source-files",id+"."+originalExtension);
+  await copyFile(file, rawSource);
   try {
+    if (rawSource !== source) await sharp(decoded).rotate().flatten({background:"#fff"}).jpeg({quality:95}).toFile(source);
     await sharp(source)
       .rotate()
       .resize(520, 520, { fit: "inside", withoutEnlargement: true })
@@ -42,9 +53,9 @@ export async function importPhoto(store, projectId, file, name, lastModified) {
       .jpeg({ quality: 85 })
       .toFile(path.join(store.root, "previews", id + ".jpg"));
   } catch (e) {
-    await unlink(source).catch(() => {});
+    for (const target of [source, rawSource, path.join(store.root,"thumbs",id+".jpg"),path.join(store.root,"previews",id+".jpg")]) await unlink(target).catch(()=>{});
     throw e;
-  }
+  } finally { if(isHeif) await unlink(decoded).catch(()=>{}); }
   const date = exif.DateTimeOriginal || exif.CreateDate;
   const fallback =
     Number(lastModified) > 0 ? new Date(Number(lastModified)) : null;
@@ -61,8 +72,10 @@ export async function importPhoto(store, projectId, file, name, lastModified) {
     width,
     height,
     hash,
-    originalPath: source,
-    size: (await stat(source)).size,
+    originalPath: rawSource,
+    originalExtension,
+    originalMime: isHeif ? "image/heic" : "image/"+info.format,
+    size: (await stat(rawSource)).size,
     takenAt,
     importedAt: new Date().toISOString(),
     camera: [exif.Make, exif.Model].filter(Boolean).join(" "),
@@ -92,11 +105,12 @@ export async function importPhoto(store, projectId, file, name, lastModified) {
 export function originalPath(store, id) {
   const p = store.get("photo", id);
   if (!p) throw new Error("照片不存在");
-  return path.join(store.root, "originals", id + ".jpg");
+  return p.originalExtension && p.originalExtension !== "jpg" ? path.join(store.root,"source-files",id+"."+p.originalExtension) : path.join(store.root, "originals", id + ".jpg");
 }
+export function renderPath(store,id) { return path.join(store.root,"originals",id+".jpg"); }
 export async function previewData(store, id, maxEdge = 1536) {
   const photo = store.get("photo", id);
-  let source = originalPath(store, id);
+  let source = renderPath(store, id);
   if (photo?.storage === "local") {
     source = path.join(store.root, "analysis-previews", id + ".jpg");
     try {
@@ -118,7 +132,12 @@ export async function previewData(store, id, maxEdge = 1536) {
 
 const repairs = new Map();
 export async function imageFile(store, id, variant) {
-  const source = originalPath(store, id);
+  if (["original","render"].includes(variant)) {
+    const file=variant === "original" ? originalPath(store,id) : renderPath(store,id);
+    try { await access(file); } catch { throw Object.assign(new Error("原片不存在"),{status:404}); }
+    return file;
+  }
+  const source = renderPath(store, id);
   const target = path.join(
     store.root,
     { thumb: "thumbs", preview: "previews", original: "originals" }[variant],

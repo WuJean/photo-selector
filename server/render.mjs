@@ -6,7 +6,7 @@ import {
   imagePlacement,
   TEMPLATES,
 } from "../shared/layout.mjs";
-import { originalPath } from "./images.mjs";
+import { renderPath } from "./images.mjs";
 export const escapeXML = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -38,7 +38,7 @@ export async function renderDraft(
   {
     preview = false,
     preserveOriginal = false,
-    sourcePath = (id) => originalPath(store, id),
+    sourcePath = (id) => renderPath(store, id),
   } = {},
 ) {
   if (draft.slots.length !== TEMPLATES[draft.template].count)

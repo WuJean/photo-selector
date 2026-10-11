@@ -12,7 +12,7 @@ import {
 import sharp from "sharp";
 import archiver from "archiver";
 import { requireItem, timestamp } from "./library.mjs";
-import { originalPath, digest } from "./images.mjs";
+import { originalPath, renderPath, digest } from "./images.mjs";
 import { hashPassword, verifyPassword, cookies } from "./auth.mjs";
 import { tagsOf, uniqueName } from "../shared/domain.mjs";
 import { renderDraft } from "./render.mjs";
@@ -144,6 +144,7 @@ export function registerShares(app, store, upload) {
       photos: photos.map((p) => ({
         id: p.id,
         name: p.name,
+        originalMime: p.originalMime || "image/jpeg",
         width: p.width,
         height: p.height,
         tags: tagsOf(p),
@@ -172,7 +173,7 @@ export function registerShares(app, store, upload) {
     } catch {
       return res.status(409).json({ error: "需要从电脑上传此照片" });
     }
-    await write(s, req.params.assetId, source, "display");
+    await write(s, req.params.assetId, renderPath(store, req.params.assetId), "display");
     if (s.download === "original")
       await write(s, req.params.assetId, source, "original");
     res.json({ ok: true });
@@ -295,7 +296,7 @@ export function registerShares(app, store, upload) {
     res.set("Cache-Control", "private, no-store");
     if (req.query.download) res.attachment(p?.name || creation.title + ".jpg");
     res
-      .type("image/jpeg")
+      .type(variant === "original" ? p.originalMime || "image/jpeg" : "image/jpeg")
       .sendFile(filename(store, s, id, variant), { dotfiles: "allow" });
   });
   app.post("/api/public/shares/:token/collages/:action", async (req, res) => {

@@ -8,7 +8,7 @@ export class Store {
   constructor(root) {
     this.root = root;
     mkdirSync(root, { recursive: true });
-    for (const name of ["originals", "thumbs", "previews", "temp", "assets"])
+    for (const name of ["originals", "source-files", "thumbs", "previews", "temp", "assets"])
       mkdirSync(path.join(root, name), { recursive: true });
     this.db = new DatabaseSync(path.join(root, "library.sqlite"));
     this.db.exec(

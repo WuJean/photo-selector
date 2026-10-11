@@ -51,7 +51,7 @@ test("login, upload, two decisions, independent portfolio and photo-wall downloa
   ).toHaveCount(0);
   await photo.locator("img").evaluate((el) => el.decode());
   await photo.click();
-  await page.locator(".wall-card").filter({ hasText: "test.jpg" }).dblclick();
+  await page.getByRole("button", { name: "查看 test.jpg", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "查看照片" })).toBeVisible();
   const download = page.waitForEvent("download");
   await page
@@ -60,7 +60,7 @@ test("login, upload, two decisions, independent portfolio and photo-wall downloa
     .click();
   expect((await download).suggestedFilename()).toBe("test.jpg");
   await page.keyboard.press("Escape");
-  await page.reload();
+  await page.goto("/#wall");
   await expect(photo).toHaveCount(1);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(

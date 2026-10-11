@@ -136,7 +136,7 @@ export function Viewer({ photos, index: initial, onClose, onDownload }) {
         }
       >
         <PhotoImage
-          src={photoURL(p.id, "original")}
+          src={photoURL(p.id, p.originalExtension && p.originalExtension !== "jpg" ? "render" : "original")}
           draggable={false}
           style={{
             transform: `translate(${zoom === 1 ? 0 : pan.x}px,${zoom === 1 ? 0 : pan.y}px) scale(${zoom})`,
@@ -288,6 +288,8 @@ function Workspace({ onLogout }) {
     [cleanupJobs, setCleanupJobs] = useState([]);
   const [importMenu, setImportMenu] = useState(false),
     [direct, setDirect] = useState(false);
+  const [uploadItems,setUploadItems] = useState([]);
+  const uploading = useRef(false);
   const input = useRef(),
     guard = useRef(false),
     alive = useRef(true),
@@ -537,47 +539,40 @@ function Workspace({ onLogout }) {
         await refresh();
       },
     });
-  const uploadFiles = async (files) =>
-    run(async () => {
-      let id = batchId;
-      if (
-        !batch ||
-        batch.state !== "initial" ||
-        batch.source !== "upload" ||
-        direct
-      ) {
-        const b = await api(
-          "/batches",
-          json("POST", {
-            name: new Date().toLocaleDateString() + " 导入",
-            source: "upload",
-            direct,
-          }),
-        );
-        id = b.id;
-        setBatchId(id);
+  const processUploads = async (items, id, isDirect) => {
+    if(uploading.current) return;
+    uploading.current=true;
+    let next=0;
+    const change=(item,patch)=>{Object.assign(item,patch);setUploadItems(items.map(v=>({...v})));};
+    try {
+      await Promise.all([0,1].map(async()=>{while(next<items.length){
+        const item=items[next++]; if(item.state==="done")continue;
+        change(item,{state:"uploading",error:null});
+        try {
+          const form=new FormData(); form.append("uploadId",item.id);form.append("lastModified",String(item.file.lastModified));form.append("photos",item.file);
+          const result=await api(`/batches/${id}/import`,{method:"POST",body:form});
+          if(result.results[0]?.error)throw new Error(result.results[0].error);
+          change(item,{state:"done"}); await refresh();setBatchPhotos(await api(`/batches/${id}/photos`));
+        }catch(e){change(item,{state:"error",error:e.message});}
+      }}));
+      if(isDirect && items.every(v=>v.state==="done")) {
+        await api(`/batches/${id}/finish`,json("POST",{round:"initial"}));
+        await api(`/batches/${id}/finish`,json("POST",{round:"final"}));
+        setCollectionId("");setPage("collections");await refresh();
       }
-      setPage("work");
-      for (let offset = 0; offset < files.length; offset += 10) {
-        setBusy(`上传 ${offset}/${files.length}`);
-        const form = new FormData();
-        for (const f of files.slice(offset, offset + 10))
-          form.append("photos", f);
-        const r = await api(`/batches/${id}/import`, {
-          method: "POST",
-          body: form,
-        });
-        const failed = r.results.filter((v) => v.error);
-        if (failed.length) notify(failed[0].error);
+    }catch(e){notify(e.message);}finally{uploading.current=false;}
+  };
+  const uploadFiles = async files => {
+    if(uploading.current || !files.length)return;
+    try {
+      let id=batchId;
+      if(!batch || batch.state!=="initial" || batch.source!=="upload" || direct) {
+        const b=await api("/batches",json("POST",{name:new Date().toLocaleDateString()+" 导入",source:"upload",direct}));id=b.id;setBatchId(id);
       }
-      setBatchPhotos(await api(`/batches/${id}/photos`));
-      if (direct) {
-        await api(`/batches/${id}/finish`, json("POST", { round: "initial" }));
-        await api(`/batches/${id}/finish`, json("POST", { round: "final" }));
-        setCollectionId("");
-        setPage("collections");
-      }
-    });
+      const items=files.map(file=>({id:Array.from(crypto.getRandomValues(new Uint8Array(16)), n=>n.toString(16).padStart(2,"0")).join(""),file,state:"pending",batchId:id,direct}));
+      setUploadItems(items);setPage("work");setRound("initial");await processUploads(items,id,direct);
+    }catch(e){notify(e.message);}
+  };
   const download = async (list) => run(() => downloadPhotos(list, setBusy));
   const classify = () =>
     run(async () => {
@@ -641,6 +636,12 @@ function Workspace({ onLogout }) {
         </button>
       </header>
       <main className="wall-main">
+        {!!uploadItems.length && <section className="upload-progress" aria-label="上传进度">
+          <span>上传 {uploadItems.filter(v=>v.state==="done").length}/{uploadItems.length}</span>
+          <progress value={uploadItems.filter(v=>v.state==="done").length} max={uploadItems.length}/>
+          {uploadItems.some(v=>v.state==="error") && <><Button disabled={uploadItems.some(v=>v.state==="uploading")} onClick={()=>processUploads(uploadItems,uploadItems[0].batchId,uploadItems[0].direct)}>重试失败照片</Button><details><summary>查看失败照片</summary>{uploadItems.filter(v=>v.state==="error").map(v=><p key={v.id}>{v.file.name} · {v.error}</p>)}</details></>}
+          {uploadItems.every(v=>v.state==="done") && <Button onClick={()=>setUploadItems([])}>关闭</Button>}
+        </section>}
         <TaskBar
           jobs={jobs}
           projectId="library"
@@ -741,7 +742,7 @@ function Workspace({ onLogout }) {
         <input
           ref={input}
           type="file"
-          accept="image/jpeg"
+          accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif"
           multiple
           hidden
           onChange={(e) => {
@@ -925,7 +926,7 @@ function Workspace({ onLogout }) {
           <Button onClick={() => setShowFilters((v) => !v)}>筛选</Button>
           <Button className="mobile-select-toggle" onClick={() => { setMobileSelect(v => !v); setSelected([]); }}> {mobileSelect ? "完成选择" : "选择"} </Button>
           <span>{filtered.length} 张</span>
-          {photos.some((p) => p.storage === "local") && (
+          {window.showDirectoryPicker && photos.some((p) => p.storage === "local") && (
             <Button
               onClick={async () => {
                 try {
@@ -1415,7 +1416,7 @@ function Workspace({ onLogout }) {
               />
               已经选好，直接进入待归集
             </label>
-            <Button
+            {window.showDirectoryPicker && <Button
               primary
               onClick={async () => {
                 try {
@@ -1439,14 +1440,14 @@ function Workspace({ onLogout }) {
               }}
             >
               连接电脑文件夹
-            </Button>
+            </Button>}
             <Button
               onClick={() => {
                 setImportMenu(false);
                 input.current.click();
               }}
             >
-              普通上传到服务器
+              {matchMedia("(pointer: coarse)").matches ? "从相册选择" : "普通上传到服务器"}
             </Button>
             <Button
               onClick={() => {

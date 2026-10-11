@@ -3,7 +3,7 @@ import { hamming } from "./analysis.mjs";
 import { focalCategory } from "../shared/domain.mjs";
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
-import { importPhoto } from "./images.mjs";
+import { importPhoto, digest } from "./images.mjs";
 import { inInitial, inFinal } from "../shared/domain.mjs";
 export const LIBRARY = "library";
 export const timestamp = () => new Date().toISOString();
@@ -224,6 +224,7 @@ export function registerLibrary(
       })),
     );
   });
+  const uploads = new Map();
   app.post(
     "/api/batches/:id/import",
     upload.array("photos", 20),
@@ -234,22 +235,31 @@ export function registerLibrary(
         const results = [];
         for (const f of req.files || []) {
           try {
-            const p = await importPhoto(
-              store,
-              LIBRARY,
-              f.path,
-              Buffer.from(f.originalname, "latin1").toString("utf8"),
-            );
-            store.put("photo", {
-              ...p,
-              storage: "server",
-              direct: batch.direct,
-            });
-            addEntry(store, batch.id, p.id, batch.direct);
-            onImport(p);
-            results.push({
-              photo: publicAsset(store, store.get("photo", p.id)),
-            });
+            const uploadId = String(req.body.uploadId || "");
+            if (uploadId && (!/^[a-zA-Z0-9-]{8,100}$/.test(uploadId) || req.files.length !== 1)) throw new Error("上传标识无效");
+            const key = uploadId ? batch.id+":"+uploadId : "";
+            const hash = uploadId ? await digest(f.path) : null;
+            const perform = async () => {
+              const old = key && store.get("uploadReceipt",key);
+              if (old) {
+                if (old.hash !== hash) throw new Error("同一上传标识不能用于不同文件");
+                const p = requireItem(store,"photo",old.assetId);
+                if (p.deleted || p.deleting) throw new Error("照片已清理，请重新导入");
+                return {photo:publicAsset(store,p)};
+              }
+              const p = await importPhoto(store, LIBRARY, f.path, Buffer.from(f.originalname, "latin1").toString("utf8"),req.body.lastModified);
+              store.transaction(()=>{
+                store.put("photo", { ...p, storage: "server", direct: batch.direct });
+                addEntry(store, batch.id, p.id, batch.direct);
+                if(key) store.put("uploadReceipt",{id:key,assetId:p.id,hash,createdAt:timestamp()});
+              });
+              onImport(p);
+              return { photo: publicAsset(store, store.get("photo", p.id)) };
+            };
+            if (key && uploads.has(key)) await uploads.get(key);
+            const task=perform(); if(key) uploads.set(key,task);
+            try { results.push(await task); } finally { if(key) uploads.delete(key); }
+
           } catch (error) {
             results.push({ error: error.message });
           }
