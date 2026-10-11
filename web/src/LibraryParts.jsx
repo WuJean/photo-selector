@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Check, Layers, Heart, Loader2 } from "lucide-react";
+import { X, Check, Layers, Heart, Loader2, Lock } from "lucide-react";
 import PhotoImage from "./PhotoImage";
 import { photoURL } from "./api";
 import { STATUS_LABELS, tagsOf } from "../../shared/domain.mjs";
@@ -97,6 +97,8 @@ export function VirtualGrid({
   renderBadge,
   scrollKey,
   focusId,
+  onReorder,
+  lockedIds = [],
 }) {
   const ref = useRef();
   const [size, setSize] = useState({ width: 900, height: 600 });
@@ -169,6 +171,38 @@ export function VirtualGrid({
               onKeyDown={(e) => {
                 if (e.key === "Enter") onSelect(p.id, e);
               }}
+              draggable={!!onReorder}
+              onDragStart={(e) => {
+                if (onReorder) {
+                  e.stopPropagation();
+                  e.dataTransfer.setData("application/x-photo-id", p.id);
+                }
+              }}
+              onDragOver={(e) => {
+                if (
+                  onReorder &&
+                  e.dataTransfer.types.includes("application/x-photo-id")
+                ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
+              onDrop={(e) => {
+                if (onReorder) {
+                  const source = e.dataTransfer.getData(
+                    "application/x-photo-id",
+                  );
+                  if (
+                    source &&
+                    source !== p.id &&
+                    items.some((item) => item.photo.id === source)
+                  ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onReorder(source, p.id);
+                  }
+                }
+              }}
               aria-label={p.name}
             >
               <div className="photo-image" style={{ height: width * 0.72 }}>
@@ -196,6 +230,11 @@ export function VirtualGrid({
                     <Layers size={12} />
                     {item.expanded ? "收起" : item.count}
                   </button>
+                )}
+                {lockedIds.includes(p.id) && (
+                  <span className="processing" title="已锁定">
+                    <Lock size={12} />
+                  </span>
                 )}
                 {p.favorite && (
                   <Heart

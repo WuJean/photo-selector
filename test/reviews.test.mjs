@@ -80,3 +80,51 @@ test("legacy migration backs up the database, retains manual collections, and ne
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("rebuilding a legacy draft archives it and only final photos can enter rendered drafts", async () => {
+  const { registerExports } = await import("../server/exports.mjs");
+  const { newDraft } = await import("../shared/layout.mjs");
+  const root = await mkdtemp(path.join(os.tmpdir(), "draft-migrate-"));
+  const { app, store, upload } = createApp({ root });
+  registerCuration(app, store);
+  registerExports(app, store, upload);
+  errors(app);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((r) => server.once("listening", r));
+  try {
+    const project = store.project("legacy");
+    const initial = {
+        id: "a",
+        projectId: project.id,
+        status: "keep",
+        finalStatus: "unseen",
+        width: 100,
+        height: 100,
+      },
+      final = { ...initial, id: "b", finalStatus: "maybe" };
+    store.put("photo", initial);
+    store.put("photo", final);
+    const old = newDraft(project.id, [initial]);
+    store.put("draft", old);
+    const put = (value) =>
+      fetch(
+        `http://127.0.0.1:${server.address().port}/api/projects/${project.id}/draft`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(value),
+        },
+      );
+    assert.equal((await put(old)).status, 400);
+    assert.equal(store.get("draft", old.id).slots[0].photoId, "a");
+    assert.equal((await put(newDraft(project.id, [final]))).status, 200);
+    assert.equal(store.get("draft", old.id).slots[0].photoId, "b");
+    assert.equal(store.all("draftArchive")[0].slots[0].photoId, "a");
+    app.locals.history.undo(project.id);
+    assert.equal(store.get("draft", old.id).slots[0].photoId, "a");
+  } finally {
+    await new Promise((r) => server.close(r));
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -564,3 +564,86 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
     await new Promise((r) => fixture.close(r));
   }
 });
+
+test("custom collections reuse final photos, lock and reorder them without moving originals", async ({
+  page,
+  request,
+}) => {
+  const p = await seed(request, 3, { group: false, final: true });
+  await open(page, p);
+  await page.getByRole("button", { name: /^作品集/ }).click();
+  await page.locator(".photo-card").first().click();
+  await page.getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("button", { name: "新建作品集", exact: true }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("发布备选");
+  await page.getByRole("button", { name: "确定", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  const collection = (
+    await (await request.get(`/api/projects/${p.id}/collections`)).json()
+  )[0];
+  await page.getByLabel("选择作品集").selectOption("");
+  await expect(page.locator(".photo-card")).toHaveCount(3);
+  await page.locator(".photo-card").nth(1).click();
+  await page
+    .getByLabel("加入作品集", { exact: true })
+    .selectOption(collection.id);
+  await expect(page.getByRole("status")).toContainText("已加入作品集");
+  await page.getByLabel("选择作品集").selectOption(collection.id);
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await page.locator(".photo-card").first().click();
+  await page.getByRole("button", { name: "锁定所选" }).click();
+  await expect(page.locator('[title="已锁定"]')).toHaveCount(1);
+  await page
+    .locator(".photo-card")
+    .nth(1)
+    .dragTo(page.locator(".photo-card").first());
+  await expect
+    .poll(
+      async () =>
+        (
+          await (await request.get(`/api/projects/${p.id}/collections`)).json()
+        )[0].photoIds[0],
+    )
+    .toBe(p.ids[1]);
+  expect(
+    (await saved(request, p)).every(
+      (p) => p.status === "maybe" && p.finalStatus === "maybe",
+    ),
+  ).toBe(true);
+});
+
+test("legacy studio draft waits for explicit rebuild without losing the original", async ({
+  page,
+  request,
+}) => {
+  const p = await seed(request, 4, { group: false, final: true });
+  const { newDraft } = await import("../../shared/layout.mjs");
+  const old = newDraft(p.id, await saved(request, p));
+  expect(
+    (await request.put(`/api/projects/${p.id}/draft`, { data: old })).ok(),
+  ).toBe(true);
+  await request.patch(`/api/projects/${p.id}/photos`, {
+    data: { ids: [p.ids[0]], round: "final", patch: { status: "reject" } },
+  });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await open(page, p);
+  await page.getByRole("button", { name: /^作品集/ }).click();
+  await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
+  await expect(
+    page.getByText("旧草稿含未精筛照片", { exact: true }),
+  ).toBeVisible();
+  expect(
+    (await (await request.get(`/api/projects/${p.id}/draft`)).json()).slots,
+  ).toEqual(old.slots);
+  await page
+    .getByRole("button", { name: "使用最终作品重建", exact: true })
+    .click();
+  await expect(page.locator(".story-slot img")).toHaveCount(3);
+  const rebuilt = await (
+    await request.get(`/api/projects/${p.id}/draft`)
+  ).json();
+  expect(rebuilt.slots.some((s) => s.photoId === p.ids[0])).toBe(false);
+  expect(errors).toEqual([]);
+});

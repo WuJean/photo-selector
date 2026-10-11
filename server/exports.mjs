@@ -5,21 +5,34 @@ import { unlink } from "node:fs/promises";
 import path from "node:path";
 import { validateDraft, newDraft } from "../shared/layout.mjs";
 import { renderDraft } from "./render.mjs";
-import { uniqueName } from "../shared/domain.mjs";
+import { uniqueName, inFinal } from "../shared/domain.mjs";
 import { originalPath } from "./images.mjs";
 export function registerExports(app, store, upload) {
   const draft = (projectId, input) =>
-    validateDraft({ ...input, projectId }, store.photos(projectId));
+    validateDraft(
+      { ...input, projectId },
+      store.photos(projectId).filter(inFinal),
+    );
   app.get("/api/projects/:id/draft", (req, res) =>
     res.json(store.get("draft", "draft-" + req.params.id)),
   );
   app.put("/api/projects/:id/draft", (req, res) => {
     const value = draft(req.params.id, req.body);
-    app.locals.history.apply(
-      req.params.id,
-      [{ kind: "draft", value }],
-      "编辑拼图",
+    const old = store.get("draft", "draft-" + req.params.id);
+    const invalid = old?.slots.some(
+      (slot) => !inFinal(store.get("photo", slot.photoId) || {}),
     );
+    const changes = [{ kind: "draft", value }];
+    if (invalid)
+      changes.unshift({
+        kind: "draftArchive",
+        value: {
+          ...old,
+          id: randomUUID(),
+          archivedAt: new Date().toISOString(),
+        },
+      });
+    app.locals.history.apply(req.params.id, changes, "编辑拼图");
     res.json(value);
   });
   app.post("/api/projects/:id/render", async (req, res) => {

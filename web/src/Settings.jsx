@@ -62,16 +62,6 @@ export default function Settings({ onClose, notify }) {
   };
   return (
     <div className="settings-body">
-      <div className="settings-local">
-        <ShieldCheck size={22} />
-        <div>
-          <strong>本地相似分析，无需 API Key</strong>
-          <p>
-            Apple Vision 与传统 CV
-            在本机处理；以下配置只用于内容理解和聊天选图。
-          </p>
-        </div>
-      </div>
       <label className="field">
         <span>
           <Server size={13} /> API Base URL
@@ -83,10 +73,6 @@ export default function Settings({ onClose, notify }) {
           value={config.baseURL}
           onChange={(e) => setConfig({ ...config, baseURL: e.target.value })}
         />
-        <small>
-          兼容 Chat Completions 图片输入；本机服务可填
-          http://localhost:端口/v1。
-        </small>
       </label>
       <label className="field">
         <span>
@@ -123,10 +109,7 @@ export default function Settings({ onClose, notify }) {
             {show ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
-        <small>
-          保存位置：{config.keyStorage || "本机"}
-          。不会写入浏览器缓存或项目仓库。
-        </small>
+        <small>保存位置：{config.keyStorage || "本机"}</small>
       </label>
       <label className="checkbox-field">
         <input
@@ -134,7 +117,7 @@ export default function Settings({ onClose, notify }) {
           checked={config.jsonMode}
           onChange={(e) => setConfig({ ...config, jsonMode: e.target.checked })}
         />
-        启用 JSON 模式<span>不支持此参数的服务可以关闭</span>
+        启用 JSON 模式
       </label>
       {status && (
         <div className="settings-result" role="status">

@@ -418,13 +418,16 @@ export default function App() {
     <div
       className="simple-app"
       onDragOver={(e) => {
-        e.preventDefault();
-        if (projectId) setDragging(true);
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          if (projectId) setDragging(true);
+        }
       }}
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
       }}
       onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         setDragging(false);
         run(() => importFiles(e.dataTransfer.files));
@@ -562,7 +565,7 @@ export default function App() {
             <div className="toolbar-actions">
               {portfolio && (
                 <Button
-                  disabled={!initial.length}
+                  disabled={!filtered.length}
                   onClick={() =>
                     setAIWizard(
                       (selected.length
@@ -845,6 +848,36 @@ export default function App() {
                 <>
                   <Button onClick={addCollection}>新建作品集</Button>
                   <select
+                    aria-label="加入作品集"
+                    value=""
+                    disabled={!selected.length}
+                    onChange={(e) => {
+                      const target = collections.find(
+                        (c) => c.id === e.target.value,
+                      );
+                      if (target)
+                        run(async () => {
+                          await api(
+                            `/projects/${projectId}/collections/${target.id}`,
+                            json("PUT", {
+                              photoIds: [
+                                ...new Set([...target.photoIds, ...selected]),
+                              ],
+                            }),
+                          );
+                          await refresh();
+                          notify("已加入作品集");
+                        });
+                    }}
+                  >
+                    <option value="">加入作品集…</option>
+                    {collections.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     aria-label="选择作品集"
                     value={collectionId}
                     onChange={(e) => {
@@ -976,6 +1009,18 @@ export default function App() {
                   onSelect={select}
                   onOpen={(id) => openReview(id, true)}
                   onExpand={expand}
+                  onReorder={
+                    collection
+                      ? (from, to) => {
+                          const ids = collection.photoIds.filter(
+                            (id) => id !== from,
+                          );
+                          ids.splice(ids.indexOf(to), 0, from);
+                          editCollection({ photoIds: ids });
+                        }
+                      : undefined
+                  }
+                  lockedIds={collection?.lockedIds || []}
                   focusId={selected.at(-1)}
                   scrollKey={`${projectId}/${space}/${tab}/${collectionId}`}
                   renderBadge={(p) =>
@@ -1171,7 +1216,7 @@ export default function App() {
           onUndo={undo}
           onClose={(id) => {
             setImmersive(null);
-            if (id) setSelected([id]);
+            setSelected(id && filtered.some((p) => p.id === id) ? [id] : []);
           }}
           onComplete={() => {
             setSpace("portfolio");

@@ -221,6 +221,7 @@ export default function Studio({
   );
   const [draft, setDraft] = useState(() => newDraft(projectId, initial)),
     [loaded, setLoaded] = useState(false),
+    [previousDraft, setPreviousDraft] = useState(null),
     [active, setActive] = useState(0),
     [query, setQuery] = useState(""),
     [prompt, setPrompt] = useState(""),
@@ -237,7 +238,15 @@ export default function Studio({
   useEffect(() => {
     Promise.all([api(`/projects/${projectId}/draft`), api("/presets")])
       .then(([value, p]) => {
-        if (value) setDraft(value);
+        if (value) {
+          if (
+            value.slots.every((slot) =>
+              photos.some((p) => p.id === slot.photoId),
+            )
+          )
+            setDraft(value);
+          else setPreviousDraft(value);
+        }
         setPresets(p);
         setLoaded(true);
       })
@@ -247,6 +256,7 @@ export default function Studio({
       });
   }, [projectId]);
   useEffect(() => {
+    if (previousDraft) return;
     if (!loaded) return;
     if (skipSave.current) {
       skipSave.current = false;
@@ -262,7 +272,7 @@ export default function Studio({
         .catch((e) => notify(e.message));
     }, 600);
     return () => clearTimeout(t);
-  }, [draft, loaded]);
+  }, [draft, loaded, previousDraft]);
   useEffect(
     () => () => {
       if (preview) URL.revokeObjectURL(preview);
@@ -419,6 +429,38 @@ export default function Studio({
       notify(e.message);
     }
   };
+  if (previousDraft)
+    return (
+      <section
+        className="studio"
+        role="dialog"
+        aria-modal="true"
+        aria-label="拼图工作室"
+      >
+        <header className="studio-header">
+          <button className="immersive-back" onClick={onClose}>
+            <ArrowLeft size={18} />
+            返回
+          </button>
+        </header>
+        <div className="review-complete">
+          <h2>旧草稿含未精筛照片</h2>
+          <button
+            className="primary"
+            onClick={async () => {
+              try {
+                await api(`/projects/${projectId}/draft`, json("PUT", draft));
+                setPreviousDraft(null);
+              } catch (e) {
+                notify(e.message);
+              }
+            }}
+          >
+            使用最终作品重建
+          </button>
+        </div>
+      </section>
+    );
   if (!loaded)
     return (
       <section className="studio" role="dialog" aria-label="拼图工作室">
@@ -445,7 +487,6 @@ export default function Studio({
           返回照片库
         </button>
         <div>
-          <span className="eyebrow">MAKE YOUR MOMENTS A STORY</span>
           <input
             aria-label="作品名称"
             value={draft.title}
@@ -501,11 +542,6 @@ export default function Studio({
             placeholder="搜索标签或照片名"
             onChange={(e) => setQuery(e.target.value)}
           />
-          <p className="source-hint">
-            点击画布中的位置，再点击照片替换。
-            <br />
-            当前在编辑第 {active + 1} 格。
-          </p>
           <div className="source-grid">
             {available.slice(0, 300).map((p) => (
               <button
@@ -565,7 +601,6 @@ export default function Studio({
                 </button>
               ))}
             </div>
-            <span className="canvas-tip">拖动照片调整构图</span>
           </div>
           <div className="canvas-space">
             <div
@@ -654,11 +689,6 @@ export default function Studio({
               </button>
             </div>
             <div className="chat-messages">
-              {!messages.length && (
-                <p>
-                  试试：“选雪山场景，近景人像、远景人像和风景各一张，做清冷风格三拼。”
-                </p>
-              )}
               {messages.map((m, i) => (
                 <div key={i} className={`chat-message ${m.role}`}>
                   {m.text}
@@ -942,9 +972,6 @@ export default function Studio({
             <Download size={14} />
             拷贝入选原片 ZIP
           </button>
-          <small className="export-note">
-            优先导出照片库已选照片；否则导出当前作品集或初筛保留照片。原片文件内容保持不变。
-          </small>
         </aside>
       </div>
       {preview && (
@@ -953,7 +980,6 @@ export default function Studio({
             <X size={23} />
           </button>
           <PhotoImage src={preview} alt="实际渲染成品预览" />
-          <span>实际渲染结果 · 点击关闭</span>
         </div>
       )}
     </section>

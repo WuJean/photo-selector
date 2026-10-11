@@ -140,7 +140,9 @@ function Frame({
         }}
       />
       <div className="immersive-photo-top">
-        <span className={`decision-badge ${photo.status}`}>
+        <span
+          className={`decision-badge ${photo[decisionField(round)] || "unseen"}`}
+        >
           <span />
           {STATUS_LABELS[photo[decisionField(round)] || "unseen"]}
         </span>
