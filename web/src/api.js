@@ -1,3 +1,4 @@
+import { mediaAddress } from "./local-media";
 export async function api(url, options = {}) {
   const response = await fetch("/api" + url, {
     ...options,
@@ -21,4 +22,4 @@ export const json = (method, body) => ({
   body: JSON.stringify(body),
 });
 export const photoURL = (id, variant = "thumb") =>
-  `/api/photos/${id}/${variant}`;
+  mediaAddress(id, variant) || `/api/photos/${id}/${variant}`;

@@ -1,3 +1,5 @@
+import { hamming } from "./analysis.mjs";
+import { focalCategory } from "../shared/domain.mjs";
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import { importPhoto } from "./images.mjs";
@@ -82,6 +84,99 @@ export function registerLibrary(
         createdAt: timestamp(),
       }),
     );
+  });
+  app.post("/api/batches/:id/local", (req, res) => {
+    const b = requireItem(store, "batch", req.params.id),
+      m = req.body;
+    if (b.state !== "initial") throw new Error("此批次已结束导入");
+    if (
+      !/^[a-f0-9]{64}$/.test(m.hash) ||
+      !Number.isFinite(m.size) ||
+      m.size < 1 ||
+      m.size > 100 * 1024 * 1024 ||
+      !Number.isInteger(m.width) ||
+      !Number.isInteger(m.height) ||
+      m.width < 1 ||
+      m.height < 1 ||
+      m.width * m.height > 120000000 ||
+      !/^[01]{64}$/.test(m.phash)
+    )
+      throw new Error("照片资料无效");
+    let p = store.photos(LIBRARY).find((p) => p.hash === m.hash && !p.deleted);
+    if (!p) {
+      p = {
+        id: randomUUID(),
+        projectId: LIBRARY,
+        storage: "local",
+        direct: b.direct,
+        name: String(m.name || "照片.jpg").slice(0, 240),
+        hash: m.hash,
+        size: m.size,
+        width: m.width,
+        height: m.height,
+        phash: m.phash,
+        takenAt:
+          typeof m.takenAt === "string" && !isNaN(Date.parse(m.takenAt))
+            ? new Date(m.takenAt).toISOString()
+            : null,
+        importedAt: timestamp(),
+        status: "unseen",
+        finalStatus: "unseen",
+        analysisStatus: "done",
+        aiStatus: "idle",
+        faces: [],
+        manualTags: [],
+        issues: Array.isArray(m.issues)
+          ? m.issues.filter((v) => typeof v === "string").slice(0, 4)
+          : [],
+      };
+      for (const key of ["camera", "lens"])
+        p[key] = String(m[key] || "").slice(0, 150);
+      for (const key of [
+        "focal",
+        "equivalent",
+        "aperture",
+        "shutter",
+        "iso",
+        "sharpness",
+      ])
+        p[key] = Number.isFinite(m[key]) ? m[key] : null;
+      p.focalCategory = focalCategory(p.equivalent, p.focal);
+      store.put("photo", p);
+    }
+    addEntry(store, b.id, p.id, b.direct);
+    const own = new Set(entries(store, b.id).map((e) => e.assetId));
+    const current = store.get("photo", p.id);
+    const previous = store
+      .photos(LIBRARY)
+      .filter((v) => own.has(v.id) && v.id !== p.id);
+    const representative = previous
+      .filter((v) => v.similarId === "similar-" + v.id)
+      .slice(-300)
+      .find(
+        (v) =>
+          (!v.takenAt ||
+            !current.takenAt ||
+            Math.abs(Date.parse(v.takenAt) - Date.parse(current.takenAt)) <=
+              1800000) &&
+          hamming(v.phash, current.phash) <= 7,
+      );
+    const last = previous.at(-1);
+    store.put("photo", {
+      ...current,
+      similarId:
+        current.similarId || representative?.similarId || "similar-" + p.id,
+      sceneId:
+        current.sceneId ||
+        (last &&
+        last.takenAt &&
+        current.takenAt &&
+        Math.abs(Date.parse(last.takenAt) - Date.parse(current.takenAt)) <
+          1800000
+          ? last.sceneId
+          : "scene-" + p.id),
+    });
+    res.status(201).json(publicAsset(store, store.get("photo", p.id)));
   });
   app.get("/api/batches/:id/photos", (req, res) => {
     requireItem(store, "batch", req.params.id);

@@ -88,3 +88,37 @@ test("independent batch decisions do not remove an asset reused by another batch
     await f.close();
   }
 });
+test("local registration stores only validated metadata, deduplicates assets across batches and rejects forged fields", async () => {
+  const f = await fixture();
+  try {
+    const a = await f.json("/batches", "POST", { source: "folder" }),
+      b = await f.json("/batches", "POST", { source: "folder" });
+    const input = {
+      name: "local.jpg",
+      hash: "a".repeat(64),
+      size: 200,
+      width: 800,
+      height: 600,
+      phash: "0".repeat(64),
+      originalPath: "/private/secret",
+      ai: { tags: ["bad"] },
+    };
+    const one = await f.json(`/batches/${a.id}/local`, "POST", input),
+      two = await f.json(`/batches/${b.id}/local`, "POST", input);
+    assert.equal(one.id, two.id);
+    assert.equal(f.store.get("photo", one.id).originalPath, undefined);
+    assert.equal(f.store.get("photo", one.id).ai, undefined);
+    assert.equal((await f.request(`/photos/${one.id}/original`)).status, 404);
+    assert.equal(
+      (
+        await f.request(`/batches/${a.id}/local`, "POST", {
+          ...input,
+          width: 999999,
+        })
+      ).status,
+      400,
+    );
+  } finally {
+    await f.close();
+  }
+});

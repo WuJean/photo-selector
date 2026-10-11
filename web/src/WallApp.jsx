@@ -1,3 +1,9 @@
+import {
+  registerAssets,
+  chooseFolder,
+  importFolder,
+  photoBlob,
+} from "./local-media";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
@@ -180,6 +186,8 @@ function Workspace({ onLogout }) {
     [mode, setMode] = useState("photos"),
     [expanded, setExpanded] = useState(new Set()),
     [fold, setFold] = useState(true);
+  const [importMenu, setImportMenu] = useState(false),
+    [direct, setDirect] = useState(false);
   const input = useRef(),
     guard = useRef(false),
     alive = useRef(true),
@@ -193,6 +201,7 @@ function Workspace({ onLogout }) {
       api("/jobs"),
     ]);
     if (!alive.current) return;
+    registerAssets(p);
     setPhotos(p);
     setCollections(c);
     setBatches(b);
@@ -375,12 +384,13 @@ function Workspace({ onLogout }) {
   const uploadFiles = async (files) =>
     run(async () => {
       let id = batchId;
-      if (!batch || batch.state !== "initial") {
+      if (!batch || batch.state !== "initial" || direct) {
         const b = await api(
           "/batches",
           json("POST", {
             name: new Date().toLocaleDateString() + " 导入",
             source: "upload",
+            direct,
           }),
         );
         id = b.id;
@@ -404,9 +414,7 @@ function Workspace({ onLogout }) {
   const download = async (list) =>
     run(async () => {
       for (const p of list) {
-        const r = await fetch(photoURL(p.id, "original"));
-        if (!r.ok) throw new Error("下载失败");
-        const url = URL.createObjectURL(await r.blob());
+        const url = URL.createObjectURL(await photoBlob(p.id, "original"));
         const a = document.createElement("a");
         a.href = url;
         a.download = p.name;
@@ -480,8 +488,8 @@ function Workspace({ onLogout }) {
                 新建作品集
               </Button>
             )}
-            <Button primary icon={Upload} onClick={() => input.current.click()}>
-              上传照片
+            <Button primary icon={Upload} onClick={() => setImportMenu(true)}>
+              导入照片
             </Button>
           </div>
         </div>
@@ -610,6 +618,26 @@ function Workspace({ onLogout }) {
           />
           <Button onClick={() => setShowFilters((v) => !v)}>筛选</Button>
           <span>{filtered.length} 张</span>
+          {photos.some((p) => p.storage === "local") && (
+            <Button
+              onClick={async () => {
+                try {
+                  const directory = await chooseFolder();
+                  await run(async () => {
+                    const result = await importFolder(directory, {
+                      reconnect: true,
+                      onProgress: setBusy,
+                    });
+                    notify(`已重新连接 ${result.matched} 张`);
+                  });
+                } catch (e) {
+                  if (e.name !== "AbortError") notify(e.message);
+                }
+              }}
+            >
+              重新连接文件夹
+            </Button>
+          )}
           {page === "work" && (
             <Button
               onClick={() => {
@@ -885,6 +913,53 @@ function Workspace({ onLogout }) {
         <div className="work-progress" role="status">
           {busy}
         </div>
+      )}
+      {importMenu && (
+        <Modal title="导入照片" onClose={() => setImportMenu(false)}>
+          <div className="import-options">
+            <label>
+              <input
+                type="checkbox"
+                checked={direct}
+                onChange={(e) => setDirect(e.target.checked)}
+              />
+              已经选好，直接进入待归集
+            </label>
+            <Button
+              primary
+              onClick={async () => {
+                try {
+                  const directory = await chooseFolder();
+                  setImportMenu(false);
+                  await run(async () => {
+                    const result = await importFolder(directory, {
+                      direct,
+                      onProgress: setBusy,
+                    });
+                    setBatchId(result.batch.id);
+                    setPage(direct ? "collections" : "work");
+                    setRound("initial");
+                    notify(
+                      `已读取 ${result.done} 张，失败 ${result.failed} 张`,
+                    );
+                  });
+                } catch (e) {
+                  if (e.name !== "AbortError") notify(e.message);
+                }
+              }}
+            >
+              连接电脑文件夹
+            </Button>
+            <Button
+              onClick={() => {
+                setImportMenu(false);
+                input.current.click();
+              }}
+            >
+              普通上传到服务器
+            </Button>
+          </div>
+        </Modal>
       )}
       {dialog && (
         <InputDialog dialog={dialog} onClose={() => setDialog(null)} />

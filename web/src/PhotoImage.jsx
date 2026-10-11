@@ -1,7 +1,32 @@
+import { resolveMedia } from "./local-media";
 import React, { useEffect, useRef, useState } from "react";
 
 export default function PhotoImage({ src, ...props }) {
   const [attempt, setAttempt] = useState(0);
+  const [resolved, setResolved] = useState("");
+  useEffect(() => {
+    if (!src?.startsWith("local-photo://")) return;
+    let active = true,
+      release = () => {};
+    const load = () =>
+      resolveMedia(src)
+        .then((result) => {
+          if (active) {
+            release();
+            release = result.revoke;
+            setResolved(result.url);
+            setError("");
+          } else result.revoke();
+        })
+        .catch((e) => active && setError(e.message));
+    load();
+    window.addEventListener("photo-files-reconnected", load);
+    return () => {
+      active = false;
+      release();
+      window.removeEventListener("photo-files-reconnected", load);
+    };
+  }, [src, attempt]);
   const [error, setError] = useState("");
   const generation = useRef(0);
   useEffect(() => {
@@ -12,10 +37,13 @@ export default function PhotoImage({ src, ...props }) {
       generation.current++;
     };
   }, [src]);
-  const url = attempt
-    ? `${src}${src.includes("?") ? "&" : "?"}retry=${attempt}`
-    : src;
+  const url = src?.startsWith("local-photo://")
+    ? resolved
+    : attempt
+      ? `${src}${src.includes("?") ? "&" : "?"}retry=${attempt}`
+      : src;
   async function diagnose() {
+    if (src?.startsWith("local-photo://")) return;
     const token = generation.current;
     let message = "图片加载失败";
     try {
@@ -35,7 +63,7 @@ export default function PhotoImage({ src, ...props }) {
     <>
       <img
         {...props}
-        src={url}
+        src={url || undefined}
         onError={diagnose}
         onLoad={() => setError("")}
       />

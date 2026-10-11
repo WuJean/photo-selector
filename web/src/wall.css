@@ -313,3 +313,28 @@
     flex-wrap: wrap;
   }
 }
+.import-options {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.import-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.work-controls label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.wall-photo .image-error {
+  position: absolute;
+  inset: 0;
+  background: #243020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
