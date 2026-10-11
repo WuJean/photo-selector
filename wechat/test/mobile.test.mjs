@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
-import { visibleCards } from "../core/mobile.mjs";
+import { visibleCards, FOCAL_LABELS } from "../core/mobile.mjs";
 async function page(file, { call, context } = {}) {
   let config;
   const wx = {
@@ -20,6 +20,7 @@ async function page(file, { call, context } = {}) {
       require: () => ({
         call,
         visibleCards,
+        FOCAL_LABELS,
         toast() {},
         hydrate: async (p) => p,
         tagsOf: (p) => p.ai?.tags || [],
