@@ -1,9 +1,14 @@
 import React from "react";
 import { api, json } from "./api";
+import {
+  analysisTaskActivity,
+  creationTaskVisible,
+} from "../../shared/tasks.mjs";
 export default function TaskBar({ jobs, projectId, refresh, notify }) {
   const rows = [];
   const ai = jobs?.ai;
-  if (ai?.projectId === projectId && ai.total)
+  const activity = analysisTaskActivity(ai);
+  if (ai?.projectId === projectId && ai.total && activity.visible)
     rows.push({
       key: "ai",
       label: "AI 分类",
@@ -13,7 +18,7 @@ export default function TaskBar({ jobs, projectId, refresh, notify }) {
       error: ai.error,
       active: ai.runningIds?.length || 0,
       paused: ai.paused,
-      pending: !!ai.photoIds.length,
+      pending: activity.pending,
       action: (a) => api(`/ai/${a}`, json("POST", {})),
     });
   for (const j of jobs?.vocabulary || [])
@@ -33,7 +38,7 @@ export default function TaskBar({ jobs, projectId, refresh, notify }) {
           api(`/projects/${projectId}/vocabulary/${a}`, json("POST", {})),
       });
   for (const j of jobs?.creations || [])
-    if (j.projectId === projectId)
+    if (j.projectId === projectId && creationTaskVisible(j))
       rows.push({
         key: j.id,
         label: j.kind === "cover" ? "生成封面" : "生成文案",
@@ -58,7 +63,7 @@ export default function TaskBar({ jobs, projectId, refresh, notify }) {
       {rows.map((row) => (
         <div key={row.key} className="task-row">
           <strong>{row.label}</strong>
-          <progress value={row.done} max={row.total} />
+          {row.pending && <progress value={row.done} max={row.total} />}
           <span>
             {row.done}/{row.total}
           </span>

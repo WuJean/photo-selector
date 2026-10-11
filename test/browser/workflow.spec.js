@@ -744,6 +744,10 @@ test("direct parallel classification and one-click collection copy and reference
   })
     .png()
     .toBuffer();
+  let releaseAnalysis;
+  const classificationGate = new Promise((resolve) => {
+    releaseAnalysis = resolve;
+  });
   const fixture = createServer(async (req, res) => {
     let raw = "";
     for await (const part of req) raw += part;
@@ -778,7 +782,7 @@ test("direct parallel classification and one-click collection copy and reference
         active++;
         peak = Math.max(peak, active);
         analyses++;
-        await new Promise((r) => setTimeout(r, 80));
+        await classificationGate;
         active--;
         result = { description: "山间风景", tags: ["风景", "远景", "雪山"] };
       } else {
@@ -819,6 +823,9 @@ test("direct parallel classification and one-click collection copy and reference
     await expect(
       page.getByRole("dialog", { name: "AI 分类", exact: true }),
     ).toHaveCount(0);
+    await expect(page.getByLabel("任务进度")).toContainText("AI 分类");
+    await expect(page.getByLabel("任务进度").locator("progress")).toBeVisible();
+    releaseAnalysis();
     await expect
       .poll(
         async () =>
@@ -827,7 +834,7 @@ test("direct parallel classification and one-click collection copy and reference
       .toBe(3);
     expect(analyses).toBe(3);
     expect(peak).toBeGreaterThan(1);
-    await expect(page.getByLabel("任务进度")).toContainText("3/3");
+    await expect(page.getByLabel("任务进度")).toHaveCount(0);
     await request.patch(`/api/projects/${p.id}/photos`, {
       data: { ids: p.ids, round: "final", patch: { status: "keep" } },
     });
@@ -877,6 +884,7 @@ test("direct parallel classification and one-click collection copy and reference
     await reference.close();
     await page.screenshot({ path: "test-results/ai-creations.png" });
   } finally {
+    releaseAnalysis();
     await new Promise((r) => fixture.close(r));
   }
 });
