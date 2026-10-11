@@ -166,9 +166,22 @@ test("three stages advance without labels; refinement has two decisions and rest
     "photo-2.jpg",
   );
   await page.getByRole("button", { name: /^精筛/ }).click();
-  const view = page.getByLabel("精筛照片", { exact: true });
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: "人工标签", exact: true }),
+  ).toHaveCount(0);
+  await page.locator(".photo-card").first().click();
+  await page.keyboard.press("Space");
+  const view = page.getByRole("dialog", { name: "沉浸式精筛", exact: true });
   await expect(view).toBeVisible();
   await expect(view.getByRole("button", { name: /待定/ })).toHaveCount(0);
+  await page.keyboard.press("Space");
+  await expect(view).toHaveCount(0);
+  await page.keyboard.press("Space");
+  await expect(view).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveCount(0);
+  await page.keyboard.press("Space");
   await page.keyboard.press("z");
   expect((await saved(request, p))[0].finalStatus).toBe("unseen");
   await page.keyboard.press("x");
@@ -179,9 +192,6 @@ test("three stages advance without labels; refinement has two decisions and rest
   );
   rejectFinal = false;
   await page.keyboard.press("x");
-  await expect
-    .poll(async () => (await saved(request, p))[0].finalStatus)
-    .toBe("keep");
   await expect(view.locator(".focused")).toHaveAttribute(
     "data-photo-id",
     p.ids[1],
@@ -197,8 +207,8 @@ test("three stages advance without labels; refinement has two decisions and rest
     p.ids[1],
   );
   await page.keyboard.press("c");
-  await expect(page.getByText("当前范围已精筛", { exact: true })).toBeVisible();
-  await page
+  await expect(view.getByText("本轮已完成", { exact: true })).toBeVisible();
+  await view
     .getByRole("button", { name: "查看作品集候选", exact: true })
     .click();
   await expect(page.locator(".photo-card")).toHaveCount(1);
@@ -207,7 +217,16 @@ test("three stages advance without labels; refinement has two decisions and rest
   await expect(page.locator(".photo-card")).toHaveCount(1);
   await page.getByRole("button", { name: /^精筛/ }).click();
   await page.getByRole("button", { name: "已精筛", exact: true }).click();
-  await expect(page.locator(".refine-strip button")).toHaveCount(2);
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await expect
+    .poll(() =>
+      page
+        .locator(".photo-card img")
+        .evaluateAll((images) =>
+          images.every((image) => image.naturalWidth > 0),
+        ),
+    )
+    .toBe(true);
   await page.screenshot({ path: "test-results/refinement.png" });
 });
 
@@ -388,66 +407,84 @@ test("studio defaults to refined keep photos and exports an actual JPEG without 
   await page.screenshot({ path: "test-results/studio.png" });
 });
 
-test("manual tag chips classify initial photos, filter by multiple tags and persist exclusions", async ({
+test("refinement grid filters AI-only tags by domain and opens its filtered range immersively", async ({
   page,
   request,
 }) => {
-  const p = await seed(request, 3, { group: false, final: true });
-  await open(page, p);
-  await page.getByRole("button", { name: /^作品集/ }).click();
-
-  await page.locator(".photo-card").first().click();
-  await page.getByRole("button", { name: "人工标签", exact: true }).click();
-  const panel = page.getByLabel("人工标签", { exact: true });
-  await panel.getByRole("button", { name: "人像", exact: true }).click();
-  await expect(
-    panel.getByRole("button", { name: "人像", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await panel.getByRole("button", { name: "雪山", exact: true }).click();
-  await expect(
-    panel.getByRole("button", { name: "雪山", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await panel.getByLabel("自定义标签").fill("登顶");
-  await panel.getByRole("button", { name: "创建标签", exact: true }).click();
-  await panel.getByRole("button", { name: "登顶", exact: true }).click();
-  await expect(
-    panel.getByRole("button", { name: "登顶", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await page.locator(".photo-card").nth(1).click();
-  await panel.getByRole("button", { name: "人像", exact: true }).click();
-  await expect(
-    panel.getByRole("button", { name: "人像", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await panel.getByRole("button", { name: "关闭标签" }).click();
-  await page
-    .locator(".tag-filter")
-    .getByRole("button", { name: "人像", exact: true })
-    .click();
-  await expect(page.locator(".photo-card")).toHaveCount(2);
-  await page.locator(".tag-filter summary").filter({ hasText: "环境" }).click();
-  await page
-    .locator(".tag-filter")
-    .getByRole("button", { name: "雪山", exact: true })
-    .click();
-  await expect(page.locator(".photo-card")).toHaveCount(1);
-  await page.getByLabel("多标签匹配").selectOption("any");
-  await expect(page.locator(".photo-card")).toHaveCount(2);
-  await page.locator(".photo-card").first().click();
-  await page.getByRole("button", { name: "人工标签", exact: true }).click();
-  await panel.getByRole("button", { name: "雪山", exact: true }).click();
-  await expect
-    .poll(async () =>
-      ((await saved(request, p))[0].excludedTags || []).includes("雪山"),
-    )
-    .toBe(true);
-  await panel.getByRole("button", { name: "管理", exact: true }).click();
-  await panel.getByRole("button", { name: "登顶", exact: true }).click();
-  await panel.getByLabel("新标签名称").fill("登山");
-  await panel.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(
-    panel.getByRole("button", { name: "登山", exact: true }),
-  ).toBeVisible();
-  await page.screenshot({ path: "test-results/manual-tags.png" });
+  const { createServer } = await import("node:http");
+  let index = 0;
+  const fixture = createServer(async (req, res) => {
+    for await (const chunk of req) {
+    }
+    const tags = [
+      ["人像", "近景", "雪山"],
+      ["人像", "中景"],
+      ["风景", "远景"],
+    ][index++];
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({ description: "旅行照片", tags }),
+            },
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise((r) => fixture.listen(0, "127.0.0.1", r));
+  try {
+    const p = await seed(request, 3, { group: false, initial: true });
+    await request.put("/api/settings", {
+      data: {
+        baseURL: `http://127.0.0.1:${fixture.address().port}/v1`,
+        model: "fixture",
+      },
+    });
+    await request.post(`/api/projects/${p.id}/analyze`, {
+      data: { ids: p.ids },
+    });
+    await expect
+      .poll(
+        async () =>
+          (await saved(request, p)).filter((p) => p.aiStatus === "done").length,
+      )
+      .toBe(3);
+    await open(page, p);
+    await page.getByRole("button", { name: /^精筛/ }).click();
+    await expect(page.locator(".photo-card")).toHaveCount(3);
+    await expect(
+      page.getByRole("button", { name: "人工标签", exact: true }),
+    ).toHaveCount(0);
+    await page
+      .locator(".tag-filter")
+      .getByRole("button", { name: "人像", exact: true })
+      .click();
+    await expect(page.locator(".photo-card")).toHaveCount(2);
+    await page
+      .locator(".tag-filter summary")
+      .filter({ hasText: "环境" })
+      .click();
+    await page
+      .locator(".tag-filter")
+      .getByRole("button", { name: "雪山", exact: true })
+      .click();
+    await expect(page.locator(".photo-card")).toHaveCount(1);
+    await page.getByLabel("多标签匹配").selectOption("any");
+    await expect(page.locator(".photo-card")).toHaveCount(2);
+    await page.keyboard.press("Tab");
+    await page.locator(".photo-card").first().click();
+    await page.keyboard.press("Space");
+    const modal = page.getByRole("dialog", { name: "沉浸式精筛", exact: true });
+    await expect(modal.locator(".immersive-navigation")).toContainText("1 / 2");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".photo-card")).toHaveCount(2);
+    await page.screenshot({ path: "test-results/ai-tag-filters.png" });
+  } finally {
+    await new Promise((r) => fixture.close(r));
+  }
 });
 
 test("AI samples first, waits for vocabulary confirmation, then labels and chats using final photos", async ({
@@ -513,9 +550,6 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
       },
     });
     await request.get(`/api/projects/${p.id}/tags`);
-    await request.post(`/api/projects/${p.id}/tags/assign`, {
-      data: { ids: [p.ids[0]], name: "雪山", enabled: false },
-    });
     await open(page, p);
     await page.getByRole("button", { name: /^作品集/ }).click();
 
@@ -550,7 +584,7 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
           t.includes("不得新造标签"),
       ),
     ).toBe(true);
-    expect((await saved(request, p))[0].excludedTags).toContain("雪山");
+    expect((await saved(request, p))[0].ai.tags).toContain("雪山");
     await dialog.getByRole("button", { name: "返回作品集" }).click();
 
     await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
@@ -780,7 +814,7 @@ test("direct parallel classification and one-click collection copy and reference
     });
     await open(page, p);
     await page.getByRole("button", { name: /^精筛/ }).click();
-    await expect(page.getByLabel("精筛照片", { exact: true })).toBeVisible();
+    await expect(page.locator(".photo-card")).toHaveCount(3);
     await page.getByRole("button", { name: "AI 分类", exact: true }).click();
     await expect(
       page.getByRole("dialog", { name: "AI 分类", exact: true }),

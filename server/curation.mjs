@@ -4,9 +4,8 @@ import {
   inInitial,
   inFinal,
   decisionField,
-  tagsOf,
 } from "../shared/domain.mjs";
-const allowed = ["status", "favorite", "manualTags"];
+const allowed = ["status", "favorite"];
 export class History {
   constructor(store) {
     this.store = store;
@@ -93,6 +92,12 @@ export function registerCuration(app, store) {
   });
   app.patch("/api/projects/:id/photos", (req, res) => {
     const selected = photos(req.params.id, req.body.ids);
+    if (
+      ["manualTags", "excludedTags", "tagsCleared", "ai"].some(
+        (key) => key in (req.body.patch || {}),
+      )
+    )
+      return res.status(403).json({ error: "照片标签仅由 AI 分类生成" });
     const patch = {};
     for (const key of allowed)
       if (key in (req.body.patch || {})) patch[key] = req.body.patch[key];
@@ -111,29 +116,10 @@ export function registerCuration(app, store) {
     }
     if ("favorite" in patch && typeof patch.favorite !== "boolean")
       throw new Error("收藏状态无效");
-    if ("manualTags" in patch) {
-      if (selected.some((p) => !inInitial(p)))
-        throw new Error("只能为初筛入选照片分类");
-      if (!Array.isArray(patch.manualTags)) throw new Error("标签格式无效");
-      patch.manualTags = [
-        ...new Set(
-          patch.manualTags
-            .map((v) => String(v).trim().slice(0, 40))
-            .filter(Boolean),
-        ),
-      ].slice(0, 30);
-    }
     history.apply(
       req.params.id,
       selected.map((p) => {
         const changes = { ...patch };
-        if ("manualTags" in patch)
-          changes.excludedTags = [
-            ...new Set([
-              ...(p.excludedTags || []),
-              ...tagsOf(p).filter((t) => !patch.manualTags.includes(t)),
-            ]),
-          ].filter((t) => !patch.manualTags.includes(t));
         return {
           kind: "photo",
           fields: Object.keys(changes),

@@ -134,10 +134,17 @@ test("sampling requires initial acceptance; confirmation gates full classificati
     for (const photo of photos)
       store.put("photo", { ...photo, status: "maybe" });
     assert.equal((await call(base + "/analyze", { ids })).status, 200);
-    await wait(()=>!ai.running && !ai.job.photoIds.length);
-    assert.equal(ai.job.done,3); assert.equal(sampleCount,0);
-    analysisCount=0;requests.length=0;
-    for(const id of ids) { const value=store.get("photo",id);delete value.ai; delete value.aiSignature;store.put("photo",value); }
+    await wait(() => !ai.running && !ai.job.photoIds.length);
+    assert.equal(ai.job.done, 3);
+    assert.equal(sampleCount, 0);
+    analysisCount = 0;
+    requests.length = 0;
+    for (const id of ids) {
+      const value = store.get("photo", id);
+      delete value.ai;
+      delete value.aiSignature;
+      store.put("photo", value);
+    }
 
     assert.equal((await call(base + "/vocabulary", { ids })).status, 200);
     const q = app.locals.vocabularyQueue;
@@ -146,12 +153,12 @@ test("sampling requires initial acceptance; confirmation gates full classificati
     assert.equal(analysisCount, 0);
     assert.equal(store.get("photo", ids[0]).ai, undefined);
     assert(requests[0].messages[1].content[0].text.includes("人像"));
-    await call(base + "/tags/assign", {
-      ids: [ids[0]],
-      name: "雪山",
-      enabled: false,
+    // Historical human decisions survive upgrades and later AI classification.
+    store.put("photo", {
+      ...store.get("photo", ids[0]),
+      manualTags: ["人像"],
+      excludedTags: ["雪山", "风景"],
     });
-    await call(base + "/tags/assign", {ids:[ids[0]],name:"人像",enabled:true});
     mode = "hold";
     const response = await call(base + "/vocabulary/confirm", {
       tags: [{ name: "雪山", category: "环境", description: "积雪覆盖山峰" }],

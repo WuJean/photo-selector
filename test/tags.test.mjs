@@ -24,7 +24,7 @@ test("manual tags override fresh AI results; compound filters use AND or OR", ()
   p.ai = { tags: ["雪山", "人像"], scene: "雪山" };
   assert.deepEqual(tagsOf(p), ["人像"]);
 });
-test("tag assignment, rename/merge, exclusions, reusable defaults and undo are project-safe", async () => {
+test("photo tags can only be assigned by AI; library definitions and reusable defaults remain editable", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "tags-"));
   const { app, store } = createApp({ root });
   registerCuration(app, store);
@@ -52,42 +52,20 @@ test("tag assignment, rename/merge, exclusions, reusable defaults and undo are p
     store.put("photo", { id: "c", projectId: other.id, status: "keep" });
     const lib = tagLibrary(store, p.id);
     assert(lib.tags.some((t) => t.name === "人像"));
-    for (const id of ["b", "c"])
-      assert.equal(
-        (
-          await call(base + "/assign", "POST", {
-            ids: [id],
-            name: "人像",
-            enabled: true,
-          })
-        ).status,
-        400,
-      );
-    assert.equal(
-      (
-        await call(base + "/assign", "POST", {
-          ids: ["a"],
-          name: "雪山",
-          enabled: false,
-        })
-      ).status,
-      200,
-    );
-    store.put("photo", {
-      ...store.get("photo", "a"),
-      ai: { tags: ["雪山", "风景"] },
-    });
-    assert.deepEqual(tagsOf(store.get("photo", "a")), ["风景"]);
-    await call(base + "/assign", "POST", {
+    for (const route of ["assign", "clear", "rename"]) {
+      const response = await call(base + "/" + route, "POST", {
+        ids: ["a"],
+        name: "人像",
+        enabled: true,
+      });
+      assert.equal(response.status, 403);
+    }
+    const response = await call(`/projects/${p.id}/photos`, "PATCH", {
       ids: ["a"],
-      name: "人像",
-      enabled: true,
+      patch: { manualTags: ["人像"] },
     });
-    await call(base + "/rename", "POST", { from: "人像", to: "远景" });
-    assert(tagsOf(store.get("photo", "a")).includes("远景"));
-    assert(!tagsOf(store.get("photo", "a")).includes("人像"));
-    app.locals.history.undo(p.id);
-    assert(tagsOf(store.get("photo", "a")).includes("人像"));
+    assert.equal(response.status, 403);
+    assert.deepEqual(tagsOf(store.get("photo", "a")), ["雪山", "风景"]);
     const current = tagLibrary(store, p.id);
     await call(base, "PUT", {
       version: current.version,
@@ -134,11 +112,26 @@ test("sampling is deterministic, deduplicated, capped, covers time and missing-t
   assert.deepEqual(samplePhotos([]), []);
 });
 
-test('structured AI tags enforce one subject one shot and at most five extras; cleared tags remain empty',async()=>{
- const {validateAnalysis}=await import('../server/ai.mjs');const {structuredTags,DEFAULT_TAGS}=await import('../shared/tags.mjs');
- const library={version:1,schemaVersion:2,tags:structuredTags(DEFAULT_TAGS)};
- const valid=validateAnalysis({description:'雪山中的游客',tags:['人像','远景','雪山']},library);
- assert.equal(valid.subject,'人像');assert.equal(valid.shot,'远景');
- for(const tags of [[],['人像'],['人像','风景','远景'],['人像','远景','雪山','森林','海边','城市','室内','夜景']]) assert.throws(()=>validateAnalysis({description:'图',tags},library));
- assert.deepEqual(tagsOf({ai:valid,tagsCleared:true}),[]);
+test("structured AI tags enforce one subject one shot and at most five extras; cleared tags remain empty", async () => {
+  const { validateAnalysis } = await import("../server/ai.mjs");
+  const { structuredTags, DEFAULT_TAGS } = await import("../shared/tags.mjs");
+  const library = {
+    version: 1,
+    schemaVersion: 2,
+    tags: structuredTags(DEFAULT_TAGS),
+  };
+  const valid = validateAnalysis(
+    { description: "雪山中的游客", tags: ["人像", "远景", "雪山"] },
+    library,
+  );
+  assert.equal(valid.subject, "人像");
+  assert.equal(valid.shot, "远景");
+  for (const tags of [
+    [],
+    ["人像"],
+    ["人像", "风景", "远景"],
+    ["人像", "远景", "雪山", "森林", "海边", "城市", "室内", "夜景"],
+  ])
+    assert.throws(() => validateAnalysis({ description: "图", tags }, library));
+  assert.deepEqual(tagsOf({ ai: valid, tagsCleared: true }), []);
 });

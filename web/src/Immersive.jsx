@@ -263,7 +263,8 @@ export default function Immersive({
     if (!busy.current) setIndex(list.findIndex((p) => p.id === id));
   };
   const choose = async (status) => {
-    if (!active || busy.current) return;
+    if (!active || busy.current || (round === "final" && status === "maybe"))
+      return;
     busy.current = true;
     setSaving(true);
     try {
@@ -330,7 +331,7 @@ export default function Immersive({
       if (key === " " || key === "escape") exit();
       else if (key === "arrowleft") navigate(-1);
       else if (key === "arrowright") navigate(1);
-      else choose(decisionKeys[key]);
+      else if (round !== "final" || key !== "z") choose(decisionKeys[key]);
     };
     window.addEventListener("keydown", listener, true);
     return () => window.removeEventListener("keydown", listener, true);
@@ -378,7 +379,7 @@ export default function Immersive({
           <Check size={40} />
           <h2>本轮已完成</h2>
           <button className="primary" onClick={onComplete}>
-            {round === "final" ? "查看最终作品" : "开始精筛"}
+            {round === "final" ? "查看作品集候选" : "开始精筛"}
           </button>
           <button className="button" onClick={exit}>
             返回
@@ -483,18 +484,20 @@ export default function Immersive({
             ["maybe", "待定", "Z", Minus],
             ["keep", "保留", "X", Check],
             ["reject", "不要", "C", X],
-          ].map(([status, label, key, Icon]) => (
-            <button
-              key={status}
-              className={`decision ${status} ${active?.[decisionField(round)] === status ? "chosen" : ""}`}
-              onClick={() => choose(status)}
-              disabled={saving || complete}
-            >
-              <Icon size={20} />
-              <span>{label}</span>
-              <kbd>{key}</kbd>
-            </button>
-          ))}
+          ]
+            .filter(([status]) => round !== "final" || status !== "maybe")
+            .map(([status, label, key, Icon]) => (
+              <button
+                key={status}
+                className={`decision ${status} ${active?.[decisionField(round)] === status ? "chosen" : ""}`}
+                onClick={() => choose(status)}
+                disabled={saving || complete}
+              >
+                <Icon size={20} />
+                <span>{label}</span>
+                <kbd>{key}</kbd>
+              </button>
+            ))}
         </div>
         <button
           className="icon-button"
