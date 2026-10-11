@@ -71,7 +71,7 @@ npm ci
 npm run dev
 ```
 
-默认 [127.0.0.1:4173](http://127.0.0.1:4173)，数据目录 `.local/`，初始密码 `.local/admin-initial-password`。可用 `PHOTO_SELECTOR_DATA_DIR`、`PORT` 调整。Mac 可选 `npm run build:vision` 启用服务器上传照片的 Apple Vision 分析；浏览器文件夹使用浏览器 CV，不依赖 Swift。Docker 使用 Linux CV。
+默认 [127.0.0.1:4173](http://127.0.0.1:4173)，数据目录 `.local/`，初始密码 `passwd`，首次登录必须修改。可用 `PHOTO_SELECTOR_DATA_DIR`、`PORT` 调整。Mac 可选 `npm run build:vision` 启用服务器上传照片的 Apple Vision 分析；浏览器文件夹使用浏览器 CV，不依赖 Swift。Docker 使用 Linux CV。
 
 ```sh
 npm run check          # 自动化测试与生产构建
@@ -94,3 +94,5 @@ node scripts/benchmark-wall.mjs  # 3000 张浏览器文件夹性能验收
 - `server/reset-library.mjs`：显式业务重置，保留设置、凭据和管理员。
 
 数据卷、照片、密钥、导出、构建结果和本地配置均不提交。单管理员、单应用实例；不包含多用户隔离、RAW 显影、云同步或自动发布朋友圈。
+
+首次默认密码为 `passwd`；登录后必须先设置至少 12 位的新密码。已修改的密码不会因重启或升级而重置。

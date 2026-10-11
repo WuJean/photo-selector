@@ -52,7 +52,7 @@ function Login({ onLogin }) {
           setBusy(true);
           try {
             await api("/auth/login", json("POST", { password }));
-            onLogin();
+            onLogin(await api("/auth/session"));
           } catch (e) {
             setError(e.message);
           } finally {
@@ -78,7 +78,7 @@ function Login({ onLogin }) {
         </Button>
         <details>
           <summary>首次登录</summary>
-          <p>初始密码保存在部署数据目录的 admin-initial-password 文件中。</p>
+          <p>初始密码：passwd。首次登录后请设置自己的密码。</p>
         </details>
       </form>
     </main>
@@ -172,22 +172,75 @@ function Viewer({ photos, index: initial, onClose, onDownload }) {
     </div>
   );
 }
+function FirstPassword({ onChanged }) {
+  const [password, setPassword] = useState(""),
+    [confirm, setConfirm] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  return (
+    <main className="login-page">
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (password !== confirm) return setError("两次密码不一致");
+          setBusy(true);
+          try {
+            await api("/auth/password", json("PUT", { password }));
+            await api("/auth/login", json("POST", { password }));
+            onChanged(await api("/auth/session"));
+          } catch (e) {
+            setError(e.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <h1>设置新密码</h1>
+        <p>首次登录，请先设置至少 12 位的新密码。</p>
+        <label className="field">
+          新密码
+          <input
+            required
+            type="password"
+            minLength={12}
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          确认新密码
+          <input
+            required
+            type="password"
+            minLength={12}
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </label>
+        {error && <p role="alert">{error}</p>}
+        <Button primary type="submit" disabled={busy}>
+          保存并进入照片墙
+        </Button>
+      </form>
+    </main>
+  );
+}
 export default function WallApp() {
   if (location.pathname.startsWith("/s/"))
     return <PublicShare token={location.pathname.split("/")[2]} />;
-  const [authenticated, setAuthenticated] = useState(null);
+  const [session, setSession] = useState(null);
   useEffect(() => {
     api("/auth/session")
-      .then((r) => setAuthenticated(r.authenticated))
-      .catch(() => setAuthenticated(false));
+      .then(setSession)
+      .catch(() => setSession({ authenticated: false }));
   }, []);
-  if (authenticated === null)
-    return <div className="empty-state">正在连接…</div>;
-  return authenticated ? (
-    <Workspace onLogout={() => setAuthenticated(false)} />
-  ) : (
-    <Login onLogin={() => setAuthenticated(true)} />
-  );
+  if (session === null) return <div className="empty-state">正在连接…</div>;
+  if (!session.authenticated) return <Login onLogin={setSession} />;
+  if (session.mustChangePassword)
+    return <FirstPassword onChanged={setSession} />;
+  return <Workspace onLogout={() => setSession({ authenticated: false })} />;
 }
 function Workspace({ onLogout }) {
   const [waitingAI, setWaitingAI] = useState(pendingAI),

@@ -50,6 +50,13 @@ try {
   await page.goto(`http://127.0.0.1:${port}`);
   await page.getByLabel("管理员密码").fill("benchmark-only-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page
+    .getByLabel("新密码", { exact: true })
+    .fill("benchmark-personal-password");
+  await page
+    .getByLabel("确认新密码", { exact: true })
+    .fill("benchmark-personal-password");
+  await page.getByRole("button", { name: "保存并进入照片墙" }).click();
   await page.locator(".wall-header").waitFor();
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");

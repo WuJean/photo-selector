@@ -14,7 +14,7 @@ cd photo-selector
 
 仓库为私有，克隆需要有访问权限的 GitHub 账号。Windows 在 WSL 中执行脚本，或在项目目录执行 `docker compose up -d --build --wait`。
 
-成功后打开 **http://localhost:4173**，也支持 **http://127.0.0.1:4173**。先使用数据目录中的初始密码登录，再连接电脑文件夹或导入 JPEG。首页是照片墙，筛选在「导入与筛选」中进行。图片理解和图片生成在网页“设置”中分别配置，未配置 AI 也可选片、手动拼图和导出。
+成功后打开 **http://localhost:4173**，也支持 **http://127.0.0.1:4173**。先使用 `passwd` 登录并设置至少 12 位的新密码，再连接电脑文件夹或导入 JPEG。首页是照片墙，筛选在「导入与筛选」中进行。图片理解和图片生成在网页“设置”中分别配置，未配置 AI 也可选片、手动拼图和导出。
 
 脚本会检查 Docker、构建镜像、启动服务并等待健康检查。反复执行会更新当前部署，数据卷保留。没有发布公共镜像，构建使用当前检出的源码。
 
@@ -142,7 +142,7 @@ docker compose up -d --wait
 docker compose exec -T web cat /data/admin-initial-password
 ```
 
-在网页设置修改密码后该初始文件会删除，旧会话全部失效。HTTPS 配置下 Cookie 为 Secure，所有会话为 HttpOnly、SameSite=Strict。
+默认初始密码为 `passwd`，首次登录强制修改为至少 12 位的新密码，修改前管理接口不可访问。已有自设密码不受升级影响；旧部署尚未修改的随机初始密码会迁为 `passwd`。修改后该初始文件会删除，旧会话全部失效。HTTPS 配置下 Cookie 为 Secure，所有会话为 HttpOnly、SameSite=Strict。
 
 电脑文件夹授权属于浏览器和访问地址。`localhost` 与 `127.0.0.1` 的 IndexedDB 不共享；更换地址后点「重新连接文件夹」。支持桌面 Chrome／Edge 的目录访问 API，服务端无法读取你的电脑路径。服务器备份包含照片资料、上传照片和分享副本，**不包含电脑文件夹原片与浏览器授权**；电脑照片请自行备份。
 
@@ -167,3 +167,5 @@ docker compose exec -T web cat /data/admin-initial-password
 开发者可执行 `npm ci && npm run test:docker`。测试需要 Node.js 24、Docker 和 Chrome；CI 使用 Playwright Chromium。它创建随机端口、独立容器及一次性测试卷，验证导入、图片解码、本地 CV、两轮状态、中文水印导出、重建后的数据及密钥恢复、模拟多模态调用和浏览器刷新，完成后删除自身测试卷。
 
 Docker 内的 AI 验证使用模拟服务，不会读取个人密钥或产生真实模型费用。Linux amd64 由 GitHub Actions 构建和验收，Apple Silicon 本地验证 Linux arm64。详细结果见 [测试记录](TESTING.md)。
+
+首次默认密码为 `passwd`；登录后必须先设置至少 12 位的新密码。已修改的密码不会因重启或升级而重置。

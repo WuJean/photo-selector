@@ -104,7 +104,7 @@ try {
     403,
   );
   assert.equal((await fetch(base + "/api/assets")).status, 401);
-  const password = (
+  let password = (
     await run(["exec", "-T", "web", "cat", "/data/admin-initial-password"], {
       capture: true,
     })
@@ -113,6 +113,13 @@ try {
     .trim();
   const auth = await request("/api/auth/login", "POST", { password });
   cookie = auth.headers.get("set-cookie").split(";")[0];
+  assert.equal((await auth.json()).mustChangePassword, true);
+  assert.equal((await request("/api/assets")).status, 403);
+  password = "docker-fixture-password-123";
+  await json("/api/auth/password", "PUT", { password });
+  cookie = (await request("/api/auth/login", "POST", { password })).headers
+    .get("set-cookie")
+    .split(";")[0];
   const project = await json("/api/batches", "POST", {
     name: "Docker 验收",
     source: "upload",

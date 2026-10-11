@@ -4,7 +4,7 @@ import {
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
-import { writeFileSync, rmSync } from "node:fs";
+import { writeFileSync, rmSync, readFileSync } from "node:fs";
 import path from "node:path";
 export const hashPassword = (
   password,
@@ -33,11 +33,27 @@ export function registerAuth(
   { password = process.env.PHOTO_SELECTOR_ADMIN_PASSWORD } = {},
 ) {
   const initialFile = path.join(store.root, "admin-initial-password");
-  if (!store.get("account", "admin")) {
-    const initial = password || randomBytes(18).toString("base64url");
-    store.put("account", { id: "admin", password: hashPassword(initial) });
-    if (!password)
-      writeFileSync(initialFile, initial + "\n", { mode: 0o600, flag: "wx" });
+  const account = store.get("account", "admin");
+  let unclaimed = false;
+  try {
+    unclaimed =
+      account &&
+      verifyPassword(
+        readFileSync(initialFile, "utf8").trim(),
+        account.password,
+      );
+  } catch {}
+  // Only migrate an unused bootstrap credential; never reset a chosen password.
+  if (!account || (unclaimed && account.bootstrapVersion !== 2)) {
+    const initial = !account && password ? password : "passwd";
+    store.put("account", {
+      id: "admin",
+      password: hashPassword(initial),
+      mustChangePassword: true,
+      bootstrapVersion: 2,
+    });
+    for (const s of store.all("session")) store.remove("session", s.id);
+    writeFileSync(initialFile, initial + "\n", { mode: 0o600 });
   }
   const limits = new Map();
   const session = (req) => {
@@ -53,7 +69,11 @@ export function registerAuth(
       `photo_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${app.locals.publicURL?.startsWith("https:") ? "; Secure" : ""}`,
     );
   app.get("/api/auth/session", (req, res) =>
-    res.json({ authenticated: !!session(req) }),
+    res.json({
+      authenticated: !!session(req),
+      mustChangePassword:
+        !!session(req) && !!store.get("account", "admin").mustChangePassword,
+    }),
   );
   app.post("/api/auth/login", (req, res) => {
     const key = req.socket.remoteAddress,
@@ -78,7 +98,10 @@ export function registerAuth(
     const token = randomBytes(32).toString("base64url");
     store.put("session", { id: digest(token), expiresAt: now + 7 * 86400000 });
     setCookie(req, res, token, 7 * 86400);
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      mustChangePassword: !!store.get("account", "admin").mustChangePassword,
+    });
   });
   app.post("/api/auth/logout", (req, res) => {
     const s = session(req);
@@ -90,17 +113,31 @@ export function registerAuth(
     if (req.path === "/health" || req.path.startsWith("/public/shares/"))
       return next();
     if (!session(req)) return res.status(401).json({ error: "请先登录" });
+    if (
+      store.get("account", "admin").mustChangePassword &&
+      req.path !== "/auth/password"
+    )
+      return res
+        .status(403)
+        .json({ error: "请先修改初始密码", code: "PASSWORD_CHANGE_REQUIRED" });
     next();
   });
   app.put("/api/auth/password", (req, res) => {
     if (
+      !store.get("account", "admin").mustChangePassword &&
       !verifyPassword(req.body.current, store.get("account", "admin").password)
     )
       return res.status(403).json({ error: "当前密码不正确" });
     if (typeof req.body.password !== "string" || req.body.password.length < 12)
       throw new Error("新密码至少 12 位");
+    if (
+      verifyPassword(req.body.password, store.get("account", "admin").password)
+    )
+      throw new Error("请设置不同的新密码");
     store.put("account", {
       id: "admin",
+      mustChangePassword: false,
+      bootstrapVersion: 2,
       password: hashPassword(req.body.password),
     });
     for (const s of store.all("session")) store.remove("session", s.id);

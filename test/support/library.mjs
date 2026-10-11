@@ -10,6 +10,10 @@ export async function fixture(register = () => {}) {
     authentication: true,
     password: "fixture-password-123",
   });
+  store.put("account", {
+    ...store.get("account", "admin"),
+    mustChangePassword: false,
+  });
   registerLibrary(app, store, upload);
   register(app, store, upload);
   errors(app);

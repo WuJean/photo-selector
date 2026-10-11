@@ -16,7 +16,7 @@ export default defineConfig({
     command: "node server/index.mjs",
     env: {
       PORT: "4174",
-      PHOTO_SELECTOR_ADMIN_PASSWORD: "fixture-password-123",
+      PHOTO_SELECTOR_ADMIN_PASSWORD: "fixture-bootstrap-123",
       PHOTO_SELECTOR_DATA_DIR: path.resolve(".local/e2e", randomUUID()),
     },
     url: "http://127.0.0.1:4174/api/health",

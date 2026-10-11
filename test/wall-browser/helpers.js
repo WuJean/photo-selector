@@ -2,6 +2,16 @@ import { expect } from "@playwright/test";
 import sharp from "sharp";
 export const password = "fixture-password-123";
 export async function login(page) {
+  const existing = await page.request.post("/api/auth/login", {
+    data: { password },
+  });
+  if (!existing.ok()) {
+    await page.request.post("/api/auth/login", {
+      data: { password: "fixture-bootstrap-123" },
+    });
+    await page.request.put("/api/auth/password", { data: { password } });
+  }
+  await page.request.post("/api/auth/logout", { data: {} });
   await page.goto("/");
   await page.getByLabel("管理员密码").fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
