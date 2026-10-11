@@ -144,12 +144,12 @@ try {
   const scrollStart = performance.now();
   await page.mouse.wheel(0, 1800);
   await page.waitForTimeout(250);
-  await page.getByRole("button", { name: /加载更多/ }).click();
+  if (count > 100) await page.getByRole("button", { name: /加载更多/ }).click();
   result.expandedDOMCards = await page.locator(".wall-card").count();
   result.scrollLoadMs = Math.round(performance.now() - scrollStart);
   await mkdir(".local/wall-benchmark", { recursive: true });
   await page.screenshot({
-    path: ".local/wall-benchmark/3000-wall.png",
+    path: `.local/wall-benchmark/${count}-wall.png`,
     fullPage: false,
   });
   const response = await page.request.get(
@@ -173,8 +173,7 @@ try {
   const reopened = new Store(root);
   result.reopenedRecords = reopened.all("photo").length;
   reopened.close();
-  result.fixture =
-    "3000 distinct synthetic 1800×1200 JPEG, OPFS directory, real browser worker import";
+  result.fixture = `${count} distinct synthetic 1800×1200 JPEG, OPFS directory, real browser worker import`;
   result.browser = await browser.version();
   await writeFile(
     ".local/wall-benchmark/benchmark.json",
