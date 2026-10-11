@@ -1,9 +1,19 @@
+import { wechatConfig } from "./wechat-config.mjs";
 import { build } from "esbuild";
 import { cp, mkdir, writeFile, access } from "node:fs/promises";
 import path from "node:path";
+const settings = await wechatConfig();
+if (process.argv.includes("--sync") && !settings.projectDir)
+  throw new Error(
+    "请先配置 WECHAT_PROJECT_DIR 或 config.local.json 的 projectDir",
+  );
 const out = path.resolve("dist/wechat");
 await mkdir(out, { recursive: true });
 await cp("wechat/miniprogram", out + "/miniprogram", { recursive: true });
+await writeFile(
+  out + "/miniprogram/config.js",
+  "module.exports = " + JSON.stringify({ env: settings.envId }) + ";\n",
+);
 await build({
   entryPoints: ["wechat/core/mobile.mjs"],
   outfile: out + "/miniprogram/utils/domain.js",
@@ -66,7 +76,7 @@ for (const name of ["photoApiV2", "photoWorker"])
 const project = {
   miniprogramRoot: "miniprogram/",
   cloudfunctionRoot: "cloudfunctions/",
-  appid: "wxee3c352a685b21c5",
+  appid: settings.appId,
   projectname: "photo-selector",
   compileType: "miniprogram",
   libVersion: "3.17.4",
@@ -74,7 +84,7 @@ const project = {
 };
 await writeFile(out + "/project.config.json", JSON.stringify(project, null, 2));
 if (process.argv.includes("--sync")) {
-  const target = "/Users/wujean/WeChatProjects/photo-selector";
+  const target = path.resolve(settings.projectDir);
   const backup = ".local/wechat-quickstart-backup";
   try {
     await access(backup);

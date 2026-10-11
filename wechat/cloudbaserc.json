@@ -1,5 +1,5 @@
 {
-  "envId": "cloud1-d4gpza9qcc9ead069",
+  "envId": "",
   "functionRoot": "dist/wechat/cloudfunctions",
   "functions": [
     {

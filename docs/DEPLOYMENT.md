@@ -1,106 +1,132 @@
-# Docker 部署
+# 部署、访问与备份
 
-这是网页版的部署方式，包含网页、接口、SQLite、照片处理和后台 AI 任务，不依赖微信云开发。适用于一人使用的照片库；同一数据卷只运行一个应用实例。
+首推 Mac 原生部署；Docker 适合已有容器环境的用户。两种方式都运行生产构建，默认监听 `0.0.0.0:4173`，均保留管理员登录和作品集分享权限。
 
-## 一键启动
+## Mac 原生部署
 
-先安装并启动 Docker：Mac／Windows 使用 Docker Desktop；Linux 使用 Docker Engine 和 Compose v2（需支持 `up --wait`）。首次构建需要联网下载镜像、依赖和中文字体，主机无需安装 Node.js、Swift 或数据库。
+需要 macOS 14+、Node.js 24+（含 npm）。Swift 6 可选，用于构建 Apple VisionWorker；缺少工具链时使用传统 CV。可以运行 `xcode-select --install` 安装 Command Line Tools，再通过软件更新升级过旧的工具链。
 
 ```sh
-git clone git@github.com:WuJean/photo-selector.git
+git clone https://github.com/WuJean/photo-selector.git
 cd photo-selector
 ./deploy.sh
 ```
 
-仓库为私有，克隆需要有访问权限的 GitHub 账号。Windows 在 WSL 中执行脚本，或在项目目录执行 `docker compose up -d --build --wait`。
+脚本检查依赖、执行 `npm ci`、构建网页和可用的 VisionWorker，再启动后台服务。依赖缺失会给出安装说明，不自动安装 Homebrew。原生模式不自动设置开机启动。
 
-成功后打开 **http://localhost:4173**，也支持 **http://127.0.0.1:4173**。先使用 `passwd` 登录并设置至少 12 位的新密码，再连接电脑文件夹或导入 JPEG。首页是作品集时间线，点击封面进入作品集；筛选在「导入与筛选」中进行。图片理解和图片生成在作品集或导入筛选页面的“设置”中分别配置，未配置 AI 也可选片、手动拼图和导出。
+首次密码 **`passwd`**，首次登录必须改为至少 12 位的个人密码。默认对网络监听，先在本机完成改密，再分享访问地址。已有个人密码不会因部署、更新或重启被重置。
 
-脚本会检查 Docker、构建镜像、启动服务并等待健康检查。反复执行会更新当前部署，数据卷保留。没有发布公共镜像，构建使用当前检出的源码。
+| 操作 | 命令 |
+| --- | --- |
+| 构建并部署／更新 | `./deploy.sh` |
+| 启动已有构建 | `./deploy.sh start` |
+| 停止 | `./deploy.sh stop` |
+| 重启已有构建 | `./deploy.sh restart` |
+| 状态 | `./deploy.sh status` |
+| 日志 | `./deploy.sh logs`，Ctrl-C 仅退出日志查看 |
 
-### 已有服务占用 4173
+默认业务目录 `.local/`，运行记录与日志在 `.local/run/`。更新先构建，构建成功后重启脚本管理的进程。退出时只停止带有匹配运行标识的进程组；未知进程、其他项目和其他照片库不会被停止。
+
+原生服务可使用 macOS 钥匙串。已有加密凭据库在启用 Vision 后仍继续使用，避免隐藏此前保存的密钥。未启用钥匙串时使用数据目录中的 AES-256-GCM 凭据；密钥和加密内容都需要备份。
+
+## Docker 部署
+
+Mac／Windows 安装 Docker Desktop，Linux 安装 Docker Engine 和 Compose v2；Windows 在 WSL 中运行脚本。无需主机 Node.js 或 Swift。
+
+```sh
+./deploy.sh --docker
+./deploy.sh --docker status
+./deploy.sh --docker logs
+./deploy.sh --docker stop
+./deploy.sh --docker start
+```
+
+Mac 默认原生，必须显式加 `--docker` 使用 Docker。非 Mac 默认 Docker。镜像从当前检出的源码构建，不依赖公共预构建镜像。
+
+Docker 使用 Linux CV，不调用 Apple Vision 或 macOS 钥匙串；密钥以加密文件保存在持久卷中。它不会自动读取 Mac `.local/` 或钥匙串。两种方式的数据不会自动合并。
+
+日常更新：
+
+```sh
+# 先按下文备份
+git pull --ff-only
+./deploy.sh --docker
+```
+
+`--docker restart` 重启现有容器；更改配置后运行 `./deploy.sh --docker` 重新应用配置。`docker compose down` 保留数据卷；不要使用 `down -v` 删除在用照片库。
+
+## 配置优先级
+
+命令环境变量 > 项目 `.env` > 默认值。`.env` 已被忽略，不要放 API Key；在网页设置中填写。
 
 ```sh
 cp .env.example .env
 ```
 
-将 `.env` 中 `PHOTO_SELECTOR_PORT=4173` 改为 `PHOTO_SELECTOR_PORT=4180`，再执行 `./deploy.sh`，访问 http://localhost:4180。不要关闭或覆盖已有照片库来解决端口冲突。
+| 配置 | 默认／用途 |
+| --- | --- |
+| `PHOTO_SELECTOR_PORT` | `4173`，原生端口或 Docker 主机映射端口 |
+| `PHOTO_SELECTOR_BIND` | `0.0.0.0`；只供本机访问时改为 `127.0.0.1` |
+| `PHOTO_SELECTOR_PUBLIC_URL` | 脚本自动选择局域网地址，无可用地址时使用 localhost；也可设为自己的 HTTPS 域名 |
+| `PHOTO_SELECTOR_ALLOWED_ORIGINS` | 额外允许的完整访问地址，逗号分隔；不能使用通配符 |
+| `PHOTO_SELECTOR_DATA_DIR` | 原生业务目录，默认 `.local`；相对项目根目录解析 |
+| `PHOTO_SELECTOR_VOLUME` | Docker 卷名，默认 `photo-selector-data`；改名会切换照片库 |
+| `TZ` | 默认 `Asia/Shanghai` |
 
-## 配置
+原生模式也接受 `PORT` 和 `HOST` 别名。Docker 配置请使用 `PHOTO_SELECTOR_` 名称。手写 `.env` 使用普通 `KEY=value` 或带引号的字面值，不使用 shell 命令或变量插值。
 
-`.env` 可选，已被 Git 忽略；没有它时使用下表默认值。不要把 API Key 写进镜像、Compose 文件或 `.env`，在网页设置中保存即可。
+已有显式端口、绑定地址、数据目录等配置不会被脚本覆盖。例如已有 `127.0.0.1` 时，需自行改为 `0.0.0.0` 后重新部署才能接受局域网请求。
 
-| 配置 | 默认值 | 用途 |
-| --- | --- | --- |
-| `PHOTO_SELECTOR_PORT` | `4173` | 主机访问端口，容器内部固定 4173 |
-| `PHOTO_SELECTOR_BIND` | `127.0.0.1` | 主机绑定地址，默认仅本机可访问 |
-| `PHOTO_SELECTOR_PUBLIC_URL` | `http://localhost:<访问端口>` | 浏览器实际访问的完整地址，不带子路径；本机地址自动允许 localhost／127.0.0.1／IPv6 回环别名 |
-| `PHOTO_SELECTOR_VOLUME` | `photo-selector-data` | 持久化数据卷名；改名相当于切换到另一个照片库 |
-| `TZ` | `Asia/Shanghai` | 容器时区 |
+## 本机、局域网与公网
 
-网页和 API 使用同一域名，不需要额外 CORS 配置。容器用普通用户运行，程序目录只读；照片及数据库写入 `/data`，临时系统文件使用 `/tmp`。
+- **本机管理**：优先打开 `http://localhost:4173`，Chrome／Edge 可授权电脑文件夹。
+- **局域网访问**：打开启动输出中的 `http://局域网IP:端口`。HTTP 地址不能使用浏览器文件夹授权，可普通上传。手机和 Mac 需要在可互通的网络中，系统防火墙需允许服务。
+- **公网分享**：需要公网可达的服务、域名与 HTTPS 反向代理。`0.0.0.0` 不会自动穿透路由器，本项目不会修改路由器或安装隧道。
 
-### Linux 和 Mac 的差异
+管理者通过 localhost 使用文件夹时，分享链接仍由 `PHOTO_SELECTOR_PUBLIC_URL` 生成，避免发出访客无法访问的 localhost 地址。局域网 IP 变化后重新部署，并重新复制分享链接；已有分享令牌保留。
 
-- Docker 内运行 Linux，使用感知哈希、时间和精确摘要进行本地分组，并提供清晰度与曝光提示；不调用 Apple Vision，也不提供其人脸定位能力。AI 标签、搭配和创作仍可调用已配置的服务。
-- Mac 原生运行且构建 VisionWorker 时使用钥匙串；Docker 使用 AES-256-GCM 加密的本地凭据。密钥与加密文件分别保存在数据卷 `secrets/` 中，文件权限 600、目录 700。它防止凭据以明文进入数据库，并不能抵御能够读取整个数据卷的管理员。备份必须按敏感数据保管。
-- Docker 不会自动读取主机 `.local/` 照片库或 macOS 钥匙串。默认创建一个独立的空照片库。
-- 镜像包含中文字体，文字水印与拍摄参数相框可在 Linux 渲染。
-
-### 连接主机上的本地模型
-
-容器里的 `localhost` 指容器本身。访问主机的兼容图片理解服务时，在设置中填写例如：
-
-```text
-http://host.docker.internal:11434/v1
-```
-
-Compose 已配置该主机名，Linux 也会映射到主机网关。模型服务本身需允许 Docker 网络访问；只监听主机回环地址的服务在部分 Linux 配置下不可达。云服务继续使用 HTTPS 地址。不会把现有 Mac 钥匙串密钥自动传入容器。
-
-## 部署到远程服务器
-
-应用有单管理员登录；管理接口和私有图片均需会话。个人远程使用可保留默认回环监听，并通过 SSH 隧道访问：
-
-```sh
-ssh -N -L 4173:127.0.0.1:4173 your-user@your-server
-```
-
-然后在本机打开 http://localhost:4173。若本机端口不同，服务器的 `PHOTO_SELECTOR_PUBLIC_URL` 也应改为对应的本机访问地址。
-
-需要域名访问时，使用 HTTPS 反向代理，并设置：
+公网配置示例：
 
 ```dotenv
 PHOTO_SELECTOR_PUBLIC_URL=https://photos.example.com
 ```
 
-主机上的反向代理转发至 `127.0.0.1:4173`，保留原始 `Host` 和 `Origin`；不要把浏览器地址改写成容器地址。上传请求最大一次 20 张、单张 100 MB，代理请求体上限和超时需容纳实际批次；文案和 AI 搭配请求应允许等待至少 3 分钟。容器部署的反向代理需另行配置共享网络。
+代理转发到实际端口，保留原始 `Host` 和 `Origin`，使用同一个公开域名访问网页和 API。不要把浏览器地址改写成容器地址，也无需开放任意 CORS。上传一次最多 20 张、每张 100 MB；代理请求体限制需容纳实际批次，AI 搭配请求超时建议不少于 3 分钟。
 
-分享给他人时，需要可访问的 HTTPS 域名，并设置同一个 `PHOTO_SELECTOR_PUBLIC_URL`；文件夹 API 在普通远程 HTTP 下不可用。代理保留管理登录和分享页面各自的权限边界。默认仍只绑定回环地址。
+一个域名的 Nginx 转发片段（放在已配置 TLS 证书的 server 内）：
 
-## 日常管理
-
-```sh
-# 查看状态／日志
-docker compose ps
-docker compose logs --tail=100 -f web
-
-# 停止、恢复；数据保留
-docker compose stop
-docker compose start
-
-# 更新：先按下文备份，再拉取代码重新部署
-git pull --ff-only
-./deploy.sh
-
-# 移除运行容器和网络，保留照片库
-docker compose down
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:4173;
+    proxy_set_header Host $http_host;
+    proxy_set_header Origin $http_origin;
+    proxy_read_timeout 300s;
+    client_max_body_size 2100m;
+}
 ```
 
-不要对正在使用的照片库执行 `docker compose down -v` 或删除数据卷。健康检查只验证服务可用，不会调用付费模型。未完成 AI 任务重启后显示为暂停，在界面继续即可，已完成结果不会重新提交。
+配置 HTTPS 公开地址后会话 Cookie 带 Secure，始终使用 HttpOnly 和 SameSite=Strict。管理接口、私有图片及分享访问权限不会因监听全部网卡而取消。
 
-### 备份
+直接 `docker compose up` 也能启动，但不会执行脚本的主机局域网地址检测；此时应显式填写公开地址与额外允许地址。容器里的 localhost 指容器本身；访问 Mac 上的本地模型可以使用 `http://host.docker.internal:端口/v1`。
 
-在项目目录执行。先停止服务，保证数据库和照片处于一致状态；备份整个 `/data`，不要只复制 SQLite 主文件。
+## 原生备份与恢复
+
+停止服务后备份整个业务目录；自定义目录时替换下面的 `.local`。
+
+```sh
+./deploy.sh stop
+mkdir -p backups
+tar -czf "backups/photos-$(date +%Y%m%d-%H%M%S).tar.gz" .local
+./deploy.sh start
+```
+
+备份可能包含照片、描述、分享副本、数据库和加密凭据，请作为敏感文件保管。恢复时先停止服务，解压到独立目录并设置 `PHOTO_SELECTOR_DATA_DIR`，不要覆盖正在使用的照片库。运行记录不用于恢复进程，服务会校验进程身份。
+
+钥匙串中的密钥不在业务目录备份内，需要保留系统钥匙串或重新配置 AI Key。浏览器文件夹原片及目录授权也不在服务器备份中；电脑源照片需另行备份。
+
+## Docker 备份与恢复
+
+停止服务，备份整个 `/data`：
 
 ```sh
 mkdir -p backups
@@ -109,63 +135,36 @@ docker compose run --rm --no-deps -T --entrypoint tar web -C /data -czf - . > "b
 docker compose start web
 ```
 
-检查中间命令是否成功；即使备份失败也可执行最后一行恢复服务。备份包含原片、预览、数据库、作品和加密凭据及其主密钥，不要分享或提交到 Git。
-
-### 恢复到新数据卷
-
-先确认备份完整，使用一个**未使用过的卷名**；不要把归档解压到现有照片库。
+恢复到一个**未使用过的卷名**：
 
 ```sh
 PHOTO_SELECTOR_VOLUME=photo-selector-restored docker compose run --rm --no-deps -T --entrypoint tar web -C /data -xzf - < backups/your-backup.tar.gz
 ```
 
-把 `.env` 中 `PHOTO_SELECTOR_VOLUME` 改为 `photo-selector-restored`，再执行 `./deploy.sh`。原数据卷仍保留，可切回。备份恢复必须同时包含 `secrets/master.key` 和 `secrets/credentials.enc`；损坏或缺失时服务会报错，不会默默覆盖凭据。
-
-### 可选：显式清空业务数据
-
-**日常更新和本轮作品集时间线改版不需要运行本节，现有照片、作品集、密码和 AI 配置全部保留。** 下列命令仅用于明确需要清空当前照片库时；它保留服务设置、管理员、会话、保存的模板及凭据，不删除电脑源文件，也不触碰微信数据。**这是不可撤销的清理，先确认当前数据卷就是要重置的部署。**
-
-```sh
-docker compose build web
-docker compose stop web
-docker compose run --rm --no-deps -T web node server/reset-library.mjs --confirm
-docker compose up -d --wait
-```
-
-本机 Node 运行时，先停止进程，再用其相同 `PHOTO_SELECTOR_DATA_DIR` 执行 `node server/reset-library.mjs --confirm`。脚本不会在每次启动时执行，不读取数据库中的外部源路径，不跟随照片目录符号链接。若进程中断留下 `.reset-in-progress`，确认没有重置进程后移除这个标记，再重试。
-
-### 登录和本地目录
-
-初次启动使用 `passwd`，登录后强制修改；数据库只存密码哈希。自定义环境初始密码也必须修改。部署数据目录以 600 权限保存未认领的初始凭据，可读取：
-
-```sh
-docker compose exec -T web cat /data/admin-initial-password
-```
-
-默认初始密码为 `passwd`，首次登录强制修改为至少 12 位的新密码，修改前管理接口不可访问。已有自设密码不受升级影响；旧部署尚未修改的随机初始密码会迁为 `passwd`。修改后该初始文件会删除，旧会话全部失效。HTTPS 配置下 Cookie 为 Secure，所有会话为 HttpOnly、SameSite=Strict。
-
-电脑文件夹授权属于浏览器和访问地址。`localhost` 与 `127.0.0.1` 的 IndexedDB 不共享；更换地址后到作品集点「重新连接文件夹」。支持桌面 Chrome／Edge 的目录访问 API，服务端无法读取你的电脑路径。服务器备份包含照片资料、上传照片和分享副本，**不包含电脑文件夹原片与浏览器授权**；电脑照片请自行备份。
-
-普通上传会在服务器保留原片；网络导入先中转到服务器，保存电脑并校验通过后回收中转。分享在线副本保留到撤销或过期。清理不会删正在被引用的照片。
+在 `.env` 中将 `PHOTO_SELECTOR_VOLUME` 改为该卷名，再运行 `./deploy.sh --docker`。原卷仍保留。加密凭据恢复必须包含 `secrets/master.key` 和 `secrets/credentials.enc`；缺失或损坏会报错，不会默默覆盖。
 
 ## 故障处理
 
-| 现象 | 检查 |
+| 问题 | 处理 |
 | --- | --- |
-| Docker 未启动 | 启动 Docker Desktop 或 Linux Docker 服务，重试脚本 |
-| 端口占用 | 修改 `.env` 的 `PHOTO_SELECTOR_PORT`；无需更改容器内部端口 |
-| 403「访问地址未配置」／「不允许跨站请求」 | 确认 `PHOTO_SELECTOR_PUBLIC_URL` 与浏览器协议、域名、端口完全一致，重新部署；检查反向代理 Host |
-| 本地照片离线 | 使用同一浏览器和地址，到作品集点「重新连接文件夹」重新授权或定位，按摘要匹配 |
-| 忘记首次密码 | 查看 `/data/admin-initial-password`；已修改后使用自己保存的新密码 |
-| 初次下载失败 | 检查 Docker Hub、npm 和 Debian 软件源的网络访问，恢复后重跑脚本 |
-| 重启后出现空库 | 检查 `PHOTO_SELECTOR_VOLUME` 是否改名或切换了 Docker context，避免删除原卷 |
-| 不能连接本地 AI | 使用 `host.docker.internal`，检查本地服务监听与图片输入能力 |
-| 不健康或无响应 | `docker compose logs --tail=100 web` 查看错误；确认卷可写和磁盘空间充足 |
+| 端口被占用 | 设置 `PHOTO_SELECTOR_PORT`，不需要关闭其他照片库 |
+| 原生依赖缺失 | 安装 Node.js 24+；需要 Vision 时安装 Swift 6 工具链；重新部署 |
+| 原生部署锁遗留 | 确认没有部署进程，再移除错误信息指向的 `deploy.lock`，不要删除业务库 |
+| 403 访问地址未配置 | 检查浏览器域名、协议和端口；填写 `PUBLIC_URL` 或 `ALLOWED_ORIGINS` 后重新部署 |
+| 本地照片离线 | 使用原浏览器和访问地址，在作品集中重新连接文件夹 |
+| 更新后显示空库 | 检查数据目录或 Docker 卷名，先切回原配置，不要清库 |
+| Docker 无法连接本地模型 | 使用 `host.docker.internal`，确认模型允许 Docker 网络访问 |
+| 原生服务不健康 | 查看 `.local/run/native.log`；检查端口、目录权限和磁盘空间 |
 
-## 验证
+## 验证与显式重置
 
-开发者可执行 `npm ci && npm run test:docker`。测试需要 Node.js 24、Docker 和 Chrome；CI 使用 Playwright Chromium。它创建随机端口、独立容器及一次性测试卷，验证导入、图片解码、本地 CV、两轮状态、中文水印导出、重建后的数据及密钥恢复、模拟多模态调用和浏览器刷新，完成后删除自身测试卷。
+```sh
+npm run check
+npm run test:browser
+npm run test:native   # Mac，独立测试库
+npm run test:docker   # 独立容器和一次性测试卷
+```
 
-Docker 内的 AI 验证使用模拟服务，不会读取个人密钥或产生真实模型费用。Linux amd64 由 GitHub Actions 构建和验收，Apple Silicon 本地验证 Linux arm64。详细结果见 [测试记录](TESTING.md)。
+CI 在 Mac 和 Linux 分别验证原生及 Docker 流程。部署验收不会调用付费模型。详见 [测试记录](TESTING.md)。
 
-首次默认密码为 `passwd`；登录后必须先设置至少 12 位的新密码。已修改的密码不会因重启或升级而重置。
+日常升级不需要重置。`server/reset-library.mjs --confirm` 是显式、不可撤销的业务清理工具，仅供确实需要清空指定照片库时使用，绝不加入自动启动流程。

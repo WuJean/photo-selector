@@ -1,3 +1,4 @@
+import { cloudConfig } from "./wechat-config.mjs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -5,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { NativeBridge } from "../server/native.mjs";
 import { Vault } from "../server/ai.mjs";
 // Credentials never enter the repository or command-line arguments.
-const source = JSON.parse(await readFile("wechat/cloudbaserc.json", "utf8"));
+const source = await cloudConfig();
 const privateDir = path.join(os.homedir(), ".codex/private");
 await mkdir(privateDir, { recursive: true, mode: 0o700 });
 const destination = path.join(privateDir, "photo-selector-cloudbaserc.json");

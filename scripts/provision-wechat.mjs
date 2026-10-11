@@ -1,6 +1,7 @@
+import { cloudConfig } from "./wechat-config.mjs";
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-const config = JSON.parse(await readFile("wechat/cloudbaserc.json", "utf8"));
+const config = await cloudConfig();
 const cli = (args) =>
   execFileSync(
     "npm",

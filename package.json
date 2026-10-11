@@ -40,5 +40,6 @@
     "@vitejs/plugin-react": "^5.0.4",
     "prettier": "^3.9.10",
     "vite": "^7.1.9"
-  }
+  },
+  "license": "MIT"
 }

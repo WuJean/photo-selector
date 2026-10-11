@@ -4,7 +4,7 @@ import { processJob } from "../core/jobs.mjs";
 import { createPerformer } from "./perform.mjs";
 import { dispatch, sign } from "./dispatch.mjs";
 import { timingSafeEqual } from "node:crypto";
-cloud.init({ env: process.env.CLOUDBASE_ENV_ID || "cloud1-d4gpza9qcc9ead069" });
+cloud.init({ env: process.env.CLOUDBASE_ENV_ID || cloud.DYNAMIC_CURRENT_ENV });
 export async function main(event) {
   const secret = process.env.WORKER_SECRET;
   const actual = Buffer.from(String(event.signature || ""));

@@ -22,3 +22,6 @@ test-results/
 playwright-report/
 coverage/
 backups/
+# Deliberately public documentation artwork; keep private photos ignored.
+!docs/assets/*.png
+wechat/config.local.json

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
+import { privateAddresses } from "./deploy-config.mjs";
 import assert from "node:assert/strict";
 if (process.platform !== "darwin") {
   console.log("Native smoke requires macOS");
@@ -54,6 +55,22 @@ try {
   console.log("Build and first native deployment");
   await run();
   assert.equal((await request("/health")).status, 200);
+  const address = privateAddresses()[0];
+  if (address) {
+    const response = await fetch(`http://${address}:${port}/api/health`, {
+      headers: { Origin: `http://${address}:${port}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(response.status, 200);
+  }
+  assert.equal(
+    (
+      await fetch(`http://127.0.0.1:${port}/api/health`, {
+        headers: { Origin: "https://unrelated.example" },
+      })
+    ).status,
+    403,
+  );
   assert.equal((await request("/collections")).status, 401);
   const login = await request("/auth/login", "POST", { password: "passwd" });
   assert.equal(login.status, 200);

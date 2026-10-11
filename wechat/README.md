@@ -1,6 +1,6 @@
 # 选片助手 · 微信小程序
 
-手机相册直接上传，云端保存原片、缩略图、预览与创作；不需要电脑在线，不包含电脑配对或同步。源码在本私有仓库 `wechat/`，开发者工具目录为 `/Users/wujean/WeChatProjects/photo-selector`。
+手机相册直接上传，云端保存原片、缩略图、预览与创作；不需要电脑在线，不包含电脑配对或同步。源码位于 `wechat/`。这是独立于网页版的实现，不随网页版部署自动发布，也不与网页版同步数据。
 
 ## 使用
 
@@ -13,10 +13,9 @@
 
 长按列表照片查看参数；多选后的“更多操作”可以手工修正相似组、标记喜欢。标签由 AI 生成，标签库的补充不等于手工给照片打标。列表每页 60 张，沉浸模式的范围仍包含筛选结果的全部照片。
 
-## 已部署环境
+## 云端配置
 
-- AppID：`wxee3c352a685b21c5`
-- 环境：`cloud1-d4gpza9qcc9ead069`，上海
+- 使用自己的 AppID 和 CloudBase 环境；仓库不提供共享云服务。
 - `photoApiV2`：Node.js 20.19，512 MB，60 秒；负责鉴权、图片处理、业务接口。
 - `photoWorker`：Node.js 20.19，1024 MB，900 秒；异步任务执行，签名触发和每两分钟定时恢复。
 - `photo_selector` 集合：客户端全部禁止，云函数按 OPENID 隔离；已建立项目、任务、作品集等五个复合索引。
@@ -27,9 +26,12 @@
 
 ## 开发、测试、部署
 
+复制 `wechat/config.example.json` 为被忽略的 `wechat/config.local.json`，填写自己的 `appId`、`envId` 和可选的 `projectDir`。也可以用 `WECHAT_APP_ID`、`WECHAT_ENV_ID`、`WECHAT_PROJECT_DIR` 覆盖。未配置时仅生成游客模式示例，不连接任何云环境。
+
 ```sh
 npm run test:wechat
-npm run sync:wechat
+npm run build:wechat       # 生成 dist/wechat，可在开发者工具中导入
+npm run sync:wechat        # 仅在设置 projectDir 后同步到指定目录
 ```
 
 `sync:wechat` 生成并同步项目；首次 QuickStart 备份保存在被忽略的 `.local/wechat-quickstart-backup`。不要直接修改同步目标的业务代码。
@@ -44,13 +46,13 @@ node scripts/provision-wechat.mjs
 
 打包会明确加入 Linux x64 的 Sharp 二进制依赖，部署时 `installDependency=false`。云端自动安装曾导致 Sharp 缺失，不能上传 macOS 原生依赖代替 Linux 依赖。已有函数运行时无法原地改为新版本，因此接口函数使用 `photoApiV2`。
 
-首次从本机现有服务的钥匙串复制配置（只需迁移时执行一次）：
+旧版辅助迁移脚本（当前管理服务启用登录后不可直接使用；通常应在自己的私有云部署文件中配置模型环境变量）：
 
 ```sh
 node scripts/prepare-wechat-cloud.mjs
 ```
 
-该脚本要求本机已有服务在 4173 端口运行，并将私有配置写入 `~/.codex/private/photo-selector-cloudbaserc.json`，文件权限 0600。以后部署直接使用该文件，小程序运行不依赖本机服务。`PHOTO_ADMIN_OPENID` 可指定允许生图的管理员；当前已经配置为实际小程序登录者。不要用开发工具的占位 OPENID。
+该脚本要求本机已有服务在 4173 端口运行，并将私有配置写入 `~/.codex/private/photo-selector-cloudbaserc.json`，文件权限 0600。以后部署直接使用该文件，小程序运行不依赖本机服务。`PHOTO_ADMIN_OPENID` 可指定允许生图的管理员；必须填写实际小程序登录者。不要用开发工具的占位 OPENID。
 
 ```sh
 npm exec --yes --package @cloudbase/cli@3.8.6 -- tcb fn deploy --all --force \
