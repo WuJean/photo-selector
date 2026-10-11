@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import PhotoImage from "./PhotoImage";
 import { photoURL } from "./api";
 import { collectionTimeline } from "../../shared/collections.mjs";
-export default function Gallery({ photos, collections, navigate, onOpen }) {
-  const entries = collectionTimeline(collections, photos);
+export default function Gallery({ photos = [], collections = [], entries: summaries, navigate, onOpen }) {
+  const entries = summaries || collectionTimeline(collections, photos);
   const [limit, setLimit] = useState(20);
   const more = useRef();
   useEffect(() => {

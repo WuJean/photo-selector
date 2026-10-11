@@ -1,4 +1,4 @@
-import { collectionDetails } from "../shared/collections.mjs";
+import { collectionTimeline, collectionDetails } from "../shared/collections.mjs";
 import { hamming } from "./analysis.mjs";
 import { focalCategory } from "../shared/domain.mjs";
 import { randomUUID } from "node:crypto";
@@ -71,6 +71,23 @@ export function registerLibrary(
       name: "照片库",
       createdAt: timestamp(),
     });
+  app.get("/api/timeline", (req, res) => {
+    const items = collectionTimeline(store.all("collection").filter(c => c.projectId === LIBRARY), store.photos(LIBRARY));
+    res.json(items.map(({ collection, cover, date }) => ({
+      collection: { id: collection.id, name: collection.name, location: collection.location, poem: collection.poem, description: collection.description, date: collection.date },
+      cover: cover ? publicAsset(store, cover) : null, date,
+    })));
+  });
+  app.get("/api/collections/:id/photos", (req, res) => {
+    const c = requireItem(store, "collection", req.params.id);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40));
+    const ids = c.photoIds.filter(id => { const p = store.get("photo", id); return p && !p.deleted && !p.deleting; });
+    const after = String(req.query.cursor || "");
+    if (after && !ids.includes(after)) return res.status(409).json({ error: "作品集已更新，请重新打开" });
+    const start = after ? ids.indexOf(after) + 1 : 0;
+    const slice = ids.slice(start, start + limit);
+    res.json({ collection: { id: c.id, name: c.name, location: c.location, date: c.date, poem: c.poem, description: c.description }, items: slice.map(id => publicAsset(store, store.get("photo", id))), total: ids.length, nextCursor: start + slice.length < ids.length ? slice.at(-1) : null });
+  });
   app.get("/api/assets", (req, res) =>
     res.json(
       store

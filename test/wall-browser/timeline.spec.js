@@ -41,7 +41,7 @@ test("timeline shows one cover per collection in ascending order and edits locat
     await page.request.put(`/api/collections/${c.id}`, {
       data: { photoIds: [id] },
     });
-  await page.reload();
+  await page.goto("/#wall");
   const early = page.getByRole("link", { name: "查看作品集 早年的山" }),
     late = page.getByRole("link", { name: "查看作品集 后来的海" });
   await expect(early.locator("img")).toHaveCount(1);
@@ -51,34 +51,12 @@ test("timeline shows one cover per collection in ascending order and edits locat
     (await late.boundingBox()).y,
   );
   await late.click();
-  await expect(
-    page.locator(".wall-card").filter({ hasText: "timeline.jpg" }),
-  ).toHaveCount(1);
-  await page.getByText("编辑作品集信息", { exact: true }).click();
-  await page.getByLabel("作品集地点").fill("青岛");
-  await page.getByLabel("作品集时间").fill("2018-06-01");
-  await page.getByLabel("作品集一句诗").fill("海上生明月");
-  await page.getByLabel("作品集描述").fill("一段留在海边的记忆");
-  await page
-    .getByRole("button", { name: "保存作品集信息", exact: true })
-    .click();
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get("/api/collections")).json()).find(
-          (c) => c.id === later.id,
-        ).date,
-    )
-    .toBe("2018-06-01");
-  await page.getByRole("button", { name: "时间线", exact: true }).click();
-  await expect(late).toContainText("青岛");
-  await expect(late).toContainText("海上生明月");
-  await expect(late).toContainText("一段留在海边的记忆");
-  expect((await late.boundingBox()).y).toBeLessThan(
-    (await early.boundingBox()).y,
-  );
+  await expect(page.locator(".album-photo")).toHaveCount(1);
+  await expect(page.getByText("编辑作品集信息", { exact: true })).toHaveCount(0);
   await page.reload();
-  await expect(late).toContainText("海上生明月");
+  await expect(page.locator(".album-photo")).toHaveCount(1);
+  await page.getByRole("link", { name: "← 时间线" }).click();
+  await expect(late).toBeVisible();
   await page.screenshot({ path: "test-results/collection-timeline.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(

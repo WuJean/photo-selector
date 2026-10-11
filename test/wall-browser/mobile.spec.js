@@ -1,0 +1,20 @@
+import { test, expect } from '@playwright/test';
+import {login,jpeg} from './helpers';
+test('mobile browsing is separate, paged, and touch selection has large decisions',async({browser})=>{
+ const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});
+ const page=await context.newPage(); await login(page);
+ await page.locator('input[type=file]').setInputFiles(await Promise.all([0,1,2].map(async i=>({name:`touch-${i}.jpg`,mimeType:'image/jpeg',buffer:await jpeg(['#334488','#668822','#993344'][i])}))));
+ await expect(page.locator('.wall-card').first()).toBeVisible();
+ await page.locator('.wall-card img').first().tap();
+ const modal=page.getByRole('dialog',{name:'沉浸选片',exact:true});await expect(modal).toBeVisible();
+ expect((await modal.locator('.decision').first().boundingBox()).height).toBeGreaterThanOrEqual(56);
+ const swipe=async(dx,dy=0)=>{ const frame=modal.locator('.immersive-frame.focused');const box=await frame.boundingBox(); const session=await context.newCDPSession(page);const x=box.x+box.width/2,y=box.y+box.height/2;await session.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await session.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+dx,y:y+dy}]});await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await session.detach();};
+ const before=await modal.locator('.immersive-frame.focused').getAttribute('data-photo-id');await swipe(-90);await expect(modal.locator('.immersive-frame.focused')).not.toHaveAttribute('data-photo-id',before);
+ const current=await modal.locator('.immersive-frame.focused').getAttribute('data-photo-id');await swipe(5,90);await expect(modal.locator('.immersive-frame.focused')).toHaveAttribute('data-photo-id',current);
+ await modal.getByRole('button',{name:'保留',exact:true}).click();
+ await page.screenshot({path:'test-results/mobile-immersive.png'});
+ await modal.getByRole('button',{name:'关闭沉浸选片'}).click();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+ await page.getByRole('button',{name:'选择',exact:true}).click();await page.locator('.wall-card img').first().tap();await expect(page.locator('.selection-toolbar')).toContainText('已选 1 张');
+ await context.close();
+});

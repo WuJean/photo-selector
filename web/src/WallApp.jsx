@@ -1,3 +1,4 @@
+import usePhotoGesture from "./usePhotoGesture";
 import { selectPhoto, nextAfterDecision } from "../../shared/selection.mjs";
 import { pendingAI, cancelPending, resumePending } from "./ai-media";
 import { ShareManager, PublicShare } from "./Sharing";
@@ -31,6 +32,7 @@ import TaskBar from "./TaskBar";
 import AIWizard from "./AIWizard";
 import Studio from "./Studio";
 import Gallery from "./Gallery";
+import Browse from "./Browse";
 import { CreationGallery, PortfolioTools } from "./Portfolio";
 import {
   filterPhotos,
@@ -86,7 +88,7 @@ function Login({ onLogin }) {
     </main>
   );
 }
-function Viewer({ photos, index: initial, onClose, onDownload }) {
+export function Viewer({ photos, index: initial, onClose, onDownload }) {
   const [index, setIndex] = useState(initial),
     [zoom, setZoom] = useState(1),
     [pan, setPan] = useState({ x: 0, y: 0 });
@@ -96,6 +98,7 @@ function Viewer({ photos, index: initial, onClose, onDownload }) {
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
+  const gesture = usePhotoGesture({ transform: { zoom, ...pan }, setTransform: t => { setZoom(t.zoom); setPan({x:t.x,y:t.y}); }, onNavigate: move });
   useEffect(() => {
     const key = (e) => {
       if (e.key === "Escape" || e.code === "Space") {
@@ -125,24 +128,7 @@ function Viewer({ photos, index: initial, onClose, onDownload }) {
       </header>
       <div
         className="viewer-image"
-        onPointerDown={(e) => {
-          if (zoom <= 1) return;
-          drag.current = { x: e.clientX, y: e.clientY, pan };
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          if (drag.current)
-            setPan({
-              x: drag.current.pan.x + e.clientX - drag.current.x,
-              y: drag.current.pan.y + e.clientY - drag.current.y,
-            });
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onPointerCancel={() => {
-          drag.current = null;
-        }}
+        {...gesture}
         onWheel={(e) =>
           setZoom((z) =>
             Math.max(1, Math.min(4, z + (e.deltaY < 0 ? 0.2 : -0.2))),
@@ -233,6 +219,8 @@ export default function WallApp() {
   if (location.pathname.startsWith("/s/"))
     return <PublicShare token={location.pathname.split("/")[2]} />;
   const [session, setSession] = useState(null);
+  const [route, setRoute] = useState(location.hash);
+  useEffect(() => { const changed = () => setRoute(location.hash); window.addEventListener("hashchange", changed); return () => window.removeEventListener("hashchange", changed); }, []);
   useEffect(() => {
     api("/auth/session")
       .then(setSession)
@@ -242,6 +230,7 @@ export default function WallApp() {
   if (!session.authenticated) return <Login onLogin={setSession} />;
   if (session.mustChangePassword)
     return <FirstPassword onChanged={setSession} />;
+  if (!route || route === "#wall" || route.startsWith("#album/")) return <Browse key={route} albumId={route.startsWith("#album/") ? decodeURIComponent(route.slice(7)) : null} />;
   return <Workspace onLogout={() => setSession({ authenticated: false })} />;
 }
 function Workspace({ onLogout }) {
@@ -263,7 +252,7 @@ function Workspace({ onLogout }) {
     };
   }, []);
 
-  const [page, setPage] = useState("wall"),
+  const [page, updatePage] = useState(location.hash === "#work" ? "work" : "collections"),
     [photos, setPhotos] = useState([]),
     [collections, setCollections] = useState([]),
     [batches, setBatches] = useState([]),
@@ -289,6 +278,9 @@ function Workspace({ onLogout }) {
     [mode, setMode] = useState("photos"),
     [expanded, setExpanded] = useState(new Set()),
     [fold, setFold] = useState(true);
+  const setPage = (value) => { updatePage(value); if (location.hash !== "#" + value) location.hash = value; };
+  const [mobileSelect, setMobileSelect] = useState(false);
+  useEffect(() => { const update = () => updatePage(location.hash === "#work" ? "work" : "collections"); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
   const [sharing, setSharing] = useState(false);
   const [networkDialog, setNetworkDialog] = useState(false),
     [networkURLs, setNetworkURLs] = useState(""),
@@ -616,7 +608,7 @@ function Workspace({ onLogout }) {
       </>
     );
   return (
-    <div className="wall-app">
+    <div className={`wall-app ${mobileSelect ? "selection-mode" : ""}`}>
       <header className="wall-header">
         <a className="wall-brand" href="/">
           <Camera size={22} />
@@ -931,6 +923,7 @@ function Workspace({ onLogout }) {
             onChange={(e) => setFilters({ ...filters, query: e.target.value })}
           />
           <Button onClick={() => setShowFilters((v) => !v)}>筛选</Button>
+          <Button className="mobile-select-toggle" onClick={() => { setMobileSelect(v => !v); setSelected([]); }}> {mobileSelect ? "完成选择" : "选择"} </Button>
           <span>{filtered.length} 张</span>
           {photos.some((p) => p.storage === "local") && (
             <Button
@@ -979,7 +972,8 @@ function Workspace({ onLogout }) {
           )}
         </div>
         {showFilters && (
-          <section className="wall-filter">
+          <section className="wall-filter" role="dialog" aria-label="筛选照片">
+            <Button className="filter-close" onClick={() => setShowFilters(false)}>完成筛选</Button>
             <select
               aria-label="焦段筛选"
               value={filters.focal || ""}
@@ -1221,7 +1215,11 @@ function Workspace({ onLogout }) {
                   onClick={(e) => {
                     if (e.target.closest("button,input,a,details,label"))
                       return;
-                    choosePhoto(e, p.id);
+                    if (matchMedia("(pointer: coarse)").matches && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                      if (mobileSelect) choosePhoto(e, p.id, true);
+                      else if (page === "work") openScreen(p.id);
+                      else setViewer({ photos: filtered, index: filtered.findIndex(v => v.id === p.id) });
+                    } else choosePhoto(e, p.id);
                   }}
                   onDoubleClick={(e) => {
                     if (

@@ -1,3 +1,4 @@
+import usePhotoGesture from "./usePhotoGesture";
 import PhotoImage from "./PhotoImage";
 import React, {
   useMemo,
@@ -41,6 +42,7 @@ export function Frame({
 }) {
   const [transform, setTransform] = useState({ zoom: 1, x: 0, y: 0 }),
     [natural, setNatural] = useState(false);
+  const gesture = usePhotoGesture({ transform, setTransform, onNavigate, onActivate, natural });
   const ref = useRef(),
     drag = useRef();
   useEffect(() => {
@@ -103,35 +105,7 @@ export function Frame({
           v.zoom > 1 ? { zoom: 1, x: 0, y: 0 } : { zoom: 2, x: 0, y: 0 },
         )
       }
-      onPointerDown={(e) => {
-        if (e.target.closest("button")) return;
-        onActivate();
-        drag.current = {
-          x: e.clientX - transform.x,
-          y: e.clientY - transform.y,
-          startX: e.clientX,
-          panning: transform.zoom > 1 || natural,
-        };
-        e.currentTarget.setPointerCapture(e.pointerId);
-      }}
-      onPointerMove={(e) => {
-        if (drag.current?.panning)
-          setTransform((v) => ({
-            ...v,
-            x: e.clientX - drag.current.x,
-            y: e.clientY - drag.current.y,
-          }));
-      }}
-      onPointerUp={(e) => {
-        if (
-          drag.current &&
-          !drag.current.panning &&
-          Math.abs(e.clientX - drag.current.startX) > 65
-        )
-          onNavigate(e.clientX < drag.current.startX ? 1 : -1);
-        drag.current = null;
-      }}
-      onPointerCancel={() => (drag.current = null)}
+      {...gesture}
     >
       <PhotoImage
         src={photoURL(photo.id, natural ? "original" : "preview")}
@@ -360,7 +334,7 @@ export default function Immersive({
             onClick={() =>
               document.fullscreenElement
                 ? document.exitFullscreen()
-                : root.current.requestFullscreen().catch(() => {})
+                : root.current.requestFullscreen?.().catch(() => {})
             }
           >
             {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
