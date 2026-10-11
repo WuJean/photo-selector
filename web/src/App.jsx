@@ -1,411 +1,50 @@
-import PhotoImage from "./PhotoImage";
 import React, {
-  useEffect,
   useState,
+  useEffect,
   useRef,
   useMemo,
   useCallback,
 } from "react";
 import {
   Camera,
-  Images,
-  Layers,
-  Heart,
-  Check,
   Plus,
-  ArrowUpRight,
-  Settings2,
-  Search,
-  SlidersHorizontal,
-  FolderPlus,
-  ChevronRight,
-  ChevronDown,
   Upload,
-  ImagePlus,
-  X,
-  Undo2,
-  CheckCheck,
-  Trash2,
-  LayoutGrid,
-  Columns2,
-  Sparkles,
-  PanelRightClose,
-  PanelRightOpen,
-  MoreHorizontal,
-  Mountain,
-  Folder,
-  Loader2,
-  Pause,
-  Play,
-  RefreshCw,
-  Expand,
-  Focus,
-  Lock,
-  Unlock,
-  Download,
-  GripVertical,
+  FolderPlus,
+  SlidersHorizontal,
+  Layers,
+  Settings2,
   ArrowLeft,
   ArrowRight,
+  Check,
+  X,
+  Minus,
+  Undo2,
   Info,
-  CheckCircle2,
+  Heart,
+  Lock,
+  Unlock,
+  GripVertical,
+  MoreHorizontal,
+  Expand,
+  ImagePlus,
 } from "lucide-react";
 import { api, json, photoURL } from "./api";
-import Settings from "./Settings";
+import { Button, Modal, InputDialog, VirtualGrid } from "./LibraryParts";
+import PhotoImage from "./PhotoImage";
 import Immersive from "./Immersive";
 import Studio from "./Studio";
+import Settings from "./Settings";
 import {
   filterPhotos,
   FOCAL_LABELS,
-  tagsOf,
   STATUS_LABELS,
+  tagsOf,
+  inInitial,
+  inFinal,
+  decisionKeys,
+  isTyping,
 } from "../../shared/domain.mjs";
 
-export function Button({
-  children,
-  icon: Icon,
-  onClick,
-  primary = false,
-  className = "",
-  ...props
-}) {
-  return (
-    <button
-      className={`${primary ? "primary" : "button"} ${className}`}
-      onClick={onClick}
-      {...props}
-    >
-      {Icon && <Icon size={16} />} {children}
-    </button>
-  );
-}
-export function Modal({ title, children, onClose, wide = false }) {
-  return (
-    <div
-      className="modal-shade"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <section
-        className={`modal ${wide ? "wide" : ""}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <header>
-          <h2>{title}</h2>
-          <button className="icon-button" aria-label="关闭" onClick={onClose}>
-            <X size={20} />
-          </button>
-        </header>
-        {children}
-      </section>
-    </div>
-  );
-}
-function InputDialog({ dialog, onClose }) {
-  const [value, setValue] = useState(dialog.initial || "");
-  const [saving, setSaving] = useState(false);
-  return (
-    <Modal title={dialog.title} onClose={onClose}>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setSaving(true);
-          try {
-            await dialog.submit(value);
-            onClose();
-          } finally {
-            setSaving(false);
-          }
-        }}
-      >
-        <label className="field">
-          {dialog.label || "名称"}
-          <input
-            autoFocus
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={dialog.placeholder || ""}
-          />
-        </label>
-        <footer>
-          <Button onClick={onClose} type="button" disabled={saving}>
-            取消
-          </Button>
-          <Button primary type="submit" disabled={saving}>
-            {saving ? "保存中…" : "确定"}
-          </Button>
-        </footer>
-      </form>
-    </Modal>
-  );
-}
-function VirtualGrid({
-  items,
-  selected,
-  onSelect,
-  onOpen,
-  onExpand,
-  renderBadge,
-}) {
-  const ref = useRef();
-  const [size, setSize] = useState({ width: 900, height: 600 });
-  const [top, setTop] = useState(0);
-  useEffect(() => {
-    const o = new ResizeObserver(([entry]) =>
-      setSize({
-        width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      }),
-    );
-    if (ref.current) o.observe(ref.current);
-    return () => o.disconnect();
-  }, []);
-  useEffect(() => {
-    if (ref.current) {
-      ref.current.scrollTop = 0;
-      setTop(0);
-    }
-  }, [items.length]);
-  const columns = Math.max(1, Math.floor(size.width / 235)),
-    gap = 20,
-    width = (size.width - gap * (columns - 1)) / columns,
-    height = width * 0.72 + 78,
-    rowHeight = height + gap;
-  const start = Math.max(0, Math.floor(top / rowHeight) - 1) * columns,
-    end = Math.min(
-      items.length,
-      (Math.ceil((top + size.height) / rowHeight) + 2) * columns,
-    );
-  return (
-    <div
-      className="grid-scroll"
-      ref={ref}
-      onScroll={(e) => setTop(e.currentTarget.scrollTop)}
-    >
-      <div
-        style={{
-          height: Math.ceil(items.length / columns) * rowHeight,
-          position: "relative",
-        }}
-      >
-        {items.slice(start, end).map((item, i) => {
-          const index = i + start,
-            p = item.photo;
-          return (
-            <article
-              key={p.id}
-              className={`photo-card ${selected.includes(p.id) ? "selected" : ""} ${p.status === "reject" ? "rejected" : ""}`}
-              style={{
-                position: "absolute",
-                width,
-                height,
-                left: (index % columns) * (width + gap),
-                top: Math.floor(index / columns) * rowHeight,
-              }}
-              onClick={(e) => onSelect(p.id, e)}
-              onDoubleClick={() => onOpen(p.id)}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onSelect(p.id, e);
-              }}
-              aria-label={p.name}
-            >
-              <div className="photo-image" style={{ height: width * 0.72 }}>
-                <PhotoImage
-                  loading="lazy"
-                  draggable="false"
-                  src={photoURL(p.id)}
-                  alt={p.name}
-                />
-                <span
-                  className={`select-circle ${selected.includes(p.id) ? "on" : ""}`}
-                >
-                  {selected.includes(p.id) && <Check size={12} />}
-                </span>
-                {item.count > 1 && (
-                  <button
-                    className="stack-badge"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onExpand(item.group);
-                    }}
-                    title="展开相似组"
-                  >
-                    <Layers size={12} />
-                    {item.count}
-                  </button>
-                )}
-                {p.favorite && (
-                  <Heart
-                    className="photo-heart"
-                    size={17}
-                    fill="currentColor"
-                  />
-                )}
-                {p.status === "keep" && (
-                  <span className="keep-badge">
-                    <Check size={11} /> 已保留
-                  </span>
-                )}
-                {p.analysisStatus === "running" && (
-                  <span className="processing">
-                    <Loader2 size={12} /> 分析中
-                  </span>
-                )}
-              </div>
-              <div className="photo-caption">
-                <strong title={p.name}>{p.name}</strong>
-                <span>
-                  {p.focal ? `${p.focal}mm` : "—"}
-                  {p.aperture ? ` · ƒ/${p.aperture}` : ""}
-                </span>
-                <span className="photo-tags">
-                  {p.ai?.scene ||
-                    p.ai?.tags?.slice(0, 2).join(" · ") ||
-                    (p.analysisStatus === "done"
-                      ? "本地分析完成"
-                      : "等待本地分析")}
-                  {p.issues?.length > 0 && (
-                    <i title={p.issues.join("；")}>待检查</i>
-                  )}
-                </span>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-function Compare({ photos, onClose, onPatch }) {
-  const [zoom, setZoom] = useState(1),
-    [pan, setPan] = useState({ x: 0, y: 0 });
-  const drag = useRef(null);
-  const [oneToOne, setOneToOne] = useState(false);
-  const focus = () => {
-    const f = photos[0]?.faces?.[0];
-    if (f) {
-      setZoom(3);
-      setPan({
-        x: (0.5 - f.x - f.width / 2) * 500,
-        y: (0.5 - f.y - f.height / 2) * 500,
-      });
-    } else {
-      setZoom(2);
-      setPan({ x: 0, y: 0 });
-    }
-  };
-  return (
-    <Modal
-      title={photos.length > 1 ? "同步对比 · 找到最值得的一张" : "照片预览"}
-      onClose={onClose}
-      wide
-    >
-      <div className="compare-toolbar">
-        <span>{photos.length} 张照片 · 拖动同步平移</span>
-        <Button icon={Focus} onClick={focus}>
-          面部 / 中心
-        </Button>
-        <Button
-          onClick={() => {
-            setOneToOne((v) => !v);
-            setZoom(1);
-            setPan({ x: 0, y: 0 });
-          }}
-        >
-          100% {oneToOne ? "✓" : ""}
-        </Button>
-        <input
-          aria-label="同步缩放"
-          type="range"
-          min="1"
-          max="5"
-          step=".1"
-          value={zoom}
-          onChange={(e) => setZoom(Number(e.target.value))}
-        />
-        <Button
-          onClick={() => {
-            setZoom(1);
-            setPan({ x: 0, y: 0 });
-            setOneToOne(false);
-          }}
-        >
-          适应
-        </Button>
-      </div>
-      <div
-        className="compare-grid"
-        style={{
-          gridTemplateColumns: `repeat(${Math.min(photos.length, 4)},1fr)`,
-        }}
-      >
-        {photos.slice(0, 4).map((p) => (
-          <div key={p.id}>
-            <div
-              className="compare-image"
-              onPointerDown={(e) => {
-                drag.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
-                e.currentTarget.setPointerCapture(e.pointerId);
-              }}
-              onPointerMove={(e) => {
-                if (drag.current)
-                  setPan({
-                    x: e.clientX - drag.current.x,
-                    y: e.clientY - drag.current.y,
-                  });
-              }}
-              onPointerUp={() => (drag.current = null)}
-              onPointerCancel={() => (drag.current = null)}
-            >
-              <PhotoImage
-                draggable="false"
-                src={photoURL(p.id, oneToOne ? "original" : "preview")}
-                alt={p.name}
-                style={{
-                  maxWidth: oneToOne ? "none" : "100%",
-                  maxHeight: oneToOne ? "none" : "100%",
-                  width: oneToOne ? p.width : undefined,
-                  transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`,
-                }}
-              />
-            </div>
-            <div className="compare-name">
-              <span>{p.name}</span>
-              <span>
-                {p.sharpness != null ? `清晰度参考 ${p.sharpness}` : ""}
-              </span>
-            </div>
-            <div className="compare-actions">
-              <Button
-                icon={Check}
-                primary={p.status === "keep"}
-                onClick={() => onPatch([p.id], { status: "keep" })}
-              >
-                保留
-              </Button>
-              <Button
-                icon={Heart}
-                onClick={() => onPatch([p.id], { favorite: !p.favorite })}
-              >
-                {p.favorite ? "已喜欢" : "喜欢"}
-              </Button>
-              <Button
-                icon={X}
-                onClick={() => onPatch([p.id], { status: "reject" })}
-              >
-                不要
-              </Button>
-            </div>
-            <small className="muted">{p.issues?.join(" · ")}</small>
-          </div>
-        ))}
-      </div>
-    </Modal>
-  );
-}
 export default function App() {
   const [projects, setProjects] = useState([]),
     [projectId, setProjectId] = useState(
@@ -415,233 +54,249 @@ export default function App() {
     [groups, setGroups] = useState([]),
     [collections, setCollections] = useState([]),
     [jobs, setJobs] = useState(null);
-  const [nav, setNav] = useState("all"),
+  const [space, setSpace] = useState("pending"),
+    [tab, setTab] = useState("final"),
+    [collectionId, setCollectionId] = useState(""),
     [selected, setSelected] = useState([]),
+    [filters, setFilters] = useState({}),
     [query, setQuery] = useState(""),
-    [filter, setFilter] = useState({}),
+    [showFilters, setShowFilters] = useState(false),
     [fold, setFold] = useState(true),
     [expanded, setExpanded] = useState(new Set()),
-    [showFilters, setShowFilters] = useState(false),
-    [inspector, setInspector] = useState(true);
+    [inspector, setInspector] = useState(false),
+    [more, setMore] = useState(false);
   const [dialog, setDialog] = useState(null),
-    [compare, setCompare] = useState(null),
+    [settings, setSettings] = useState(false),
+    [immersive, setImmersive] = useState(null),
+    [studio, setStudio] = useState(false),
     [toast, setToast] = useState(""),
     [uploading, setUploading] = useState(null),
-    [dragging, setDragging] = useState(false),
-    [settings, setSettings] = useState(false),
-    [studio, setStudio] = useState(false),
-    [immersive, setImmersive] = useState(null);
+    [dragging, setDragging] = useState(false);
   const fileRef = useRef(),
     folderRef = useRef(),
+    currentProject = useRef(projectId),
     uploadPaused = useRef(false),
-    projectRef = useRef(projectId);
-  const notify = useCallback((message) => {
-    setToast(message);
-  }, []);
-  useEffect(() => {
-    if (toast) {
-      const t = setTimeout(() => setToast(""), 5000);
-      return () => clearTimeout(t);
-    }
-  }, [toast]);
-  const refreshProjects = useCallback(async () => {
-    const p = await api("/projects");
-    setProjects(p);
-    if (!projectRef.current && p.length) setProjectId(p[0].id);
-  }, []);
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    const result = await Promise.all([
-      api(`/projects/${projectId}/photos`),
-      api(`/projects/${projectId}/groups`),
-      api(`/projects/${projectId}/collections`),
-      api("/jobs"),
-    ]);
-    if (projectRef.current !== projectId) return;
-    setPhotos(result[0]);
-    setGroups(result[1]);
-    setCollections(result[2]);
-    setJobs(result[3]);
-  }, [projectId]);
-  useEffect(() => {
-    projectRef.current = projectId;
-    localStorage.setItem("photo-project", projectId);
-    setSelected([]);
-    setNav("all");
-    setPhotos([]);
-    refresh().catch((e) => notify(e.message));
-  }, [projectId, refresh, notify]);
-  useEffect(() => {
-    refreshProjects().catch((e) => notify(e.message));
-  }, [refreshProjects, notify]);
-  useEffect(() => {
-    const t = setInterval(() => refresh().catch(() => {}), 2500);
-    return () => clearInterval(t);
-  }, [refresh]);
+    decisionBusy = useRef(false),
+    focusHistory = useRef([]);
+  const notify = useCallback((message) => setToast(message), []);
   const run = async (fn) => {
     try {
       return await fn();
     } catch (e) {
       notify(e.message);
+      return false;
     }
   };
+  const refreshProjects = useCallback(async () => {
+    const list = await api("/projects");
+    setProjects(list);
+    if (!list.some((p) => p.id === currentProject.current))
+      setProjectId(list[0]?.id || "");
+  }, []);
+  const refresh = useCallback(async () => {
+    if (!projectId) return;
+    const [p, g, c, j] = await Promise.all([
+      api(`/projects/${projectId}/photos`),
+      api(`/projects/${projectId}/groups`),
+      api(`/projects/${projectId}/collections`),
+      api("/jobs"),
+    ]);
+    if (currentProject.current !== projectId) return;
+    setPhotos(p);
+    setGroups(g);
+    setCollections(c);
+    setJobs(j);
+  }, [projectId]);
+  useEffect(() => {
+    refreshProjects().catch((e) => notify(e.message));
+  }, []);
+  useEffect(() => {
+    currentProject.current = projectId;
+    localStorage.setItem("photo-project", projectId);
+    setPhotos([]);
+    setSelected([]);
+    setFilters({});
+    setQuery("");
+    setSpace("pending");
+    setTab("final");
+    setCollectionId("");
+    setExpanded(new Set());
+    focusHistory.current = [];
+    refresh().catch((e) => notify(e.message));
+  }, [projectId, refresh]);
+  useEffect(() => {
+    const id = setInterval(() => refresh().catch(() => {}), 2500);
+    return () => clearInterval(id);
+  }, [refresh]);
+  useEffect(() => {
+    if (toast) {
+      const id = setTimeout(() => setToast(""), 4500);
+      return () => clearTimeout(id);
+    }
+  }, [toast]);
   const project = projects.find((p) => p.id === projectId),
     active = photos.find((p) => p.id === selected.at(-1)),
-    collection = collections.find((c) => c.id === nav);
-  const createProject = () =>
-    setDialog({
-      title: "开启一段新的旅行",
-      placeholder: "例如：川西 · 秋日雪山",
-      submit: (name) =>
-        run(async () => {
-          const p = await api("/projects", json("POST", { name }));
-          setProjectId(p.id);
-          await refreshProjects();
-        }),
-    });
-  async function importFiles(files) {
-    if (!files?.length) return;
-    // FileList is live: clearing the input after change empties it. Retain File
-    // objects before awaiting project creation or any other asynchronous action.
-    const list = Array.from(files).filter((f) => /\.jpe?g$/i.test(f.name));
-    if (!list.length) {
-      notify("请选择 JPEG 格式照片");
-      return;
-    }
-    let id = projectId;
-    if (!id) {
-      const p = await api(
-        "/projects",
-        json("POST", { name: "我的第一次选片" }),
-      );
-      id = p.id;
-      setProjectId(id);
-      await refreshProjects();
-    }
-    let failures = 0;
-    uploadPaused.current = false;
-    for (let i = 0; i < list.length; i += 8) {
-      while (uploadPaused.current) await new Promise((r) => setTimeout(r, 200));
-      setUploading({ done: i, total: list.length, paused: false });
-      const batch = list.slice(i, i + 8),
-        body = new FormData();
-      batch.forEach((f) => body.append("photos", f));
-      body.append("names", JSON.stringify(batch.map((f) => f.name)));
-      body.append("modified", JSON.stringify(batch.map((f) => f.lastModified)));
-      try {
-        const result = await api(`/projects/${id}/import`, {
-          method: "POST",
-          body,
-        });
-        failures += result.results.filter((r) => r.error).length;
-        if (result.results.some((r) => r.error))
-          notify(result.results.find((r) => r.error).error);
-      } catch (e) {
-        failures += batch.length;
-        notify(e.message);
-      }
-      if (projectRef.current === id) {
-        const p = await api(`/projects/${id}/photos`);
-        setPhotos(p);
-      }
-    }
-    setUploading(null);
-    await refreshProjects();
-    notify(
-      `已导入 ${list.length - failures} 张照片${failures ? `，${failures} 张失败` : ""}`,
-    );
-  }
-  const patch = async (ids, values) =>
-    run(async () => {
-      await api(
-        `/projects/${projectId}/photos`,
-        json("PATCH", { ids, patch: values }),
-      );
-      await refresh();
-      return true;
-    });
-  const undo = () =>
-    run(async () => {
-      const result = await api(`/projects/${projectId}/undo`, json("POST", {}));
-      notify(result.ok ? `已撤销：${result.label}` : "没有可撤销的操作");
-      await refresh();
-    });
-  const similarCount = useMemo(() => {
-    const counts = new Map();
-    for (const p of photos)
-      if (p.similarId)
-        counts.set(p.similarId, (counts.get(p.similarId) || 0) + 1);
-    return [...counts.values()].filter((n) => n > 1).length;
-  }, [photos]);
-  const activeIssues = [
-    ...new Set([...(active?.issues || []), ...(active?.ai?.issues || [])]),
-  ];
-  const sceneOptions = useMemo(() => {
-    const ids = [...new Set(photos.map((p) => p.sceneId).filter(Boolean))];
-    return ids.map((id, i) => ({
-      id,
-      name:
-        groups.find((g) => g.id === id)?.name ||
-        photos.find((p) => p.sceneId === id && p.ai?.scene)?.ai.scene ||
-        `场景 ${String(i + 1).padStart(2, "0")}`,
-      count: photos.filter((p) => p.sceneId === id).length,
-    }));
-  }, [photos, groups]);
+    collection = collections.find((c) => c.id === collectionId);
+  const initial = photos.filter(inInitial),
+    final = photos.filter(inFinal),
+    pending = photos.filter((p) => p.status === "unseen");
+  const portfolio = space === "portfolio";
   const filtered = useMemo(() => {
-    let list = filterPhotos(photos, {
-      ...filter,
-      query,
-      status: ["keep", "reject", "unseen"].includes(nav) ? nav : filter.status,
-      favorite: nav === "favorites",
-      scene: nav.startsWith("scene-") ? nav : null,
-    });
+    let list =
+      space === "pending"
+        ? photos.filter((p) => p.status === "unseen")
+        : space === "history"
+          ? photos.filter((p) => p.status !== "unseen")
+          : photos.filter(tab === "initial" ? inInitial : inFinal);
     if (collection)
       list = collection.photoIds
         .map((id) => list.find((p) => p.id === id))
         .filter(Boolean);
-    if (nav === "similar") {
-      const counts = new Map();
-      photos.forEach((p) => {
-        if (p.similarId)
-          counts.set(p.similarId, (counts.get(p.similarId) || 0) + 1);
-      });
-      list = list.filter((p) => counts.get(p.similarId) > 1);
-    }
+    // Final tab filters show the second-round decision; initial filters show the first.
+    const status = filters.status;
+    list = filterPhotos(list, { ...filters, status: null, query });
+    if (status && status !== "all")
+      list = list.filter(
+        (p) =>
+          (portfolio && tab === "final" ? p.finalStatus : p.status) === status,
+      );
     return list;
-  }, [photos, filter, query, nav, collection]);
+  }, [photos, space, tab, collection, filters, query]);
   const items = useMemo(() => {
-    if (!fold || collection)
-      return filtered.map((p) => ({ photo: p, count: 1 }));
     const memberMap = new Map();
     for (const p of filtered) {
+      if (!p.similarId) continue;
       if (!memberMap.has(p.similarId)) memberMap.set(p.similarId, []);
       memberMap.get(p.similarId).push(p);
     }
     const seen = new Set(),
-      items = [];
+      result = [];
     for (const p of filtered) {
-      if (!p.similarId || expanded.has(p.similarId)) {
-        items.push({ photo: p, count: 1 });
+      const members = memberMap.get(p.similarId) || [p];
+      const open = !fold || expanded.has(p.similarId);
+      if (!p.similarId || members.length === 1) {
+        result.push({ photo: p, count: 1 });
+        continue;
+      }
+      if (open) {
+        result.push({ photo: p, count: 1, group: p.similarId, expanded: true });
         continue;
       }
       if (seen.has(p.similarId)) continue;
       seen.add(p.similarId);
-      const members = memberMap.get(p.similarId),
-        representative = groups.find(
-          (g) => g.id === p.similarId,
-        )?.representative;
-      items.push({
-        photo:
-          members.find((x) => x.id === representative) ||
-          members.find((x) => x.status === "keep") ||
-          p,
+      const representative = groups.find(
+        (g) => g.id === p.similarId,
+      )?.representative;
+      result.push({
+        photo: members.find((p) => p.id === representative) || members[0],
         count: members.length,
         group: p.similarId,
       });
     }
-    return items;
-  }, [filtered, fold, expanded, collection, groups]);
-  const choose = (id, event) => {
+    return result;
+  }, [filtered, fold, expanded, groups]);
+  const changeSpace = (value) => {
+    setSpace(value);
+    setSelected([]);
+    setFilters({});
+    setQuery("");
+    setCollectionId("");
+    setMore(false);
+    if (value === "portfolio") setTab("final");
+  };
+  const createProject = () =>
+    setDialog({
+      title: "创建项目",
+      placeholder: "项目名称",
+      submit: async (name) => {
+        const p = await api("/projects", json("POST", { name }));
+        currentProject.current = p.id;
+        setProjectId(p.id);
+        await refreshProjects();
+      },
+    });
+  const importFiles = async (files) => {
+    const list = Array.from(files || []).filter((f) =>
+      /\.jpe?g$/i.test(f.name),
+    );
+    if (!projectId) {
+      notify("请先创建项目");
+      return;
+    }
+    if (!list.length) {
+      notify("请选择 JPEG 照片");
+      return;
+    }
+    if (uploading) return;
+    const id = projectId;
+    uploadPaused.current = false;
+    let failed = 0;
+    setSpace("pending");
+    try {
+      for (let i = 0; i < list.length; i += 8) {
+        while (uploadPaused.current)
+          await new Promise((r) => setTimeout(r, 150));
+        setUploading({ done: i, total: list.length, paused: false });
+        const batch = list.slice(i, i + 8),
+          form = new FormData();
+        batch.forEach((f) => form.append("photos", f));
+        form.append("names", JSON.stringify(batch.map((f) => f.name)));
+        form.append(
+          "modified",
+          JSON.stringify(batch.map((f) => f.lastModified)),
+        );
+        const result = await api(`/projects/${id}/import`, {
+          method: "POST",
+          body: form,
+        });
+        failed += result.results.filter((r) => r.error).length;
+        await refresh();
+      }
+      await refreshProjects();
+      notify(
+        `已导入 ${list.length - failed} 张${failed ? `，失败 ${failed} 张` : ""}`,
+      );
+    } finally {
+      setUploading(null);
+    }
+  };
+  const patch = async (ids, patch, round = "initial") =>
+    run(async () => {
+      await api(
+        `/projects/${projectId}/photos`,
+        json("PATCH", { ids, patch, round }),
+      );
+      await refresh();
+      return true;
+    });
+  const undo = async () =>
+    run(async () => {
+      const result = await api(`/projects/${projectId}/undo`, json("POST", {}));
+      await refresh();
+      if (result.ok) {
+        const id = focusHistory.current.pop();
+        if (id) setSelected([id]);
+      } else notify("没有可撤销的操作");
+      return result.ok;
+    });
+  const decide = async (status) => {
+    if (!selected.length || decisionBusy.current) return;
+    decisionBusy.current = true;
+    const ids = [...selected],
+      index = Math.max(
+        ...ids.map((id) => filtered.findIndex((p) => p.id === id)),
+      ),
+      next = filtered.slice(index + 1).find((p) => !ids.includes(p.id));
+    try {
+      if (await patch(ids, { status }, "initial")) {
+        focusHistory.current.push(ids[0]);
+        setSelected(next ? [next.id] : []);
+      }
+    } finally {
+      decisionBusy.current = false;
+    }
+  };
+  const select = (id, event) => {
     if (event?.metaKey || event?.ctrlKey)
       setSelected((v) =>
         v.includes(id) ? v.filter((x) => x !== id) : [...v, id],
@@ -654,98 +309,111 @@ export default function App() {
       );
     } else setSelected([id]);
   };
-  const addCollection = () =>
-    setDialog({
-      title: "新建作品集",
-      placeholder: "例如：雪山朋友圈",
-      submit: (name) =>
-        run(async () => {
-          const c = await api(
-            `/projects/${projectId}/collections`,
-            json("POST", { name, photoIds: selected }),
-          );
-          await refresh();
-          setNav(c.id);
-          notify("作品集已创建");
-        }),
+  const openReview = (id, explicit = false) => {
+    const round = portfolio ? "final" : "initial";
+    let list;
+    if (round === "final") {
+      if (explicit) list = filtered.filter(inInitial);
+      else if (selected.length)
+        list = photos.filter((p) => selected.includes(p.id) && inInitial(p));
+      else
+        list = filterPhotos(initial, {
+          ...filters,
+          status: null,
+          query,
+        }).filter((p) => (p.finalStatus || "unseen") === "unseen");
+    } else list = filtered;
+    if (!list.length) {
+      notify(round === "final" ? "当前范围没有待精筛照片" : "当前范围已筛完");
+      return;
+    }
+    setImmersive({
+      round,
+      scopeIds: list.map((p) => p.id),
+      startId: id || list[0].id,
     });
-  const groupAction = (type, action) =>
+  };
+  const expand = (id) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id) || !fold) {
+        next.delete(id);
+        setFold(true);
+      } else next.add(id);
+      return next;
+    });
+  const groupAction = (action) =>
     run(async () => {
       await api(
         `/projects/${projectId}/groups`,
-        json("POST", {
-          ids: selected,
-          type,
-          action,
-          name: type === "scene" ? "我的场景" : "我的相似组",
-        }),
+        json("POST", { ids: selected, type: "similar", action }),
       );
-      setSelected([]);
+      await refresh();
+    });
+  const addCollection = () =>
+    setDialog({
+      title: "新建作品集",
+      submit: async (name) => {
+        const c = await api(
+          `/projects/${projectId}/collections`,
+          json("POST", { name, photoIds: selected }),
+        );
+        await refresh();
+        setCollectionId(c.id);
+      },
+    });
+  const editCollection = (changes) =>
+    run(async () => {
+      await api(
+        `/projects/${projectId}/collections/${collection.id}`,
+        json("PUT", changes),
+      );
       await refresh();
     });
   useEffect(() => {
     const handle = (e) => {
       if (
-        ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) ||
+        isTyping(e.target) ||
         dialog ||
         settings ||
+        immersive ||
         studio ||
-        immersive
+        e.repeat
       )
         return;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+      const key = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && key === "z") {
         e.preventDefault();
         undo();
         return;
       }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (!selected.length) return;
-      const key = e.key.toLowerCase();
-      if (["p", "x", "u", "f", " ", "arrowright", "arrowleft"].includes(key))
+      if (key === " ") {
         e.preventDefault();
-      if (key === "p") patch(selected, { status: "keep" });
-      if (key === "x") patch(selected, { status: "reject" });
-      if (key === "u") patch(selected, { status: "maybe" });
-      if (key === "f") patch(selected, { favorite: !active?.favorite });
-      if (key === " ") setImmersive(selected[0]);
+        openReview(selected[0], true);
+        return;
+      }
       if (key === "arrowright" || key === "arrowleft") {
-        const idx = filtered.findIndex((p) => p.id === selected.at(-1)),
-          next = filtered[idx + (key === "arrowright" ? 1 : -1)];
+        e.preventDefault();
+        const at = filtered.findIndex((p) => p.id === selected.at(-1));
+        const next = filtered[at + (key === "arrowright" ? 1 : -1)];
         if (next) setSelected([next.id]);
+      }
+      if (decisionKeys[key] && (!portfolio || tab === "initial")) {
+        e.preventDefault();
+        decide(decisionKeys[key]);
       }
     };
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
-  }, [
-    selected,
-    active,
-    filtered,
-    dialog,
-    settings,
-    studio,
-    immersive,
-    projectId,
-  ]);
-  const selectionPhotos = photos.filter((p) => selected.includes(p.id));
-  const pageTitle =
-    collection?.name ||
-    sceneOptions.find((s) => s.id === nav)?.name ||
-    {
-      all: "旅途中的每一个瞬间",
-      similar: "相似的瞬间，选一张心动的",
-      keep: "留下来的，都是值得的",
-      favorites: "偏爱的每一张",
-      reject: "暂时放下的照片",
-      unseen: "慢慢看，总有惊喜",
-    }[nav] ||
-    "照片库";
+  });
   return (
     <div
-      className="app-shell"
+      className="simple-app"
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes("Files")) {
-          e.preventDefault();
-          setDragging(true);
-        }
+        e.preventDefault();
+        if (projectId) setDragging(true);
       }}
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
@@ -757,50 +425,40 @@ export default function App() {
       }}
     >
       <input
+        hidden
+        multiple
         type="file"
         accept="image/jpeg"
-        multiple
         ref={fileRef}
-        hidden
         onChange={(e) => {
           run(() => importFiles(e.target.files));
           e.target.value = "";
         }}
       />
       <input
+        hidden
+        multiple
         type="file"
         webkitdirectory=""
-        multiple
         ref={folderRef}
-        hidden
         onChange={(e) => {
           run(() => importFiles(e.target.files));
           e.target.value = "";
         }}
       />
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-icon">
-            <Camera size={23} />
-          </div>
-          <div>
-            <strong>
-              选片助手<span className="beta">BETA</span>
-            </strong>
-            <small>让好照片，走到一起</small>
-          </div>
+      <header className="simple-header">
+        <div className="simple-brand">
+          <Camera size={21} />
+          <strong>选片助手</strong>
         </div>
-        <div className="project-select">
-          <span className="eyebrow">当前旅行</span>
-          <div>
+        {projectId && (
+          <>
             <select
-              aria-label="当前旅行"
+              aria-label="当前项目"
               value={projectId}
+              disabled={!!uploading}
               onChange={(e) => setProjectId(e.target.value)}
             >
-              <option value="" disabled>
-                选择旅行项目
-              </option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -809,344 +467,260 @@ export default function App() {
             </select>
             <button
               className="icon-button"
-              title="新建旅行"
-              aria-label="新建旅行"
+              aria-label="创建项目"
               onClick={createProject}
+              disabled={!!uploading}
             >
-              <Plus size={17} />
+              <Plus size={18} />
             </button>
-          </div>
-        </div>
-        <nav>
-          <span className="nav-label">照片库</span>
-          {[
-            [Images, "all", "全部照片", photos.length],
-            [Layers, "similar", "相似分组", similarCount],
-            [
-              CheckCheck,
-              "keep",
-              "初筛保留",
-              photos.filter((p) => p.status === "keep").length,
-            ],
-            [
-              Heart,
-              "favorites",
-              "我的喜欢",
-              photos.filter((p) => p.favorite).length,
-            ],
-          ].map(([Icon, id, label, count]) => (
+          </>
+        )}
+        <div className="header-spacer" />
+        {projectId && (
+          <nav className="space-nav">
             <button
-              key={id}
-              className={`nav-item ${nav === id ? "active" : ""}`}
-              onClick={() => {
-                setNav(id);
-                setSelected([]);
-              }}
+              className={!portfolio ? "active" : ""}
+              onClick={() => changeSpace("pending")}
             >
-              <Icon size={17} />
-              <span>{label}</span>
-              <em>{count}</em>
+              初筛 <small>{pending.length}</small>
             </button>
-          ))}
-          <div className="nav-section">
-            <span className="nav-label">场景探索</span>
-            <span className="tiny">{sceneOptions.length}</span>
-          </div>
-          {sceneOptions.slice(0, 8).map((s) => (
             <button
-              key={s.id}
-              className={`nav-item scene ${nav === s.id ? "active" : ""}`}
-              onClick={() => setNav(s.id)}
+              className={portfolio ? "active" : ""}
+              onClick={() => changeSpace("portfolio")}
             >
-              <span className="scene-dot" />
-              <span>{s.name}</span>
-              <em>{s.count}</em>
+              作品集 <small>{final.length}</small>
             </button>
-          ))}
-          {!sceneOptions.length && (
-            <p className="nav-hint">导入后自动发现场景</p>
-          )}
-          <div className="nav-section">
-            <span className="nav-label">我的作品集</span>
-            <button
-              className="icon-button"
-              aria-label="新建作品集"
-              onClick={addCollection}
-              disabled={!projectId}
-            >
-              <Plus size={15} />
-            </button>
-          </div>
-          {collections.map((c) => (
-            <button
-              key={c.id}
-              className={`nav-item ${nav === c.id ? "active" : ""}`}
-              onClick={() => setNav(c.id)}
-            >
-              <Folder size={16} />
-              <span>{c.name}</span>
-              <em>{c.photoIds.length}</em>
-            </button>
-          ))}
-          {!collections.length && (
-            <p className="nav-hint">把喜欢的，编成一个故事</p>
-          )}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="local-label">
-            <span className="online-dot" /> 本地工作空间 <Lock size={11} />
-          </div>
-          <button className="nav-item" onClick={() => setSettings(true)}>
-            <Settings2 size={17} />
-            <span>模型与服务设置</span>
-          </button>
-          <div className="sidebar-footer">
-            PHOTO SELECTOR<span>v0.1</span>
-          </div>
-        </div>
-      </aside>
-      <div className="workspace">
-        <header className="topbar">
-          <div className="breadcrumb">
-            我的工作空间
-            <ChevronRight size={13} />
-            <span>{project?.name || "新的旅程"}</span>
-          </div>
-          <div className="topbar-right">
-            <span className="model-status">
-              <span className="online-dot" />
-              {jobs?.local?.model || "照片留在本机"}
-            </span>
-            <button
-              className={`icon-button ${inspector ? "active" : ""}`}
-              aria-label="显示或隐藏照片信息"
-              onClick={() => setInspector((v) => !v)}
-            >
-              {inspector ? (
-                <PanelRightClose size={18} />
+          </nav>
+        )}
+        <button
+          className="icon-button"
+          aria-label="模型与服务设置"
+          onClick={() => setSettings(true)}
+        >
+          <Settings2 size={19} />
+        </button>
+      </header>
+      {!projectId ? (
+        <main className="start-screen">
+          <Camera size={40} />
+          <h1>项目</h1>
+          <Button primary icon={Plus} onClick={createProject}>
+            创建项目
+          </Button>
+        </main>
+      ) : (
+        <main className="simple-workspace">
+          <div className="simple-toolbar">
+            <div className="view-heading">
+              {portfolio ? (
+                <>
+                  <h1>{collection?.name || "本次作品集"}</h1>
+                  <div className="tabs" role="tablist">
+                    {[
+                      ["final", "最终作品", final.length],
+                      ["initial", "初筛", initial.length],
+                    ].map(([key, label, count]) => (
+                      <button
+                        role="tab"
+                        aria-selected={tab === key}
+                        key={key}
+                        onClick={() => {
+                          setTab(key);
+                          setSelected([]);
+                          setFilters({});
+                          setQuery("");
+                        }}
+                      >
+                        {label}
+                        <small>{count}</small>
+                      </button>
+                    ))}
+                  </div>
+                </>
               ) : (
-                <PanelRightOpen size={18} />
+                <>
+                  <h1>{space === "history" ? "已筛选" : "初筛"}</h1>
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      changeSpace(space === "history" ? "pending" : "history")
+                    }
+                  >
+                    {space === "history"
+                      ? "返回未筛选"
+                      : `已筛选 ${photos.length - pending.length}`}
+                  </button>
+                </>
               )}
-            </button>
-          </div>
-        </header>
-        <div className="workspace-content">
-          <section className="library">
-            <div className="page-heading">
-              <div>
-                <div className="eyebrow">YOUR MOMENTS, WELL CURATED</div>
-                <h1>{pageTitle}</h1>
-                <p>
-                  {photos.length
-                    ? `${photos.length} 张照片 · ${photos.filter((p) => p.status === "keep").length} 张已保留`
-                    : "从一整个相册，到真正想分享的那几张。"}
-                  <span className="heading-dot">·</span>每一个选择，都可以重来
-                </p>
-              </div>
-              <div className="heading-actions">
-                {photos.length > 0 && (
+            </div>
+            <div className="toolbar-actions">
+              {portfolio ? (
+                <>
                   <Button
+                    primary
                     icon={Expand}
-                    onClick={() =>
-                      setImmersive(
-                        selected[0] || filtered[0]?.id || photos[0].id,
-                      )
-                    }
+                    onClick={() => openReview()}
+                    disabled={!initial.length}
                   >
-                    沉浸选片
+                    {selected.length ? "精筛所选" : "开始精筛"}
                   </Button>
-                )}
-                {photos.length > 0 && (
+                  {tab === "final" && (
+                    <Button
+                      icon={ImagePlus}
+                      onClick={() => setStudio(true)}
+                      disabled={!final.length}
+                    >
+                      拼图与导出
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
                   <Button
-                    icon={Sparkles}
-                    onClick={() =>
-                      run(async () => {
-                        const ids = selected.length
-                          ? selected
-                          : photos
-                              .filter((p) => p.status !== "reject")
-                              .map((p) => p.id);
-                        const job = await api(
-                          `/projects/${projectId}/analyze`,
-                          json("POST", { ids }),
-                        );
-                        notify(
-                          job.total
-                            ? `开始分析 ${job.total} 张照片`
-                            : "所选照片已有分析结果",
-                        );
-                        await refresh();
-                      })
-                    }
-                    disabled={
-                      jobs?.ai?.running || jobs?.ai?.photoIds?.length > 0
-                    }
+                    primary
+                    icon={Expand}
+                    onClick={() => openReview(selected[0])}
+                    disabled={!filtered.length}
                   >
-                    {selected.length ? "分析所选" : "AI 标签"}
+                    开始初筛
                   </Button>
-                )}
-                <Button
-                  icon={Upload}
-                  primary
-                  onClick={() => fileRef.current.click()}
-                  disabled={!!uploading}
-                >
-                  导入照片
-                </Button>
-                <button
-                  className="icon-button outlined"
-                  aria-label="导入文件夹"
-                  title="导入整个文件夹"
-                  onClick={() => folderRef.current.click()}
-                  disabled={!!uploading}
-                >
-                  <FolderPlus size={18} />
-                </button>
-              </div>
-            </div>
-            <div className="workflow">
-              <div className="current">
-                <span>01</span>整理与初筛
-              </div>
-              <ChevronRight size={12} />
-              <button onClick={() => setNav("keep")}>
-                <span>02</span>精筛与搭配
-              </button>
-              <ChevronRight size={12} />
-              <button onClick={() => setStudio(true)}>
-                <span>03</span>拼图与导出
-                <ArrowUpRight size={13} />
-              </button>
-            </div>
-            <div className="filterbar">
-              <div className="search">
-                <Search size={17} />
-                <input
-                  aria-label="搜索照片"
-                  placeholder="搜索场景、标签、照片名称…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                {query && (
+                  <Button
+                    icon={Upload}
+                    onClick={() => fileRef.current.click()}
+                    disabled={!!uploading}
+                  >
+                    导入照片
+                  </Button>
                   <button
                     className="icon-button"
-                    onClick={() => setQuery("")}
-                    aria-label="清空搜索"
+                    aria-label="导入文件夹"
+                    onClick={() => folderRef.current.click()}
+                    disabled={!!uploading}
                   >
-                    <X size={12} />
+                    <FolderPlus size={19} />
                   </button>
-                )}
-              </div>
-              <button
-                className={`button ${showFilters ? "toggled" : ""}`}
+                </>
+              )}
+            </div>
+          </div>
+          {!!photos.length && (
+            <div className="compact-tools">
+              <input
+                className="search-input"
+                aria-label="搜索照片"
+                placeholder="搜索"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <Button
+                icon={SlidersHorizontal}
                 onClick={() => setShowFilters((v) => !v)}
               >
-                <SlidersHorizontal size={15} />
                 筛选
-              </button>
-              <div className="toolbar-divider" />
-              <button
-                className={`view-toggle ${fold ? "on" : ""}`}
-                onClick={() => setFold((v) => !v)}
-                title="相似照片折叠"
+              </Button>
+              <Button
+                icon={Layers}
+                onClick={() => {
+                  setFold((v) => !v);
+                  setExpanded(new Set());
+                }}
               >
-                <Layers size={16} />
+                {fold ? "全部展开" : "全部叠放"}
+              </Button>
+              {expanded.size > 0 && fold && (
+                <button
+                  className="text-button"
+                  onClick={() => setExpanded(new Set())}
+                >
+                  全部叠放
+                </button>
+              )}
+              <span className="count">{filtered.length} 张</span>
+              <button
+                className="icon-button"
+                aria-label="照片信息"
+                onClick={() => setInspector((v) => !v)}
+              >
+                <Info size={18} />
               </button>
               <button
-                className={`view-toggle ${!fold ? "on" : ""}`}
-                onClick={() => setFold(false)}
-                title="显示全部照片"
+                className="icon-button"
+                aria-label="更多操作"
+                onClick={() => setMore((v) => !v)}
               >
-                <LayoutGrid size={16} />
+                <MoreHorizontal size={20} />
               </button>
             </div>
-            {showFilters && (
-              <div className="filter-panel">
-                <select
-                  aria-label="焦段筛选"
-                  value={filter.focal || "all"}
-                  onChange={(e) =>
-                    setFilter({ ...filter, focal: e.target.value })
-                  }
-                >
-                  <option value="all">全部焦段</option>
-                  {FOCAL_LABELS.map((f) => (
-                    <option key={f}>{f}</option>
-                  ))}
-                </select>
-                <select
-                  aria-label="方向筛选"
-                  value={filter.orientation || "all"}
-                  onChange={(e) =>
-                    setFilter({ ...filter, orientation: e.target.value })
-                  }
-                >
-                  <option value="all">横图 + 竖图</option>
-                  <option value="landscape">横图</option>
-                  <option value="portrait">竖图</option>
-                </select>
+          )}
+          {showFilters && (
+            <div className="filter-panel">
+              <select
+                aria-label="焦段筛选"
+                value={filters.focal || "all"}
+                onChange={(e) =>
+                  setFilters({ ...filters, focal: e.target.value })
+                }
+              >
+                <option value="all">全部焦段</option>
+                {FOCAL_LABELS.map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </select>
+              <select
+                aria-label="方向筛选"
+                value={filters.orientation || "all"}
+                onChange={(e) =>
+                  setFilters({ ...filters, orientation: e.target.value })
+                }
+              >
+                <option value="all">全部方向</option>
+                <option value="landscape">横图</option>
+                <option value="portrait">竖图</option>
+              </select>
+              {space !== "pending" && (
                 <select
                   aria-label="状态筛选"
-                  value={filter.status || "all"}
+                  value={filters.status || "all"}
                   onChange={(e) =>
-                    setFilter({ ...filter, status: e.target.value })
+                    setFilters({ ...filters, status: e.target.value })
                   }
                 >
                   <option value="all">全部状态</option>
-                  {Object.entries(STATUS_LABELS).map(([id, label]) => (
-                    <option key={id} value={id}>
+                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>
                       {label}
                     </option>
                   ))}
                 </select>
-                <input
-                  aria-label="开始日期"
-                  type="date"
-                  value={filter.from || ""}
-                  onChange={(e) =>
-                    setFilter({ ...filter, from: e.target.value })
-                  }
-                />
-                <input
-                  aria-label="结束日期"
-                  type="date"
-                  value={filter.to || ""}
-                  onChange={(e) => setFilter({ ...filter, to: e.target.value })}
-                />
-                <button className="text-button" onClick={() => setFilter({})}>
-                  重置
-                </button>
-              </div>
-            )}
-            <div className="library-meta">
-              <div className="pills">
-                <button
-                  className={!query ? "active" : ""}
-                  onClick={() => setQuery("")}
-                >
-                  全部瞬间
-                </button>
-                {[...new Set(photos.flatMap((p) => p.ai?.tags || []))]
-                  .slice(0, 4)
-                  .map((tag) => (
-                    <button
-                      key={tag}
-                      className={query === tag ? "active" : ""}
-                      onClick={() => setQuery(query === tag ? "" : tag)}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-              </div>
-              <span>
-                {filtered.length} 张照片
-                {fold && items.length < filtered.length
-                  ? ` / ${items.length} 组`
-                  : ""}
-              </span>
+              )}
+              <input
+                type="date"
+                aria-label="开始日期"
+                value={filters.from || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, from: e.target.value })
+                }
+              />
+              <input
+                type="date"
+                aria-label="结束日期"
+                value={filters.to || ""}
+                onChange={(e) => setFilters({ ...filters, to: e.target.value })}
+              />
+              <button className="text-button" onClick={() => setFilters({})}>
+                重置
+              </button>
+            </div>
+          )}
+          {more && (
+            <div className="more-panel">
+              <Button onClick={() => setSelected(filtered.map((p) => p.id))}>
+                全选
+              </Button>
+              <Button onClick={() => setSelected([])}>取消选择</Button>
+              <Button onClick={undo}>撤销</Button>
               <select
                 aria-label="相似度"
-                className="small-select"
                 value={project?.similarity || "standard"}
                 onChange={(e) =>
                   run(async () => {
@@ -1163,534 +737,359 @@ export default function App() {
                 <option value="standard">标准相似</option>
                 <option value="loose">宽松相似</option>
               </select>
-            </div>
-            {uploading && (
-              <div className="progress-banner">
-                <Loader2 size={15} className="spin" />
-                <span>
-                  正在导入 {uploading.done} / {uploading.total} 张
-                </span>
-                <progress value={uploading.done} max={uploading.total} />
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    uploadPaused.current = !uploadPaused.current;
-                    setUploading({
-                      ...uploading,
-                      paused: uploadPaused.current,
-                    });
-                  }}
-                >
-                  {uploading.paused ? "继续" : "暂停"}
-                </button>
-              </div>
-            )}
-            {jobs?.local && (jobs.local.running || jobs.local.pending > 0) && (
-              <div className="progress-banner">
-                <Sparkles size={14} />
-                <span>
-                  {jobs.local.paused
-                    ? "本地分析已暂停"
-                    : `本地模型正在整理 · 剩余 ${jobs.local.pending} 张`}
-                </span>
-                <button
-                  className="text-button"
+              <Button
+                disabled={!selected.length}
+                onClick={() => groupAction("split")}
+              >
+                拆出相似组
+              </Button>
+              <Button
+                disabled={selected.length < 2}
+                onClick={() => groupAction("merge")}
+              >
+                合为相似组
+              </Button>
+              {active?.similarId && (
+                <Button
                   onClick={() =>
                     run(async () => {
                       await api(
-                        `/local/${jobs.local.paused ? "resume" : "pause"}`,
-                        json("POST", {}),
+                        `/projects/${projectId}/groups/${active.similarId}`,
+                        json("PUT", { representative: active.id }),
                       );
                       await refresh();
                     })
                   }
                 >
-                  {jobs.local.paused ? "继续" : "暂停"}
-                </button>
-              </div>
-            )}
-            {jobs?.ai?.total > 0 && (
-              <div className="progress-banner ai-progress">
-                <Sparkles size={14} />
-                <span>
-                  AI 标签 · 完成 {jobs.ai.done}/{jobs.ai.total}
-                  {jobs.ai.errors ? ` · ${jobs.ai.errors} 张失败` : ""}
-                  {jobs.ai.paused && jobs.ai.photoIds?.length
-                    ? " · 已暂停"
-                    : ""}
-                </span>
-                {jobs.ai.photoIds?.length > 0 ? (
-                  <>
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        run(async () => {
-                          await api(
-                            `/ai/${jobs.ai.paused ? "resume" : "pause"}`,
-                            json("POST", {}),
-                          );
-                          await refresh();
-                        })
-                      }
-                    >
-                      {jobs.ai.paused ? "继续" : "暂停"}
-                    </button>
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        run(async () => {
-                          await api("/ai/cancel", json("POST", {}));
-                          await refresh();
-                        })
-                      }
-                    >
-                      取消
-                    </button>
-                  </>
-                ) : (
-                  <small>
-                    用量 {jobs.ai.usage?.prompt_tokens || 0} /{" "}
-                    {jobs.ai.usage?.completion_tokens || 0} tokens
-                  </small>
-                )}
-              </div>
-            )}
-            {!photos.length ? (
-              <div className="empty-library">
-                <div className="empty-art">
-                  <div className="art-card back" />
-                  <div className="art-card front">
-                    <Mountain size={61} strokeWidth={1} />
-                    <span />
-                  </div>
-                  <div className="art-spark">✧</div>
-                </div>
-                <h2>把旅途带进来</h2>
-                <p>
-                  拖入照片，或选择一个旅行文件夹。
-                  <br />
-                  让相似的归组，让喜欢的留下。
-                </p>
-                <Button
-                  primary
-                  icon={ImagePlus}
-                  onClick={() => fileRef.current.click()}
-                >
-                  选择照片，开始选片
+                  设为代表图
                 </Button>
-                <span className="empty-footnote">
-                  <Lock size={12} /> JPEG · 本地分析 · 原片保持不变
-                </span>
-              </div>
-            ) : !items.length ? (
-              <div className="empty-library compact">
-                <Search size={32} />
-                <h2>没有符合条件的照片</h2>
-                <p>试试其他标签，或清除筛选条件。</p>
-                <Button
-                  onClick={() => {
-                    setFilter({});
-                    setQuery("");
-                    setNav("all");
-                  }}
-                >
-                  查看全部照片
-                </Button>
-              </div>
-            ) : (
-              <VirtualGrid
-                items={items}
-                selected={selected}
-                onSelect={choose}
-                onOpen={(id) => setImmersive(id)}
-                onExpand={(id) => setExpanded((v) => new Set([...v, id]))}
-              />
-            )}
-            <footer className="selection-bar">
-              <div>
-                <span className="selected-count">
-                  {selected.length
-                    ? `已选 ${selected.length} 张`
-                    : "选择照片开始"}
-                </span>
-                <button
-                  className="text-button"
-                  disabled={!photos.length}
-                  onClick={() => setSelected(filtered.map((p) => p.id))}
-                >
-                  全选
-                </button>
-                <button
-                  className="icon-button"
-                  title="撤销 ⌘Z"
-                  onClick={undo}
-                  disabled={!projectId}
-                >
-                  <Undo2 size={16} />
-                </button>
-              </div>
-              <div>
-                <Button
-                  disabled={!selected.length}
-                  onClick={() => patch(selected, { status: "maybe" })}
-                >
-                  待定
-                </Button>
-                <Button
-                  icon={X}
-                  disabled={!selected.length}
-                  onClick={() => patch(selected, { status: "reject" })}
-                >
-                  不要
-                </Button>
-                <Button
-                  icon={Columns2}
-                  disabled={!selected.length || selected.length > 4}
-                  onClick={() => setImmersive(selected[0])}
-                >
-                  沉浸对比
-                </Button>
-                <Button
-                  icon={Check}
-                  primary
-                  disabled={!selected.length}
-                  onClick={() => patch(selected, { status: "keep" })}
-                >
-                  保留
-                </Button>
-              </div>
-            </footer>
-          </section>
-          {inspector && (
-            <aside className="inspector">
-              <div className="inspector-heading">
-                <span>照片详情</span>
-                <Info size={15} />
-              </div>
-              {active ? (
+              )}
+              {portfolio && (
                 <>
-                  <div className="inspector-preview">
-                    <PhotoImage src={photoURL(active.id)} alt={active.name} />
-                  </div>
-                  <h3>{active.name}</h3>
-                  <div className="subtle">
-                    {active.width} × {active.height} ·{" "}
-                    {STATUS_LABELS[active.status]}
-                  </div>
-                  <div className="metadata-grid">
-                    {[
-                      ["相机", active.camera],
-                      ["镜头", active.lens],
-                      ["焦距", active.focal ? `${active.focal}mm` : null],
-                      ["焦段", active.focalCategory],
-                      ["光圈", active.aperture ? `ƒ/${active.aperture}` : null],
-                      ["ISO", active.iso],
-                      [
-                        "快门",
-                        active.shutter
-                          ? `${active.shutter >= 1 ? active.shutter : "1/" + Math.round(1 / active.shutter)} s`
-                          : null,
-                      ],
-                      [
-                        "拍摄时间",
-                        active.takenAt
-                          ? new Date(active.takenAt).toLocaleString("zh-CN")
-                          : null,
-                      ],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <span>{label}</span>
-                        <strong>{value || "—"}</strong>
-                      </div>
+                  <Button onClick={addCollection}>新建作品集</Button>
+                  <select
+                    aria-label="选择作品集"
+                    value={collectionId}
+                    onChange={(e) => {
+                      setCollectionId(e.target.value);
+                      setSelected([]);
+                    }}
+                  >
+                    <option value="">本次作品集</option>
+                    {collections.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
                     ))}
-                  </div>
-                  {activeIssues.length > 0 && (
-                    <div className="notice">
-                      {activeIssues.map((v) => (
-                        <p key={v}>{v}</p>
-                      ))}
-                      <small>仅作参考，不会自动不要</small>
-                    </div>
-                  )}
-                  <div className="section-heading">
-                    内容标签
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        setDialog({
-                          title: "编辑人工标签",
-                          label: "用逗号分隔",
-                          initial: active.manualTags.join("，"),
-                          submit: (value) =>
-                            patch([active.id], {
-                              manualTags: value.split(/[,，]/),
-                            }),
-                        })
-                      }
-                    >
-                      编辑
-                    </button>
-                  </div>
-                  <div className="tag-list">
-                    {tagsOf(active).map((t) => (
-                      <button key={t} onClick={() => setQuery(t)}>
-                        {t}
-                      </button>
-                    ))}
-                    {!tagsOf(active).length && (
-                      <small>启动 AI 分析后自动生成</small>
-                    )}
-                  </div>
-                  {active.ai?.description && (
-                    <p className="ai-description">{active.ai.description}</p>
-                  )}
-                  <div className="inspector-actions">
-                    <Button
-                      icon={Heart}
-                      onClick={() =>
-                        patch(selected, { favorite: !active?.favorite })
-                      }
-                    >
-                      {active.favorite ? "已喜欢" : "标为喜欢"}
-                    </Button>
-                    {active.aiError && (
-                      <div className="notice">{active.aiError}</div>
-                    )}
-                    {active.analysisError && (
-                      <div className="notice">
-                        {active.analysisError}
-                        <button
-                          className="text-button"
-                          onClick={() =>
-                            run(async () => {
-                              await api("/local/retry", json("POST", {}));
-                              await refresh();
-                            })
-                          }
-                        >
-                          重试本地分析
-                        </button>
-                      </div>
-                    )}
-                    <Button
-                      icon={Sparkles}
-                      onClick={() =>
-                        run(async () => {
-                          await api(
-                            `/projects/${projectId}/analyze`,
-                            json("POST", { ids: selected, force: true }),
-                          );
-                          await refresh();
-                        })
-                      }
-                      disabled={
-                        jobs?.ai?.running || jobs?.ai?.photoIds?.length > 0
-                      }
-                    >
-                      {active.ai ? "重新分析所选照片" : "AI 分析所选照片"}
-                    </Button>
-                    <Button icon={FolderPlus} onClick={addCollection}>
-                      加入新作品集
-                    </Button>
-                    {collections.length > 0 && (
-                      <select
-                        aria-label="加入已有作品集"
-                        value=""
-                        onChange={(e) => {
-                          const c = collections.find(
-                            (c) => c.id === e.target.value,
-                          );
-                          run(async () => {
-                            await api(
-                              `/projects/${projectId}/collections/${c.id}`,
-                              json("PUT", {
-                                photoIds: [
-                                  ...new Set([...c.photoIds, ...selected]),
-                                ],
-                              }),
-                            );
-                            await refresh();
-                            notify("已加入作品集");
-                          });
-                        }}
-                      >
-                        <option value="">加入已有作品集…</option>
-                        {collections.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <details>
-                      <summary>分组与管理</summary>
+                  </select>
+                  {collection && (
+                    <>
                       <Button
-                        onClick={() => groupAction("similar", "merge")}
-                        disabled={selected.length < 2}
-                      >
-                        合并为相似组
-                      </Button>
-                      <Button onClick={() => groupAction("similar", "split")}>
-                        拆分相似组
-                      </Button>
-                      <Button onClick={() => groupAction("scene", "merge")}>
-                        设为同一场景
-                      </Button>
-                      <Button onClick={() => groupAction("scene", "split")}>
-                        拆分场景
-                      </Button>
-                      {active.similarId && (
-                        <Button
-                          onClick={() =>
-                            run(async () => {
-                              await api(
-                                `/projects/${projectId}/groups/${active.similarId}`,
-                                json("PUT", { representative: active.id }),
-                              );
-                              await refresh();
-                              notify("已设为代表图");
-                            })
-                          }
-                        >
-                          设为相似组代表图
-                        </Button>
-                      )}
-                      {active.sceneId && (
-                        <Button
-                          onClick={() =>
-                            setDialog({
-                              title: "为场景命名",
-                              submit: (name) =>
-                                run(async () => {
-                                  await api(
-                                    `/projects/${projectId}/groups/${active.sceneId}`,
-                                    json("PUT", { name }),
-                                  );
-                                  await refresh();
-                                }),
-                            })
-                          }
-                        >
-                          重命名场景
-                        </Button>
-                      )}
-                      <Button
+                        disabled={!selected.length}
                         onClick={() =>
-                          setDialog({
-                            title: "设置画幅换算系数",
-                            label: "例如全画幅 1、APS-C 1.5",
-                            initial: String(project?.cropFactor || ""),
-                            submit: (value) =>
-                              run(async () => {
-                                await api(
-                                  `/projects/${projectId}`,
-                                  json("PATCH", {
-                                    cropFactor: value ? Number(value) : null,
-                                  }),
-                                );
-                                await refresh();
-                                await refreshProjects();
-                              }),
+                          editCollection({
+                            photoIds: [
+                              ...new Set([...collection.photoIds, ...selected]),
+                            ],
                           })
                         }
                       >
-                        画幅换算系数
+                        加入当前作品集
                       </Button>
-                    </details>
-                  </div>
+                      <Button
+                        disabled={!selected.length}
+                        onClick={() =>
+                          editCollection({
+                            lockedIds: [
+                              ...new Set([
+                                ...collection.lockedIds,
+                                ...selected,
+                              ]),
+                            ],
+                          })
+                        }
+                      >
+                        锁定所选
+                      </Button>
+                      <Button
+                        disabled={!selected.length}
+                        onClick={() =>
+                          editCollection({
+                            lockedIds: collection.lockedIds.filter(
+                              (id) => !selected.includes(id),
+                            ),
+                          })
+                        }
+                      >
+                        取消锁定
+                      </Button>
+                      <Button
+                        disabled={!selected.length}
+                        onClick={() =>
+                          editCollection({
+                            photoIds: collection.photoIds.filter(
+                              (id) => !selected.includes(id),
+                            ),
+                          })
+                        }
+                      >
+                        移出当前作品集
+                      </Button>
+                      <Button
+                        disabled={selected.length !== 1}
+                        onClick={() => {
+                          const ids = [...collection.photoIds],
+                            i = ids.indexOf(selected[0]);
+                          if (i > 0) {
+                            [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+                            editCollection({ photoIds: ids });
+                          }
+                        }}
+                      >
+                        前移
+                      </Button>
+                    </>
+                  )}
                 </>
+              )}
+            </div>
+          )}
+          {uploading && (
+            <div className="compact-progress">
+              <span>
+                导入 {uploading.done} / {uploading.total}
+              </span>
+              <progress value={uploading.done} max={uploading.total} />
+              <button
+                className="text-button"
+                onClick={() => {
+                  uploadPaused.current = !uploadPaused.current;
+                  setUploading({ ...uploading, paused: uploadPaused.current });
+                }}
+              >
+                {uploading.paused ? "继续" : "暂停"}
+              </button>
+            </div>
+          )}
+          {jobs?.local?.pending > 0 && (
+            <div className="compact-progress">
+              <span>本地分析 {jobs.local.pending}</span>
+              <button
+                className="text-button"
+                onClick={() =>
+                  run(async () => {
+                    await api(
+                      `/local/${jobs.local.paused ? "resume" : "pause"}`,
+                      json("POST", {}),
+                    );
+                    await refresh();
+                  })
+                }
+              >
+                {jobs.local.paused ? "继续" : "暂停"}
+              </button>
+            </div>
+          )}
+          <div className="photo-workspace">
+            <section className="photo-main">
+              {filtered.length ? (
+                <VirtualGrid
+                  items={items}
+                  selected={selected}
+                  onSelect={select}
+                  onOpen={(id) => openReview(id, true)}
+                  onExpand={expand}
+                  focusId={selected.at(-1)}
+                  scrollKey={`${projectId}/${space}/${tab}/${collectionId}`}
+                  renderBadge={(p) =>
+                    STATUS_LABELS[
+                      portfolio && tab === "final" ? p.finalStatus : p.status
+                    ]
+                  }
+                />
               ) : (
-                <div className="inspector-empty">
-                  <div className="mini-frame">
-                    <Focus size={24} />
-                  </div>
-                  <p>每一张，都有它的故事</p>
-                  <small>
-                    选择照片，查看拍摄参数
-                    <br />与 AI 整理的内容标签
-                  </small>
+                <div className="empty-stage">
+                  <ImagePlus size={36} />
+                  <h2>
+                    {!photos.length
+                      ? "导入照片"
+                      : portfolio
+                        ? tab === "final"
+                          ? "暂无最终作品"
+                          : "暂无初筛照片"
+                        : space === "pending"
+                          ? pending.length
+                            ? "没有匹配的照片"
+                            : "初筛已完成"
+                          : "没有匹配的照片"}
+                  </h2>
+                  {!photos.length ? (
+                    <Button primary onClick={() => fileRef.current.click()}>
+                      选择照片
+                    </Button>
+                  ) : portfolio && tab === "final" ? (
+                    <Button
+                      primary
+                      onClick={() => openReview()}
+                      disabled={
+                        !initial.some((p) => p.finalStatus === "unseen")
+                      }
+                    >
+                      开始精筛
+                    </Button>
+                  ) : space === "pending" && !pending.length ? (
+                    <Button primary onClick={() => changeSpace("portfolio")}>
+                      查看作品集
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        setFilters({});
+                        setQuery("");
+                      }}
+                    >
+                      清除筛选
+                    </Button>
+                  )}
                 </div>
               )}
-              <div className="ai-card">
-                <div>
-                  <Sparkles size={18} />
-                  <strong>你的 AI 选片搭档</strong>
-                  <span>AI</span>
+            </section>
+            {inspector && (
+              <aside className="simple-inspector">
+                {active ? (
+                  <>
+                    <PhotoImage src={photoURL(active.id)} alt={active.name} />
+                    <h3>{active.name}</h3>
+                    <dl>
+                      {[
+                        ["相机", active.camera],
+                        ["镜头", active.lens],
+                        ["拍摄时间", active.takenAt],
+                        ["焦距", active.focal && `${active.focal}mm`],
+                        [
+                          "等效焦距",
+                          active.equivalent && `${active.equivalent}mm`,
+                        ],
+                        ["光圈", active.aperture],
+                        ["快门", active.shutter],
+                        ["ISO", active.iso],
+                        ["尺寸", `${active.width} × ${active.height}`],
+                        ["初筛", STATUS_LABELS[active.status]],
+                        ["精筛", STATUS_LABELS[active.finalStatus || "unseen"]],
+                      ].map(([key, value]) => (
+                        <React.Fragment key={key}>
+                          <dt>{key}</dt>
+                          <dd>{value || "—"}</dd>
+                        </React.Fragment>
+                      ))}
+                    </dl>
+                    <Button
+                      icon={Heart}
+                      onClick={() =>
+                        patch([active.id], { favorite: !active.favorite })
+                      }
+                    >
+                      {active.favorite ? "取消喜欢" : "喜欢"}
+                    </Button>
+                    {active.issues?.length > 0 && (
+                      <p>{active.issues.join(" · ")}</p>
+                    )}
+                    <Button
+                      onClick={() =>
+                        setDialog({
+                          title: "画幅系数",
+                          initial: String(project.cropFactor || ""),
+                          submit: async (value) => {
+                            await api(
+                              `/projects/${projectId}`,
+                              json("PATCH", {
+                                cropFactor: value ? Number(value) : null,
+                              }),
+                            );
+                            await refresh();
+                            await refreshProjects();
+                          },
+                        })
+                      }
+                    >
+                      设置画幅系数
+                    </Button>
+                  </>
+                ) : (
+                  <span>未选择照片</span>
+                )}
+              </aside>
+            )}
+          </div>
+          {!!selected.length && (
+            <footer className="selection-bar">
+              <span>已选 {selected.length}</span>
+              {!portfolio || tab === "initial" ? (
+                <div className="inline-decisions">
+                  {[
+                    ["maybe", "待定", "Z"],
+                    ["keep", "保留", "X"],
+                    ["reject", "不要", "C"],
+                  ].map(([status, label, key]) => (
+                    <button
+                      key={status}
+                      className="button"
+                      onClick={() => decide(status)}
+                    >
+                      {label}
+                      <kbd>{key}</kbd>
+                    </button>
+                  ))}
                 </div>
-                <p>
-                  “雪山、人像、远景…
-                  <br />
-                  帮我搭一组有故事感的照片。”
-                </p>
-                <Button onClick={() => setStudio(true)}>
-                  打开拼图工作室
-                  <ArrowUpRight size={14} />
+              ) : (
+                <Button onClick={() => openReview(selected[0], true)}>
+                  重新精筛
                 </Button>
-                <small>多模态服务可在设置中配置</small>
-              </div>
-            </aside>
+              )}
+              <button
+                className="icon-button"
+                aria-label="撤销决定"
+                onClick={undo}
+              >
+                <Undo2 size={18} />
+              </button>
+            </footer>
           )}
-        </div>
-        <div className="statusbar">
-          <span>
-            <span className="online-dot" /> 所有更改保存在本机
-          </span>
-          <span>
-            P 保留
-            <span className="status-divider" />X 不要
-            <span className="status-divider" />F 喜欢
-            <span className="status-divider" />
-            空格 沉浸选片
-          </span>
-        </div>
-      </div>
-      {collection && (
-        <CollectionBar
-          collection={collection}
-          photos={photos}
-          onSave={(value) =>
-            run(async () => {
-              await api(
-                `/projects/${projectId}/collections/${collection.id}`,
-                json("PUT", value),
-              );
-              await refresh();
-            })
-          }
-        />
-      )}
-      {immersive && (
-        <Immersive
-          photos={photos}
-          scopeIds={(filtered.length ? filtered : photos).map((p) => p.id)}
-          startId={immersive}
-          onClose={() => setImmersive(null)}
-          onPatch={patch}
-          onUndo={undo}
-        />
+        </main>
       )}
       {dialog && (
         <InputDialog dialog={dialog} onClose={() => setDialog(null)} />
-      )}
-      {compare && (
-        <Compare
-          photos={compare
-            .map((id) => photos.find((p) => p.id === id))
-            .filter(Boolean)}
-          onClose={() => setCompare(null)}
-          onPatch={patch}
-        />
       )}
       {settings && (
         <Modal title="模型与服务设置" onClose={() => setSettings(false)}>
           <Settings onClose={() => setSettings(false)} notify={notify} />
         </Modal>
       )}
-      {studio && projectId && (
+      {immersive && (
+        <Immersive
+          {...immersive}
+          photos={photos}
+          onPatch={patch}
+          onUndo={undo}
+          onClose={(id) => {
+            setImmersive(null);
+            if (id) setSelected([id]);
+          }}
+          onComplete={() => {
+            setSpace("portfolio");
+            setTab(immersive.round === "final" ? "final" : "initial");
+            setFilters({});
+            setQuery("");
+            setSelected([]);
+            setImmersive(null);
+          }}
+        />
+      )}
+      {studio && (
         <Studio
           projectId={projectId}
-          photos={photos}
-          selected={selected}
+          photos={final}
+          selected={selected.filter((id) => final.some((p) => p.id === id))}
           collection={collection}
           onClose={() => {
             setStudio(false);
@@ -1702,87 +1101,18 @@ export default function App() {
       )}
       {toast && (
         <div className="toast" role="status">
-          <CheckCircle2 size={17} />
           {toast}
           <button aria-label="关闭提示" onClick={() => setToast("")}>
-            <X size={14} />
+            <X size={16} />
           </button>
         </div>
       )}
       {dragging && (
         <div className="drop-overlay">
-          <Upload size={44} />
-          <h2>把照片放在这里</h2>
-          <p>它们会被导入当前旅行，本地分析随即开始</p>
+          <Upload size={40} />
+          <h2>导入照片</h2>
         </div>
       )}
-    </div>
-  );
-}
-function CollectionBar({ collection, photos, onSave }) {
-  const dragged = useRef();
-  return (
-    <div className="collection-tray">
-      <div>
-        <strong>{collection.name}</strong>
-        <small>拖动排序 · 点击锁定必选照片</small>
-      </div>
-      <div className="collection-photos">
-        {collection.photoIds.map((id) => {
-          const p = photos.find((p) => p.id === id);
-          if (!p) return null;
-          return (
-            <div
-              key={id}
-              draggable
-              onDragStart={(e) => {
-                dragged.current = id;
-                e.dataTransfer.setData("text/plain", id);
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const ids = collection.photoIds.filter(
-                  (x) => x !== dragged.current,
-                );
-                ids.splice(ids.indexOf(id), 0, dragged.current);
-                onSave({ photoIds: ids });
-              }}
-            >
-              <PhotoImage src={photoURL(id)} alt={p.name} />
-              <button
-                aria-label={`锁定 ${p.name}`}
-                className={collection.lockedIds.includes(id) ? "locked" : ""}
-                onClick={() =>
-                  onSave({
-                    lockedIds: collection.lockedIds.includes(id)
-                      ? collection.lockedIds.filter((x) => x !== id)
-                      : [...collection.lockedIds, id],
-                  })
-                }
-              >
-                {collection.lockedIds.includes(id) ? (
-                  <Lock size={12} />
-                ) : (
-                  <Unlock size={12} />
-                )}
-              </button>
-              <button
-                className="remove"
-                aria-label={`移出 ${p.name}`}
-                onClick={() =>
-                  onSave({
-                    photoIds: collection.photoIds.filter((x) => x !== id),
-                  })
-                }
-              >
-                <X size={12} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

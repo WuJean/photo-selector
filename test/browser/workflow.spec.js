@@ -1,75 +1,82 @@
 import { test, expect } from "@playwright/test";
 import sharp from "sharp";
-const jpeg = async (color, index = 0) =>
+const jpeg = async (color = "#99b7bc", i = 0) =>
   sharp(
     Buffer.from(
-      `<svg width="800" height="600"><rect width="800" height="600" fill="${color}"/><circle cx="${150 + index * 120}" cy="140" r="60" fill="#f2deb7"/><path d="M0 600 L270 160 L500 600 M300 600 L620 280 L800 600" fill="#536b64"/><path d="M210 260 L270 160 L330 260 Z" fill="#f1f4eb"/></svg>`,
+      `<svg width="900" height="650"><rect width="900" height="650" fill="${color}"/><circle cx="${140 + i * 23}" cy="160" r="70" fill="#efdcad"/><path d="M0 650L330 220L620 650Z" fill="#526b64"/><path d="M240 340L330 220L415 340Z" fill="#f3f2e7"/></svg>`,
     ),
   )
     .jpeg()
     .toBuffer();
-test("first import retains chosen files while automatic project creation is delayed", async ({
+async function seed(
+  request,
+  n = 4,
+  { group = true, initial = false, final = false } = {},
+) {
+  const p = await (
+    await request.post("/api/projects", {
+      data: { name: "交互验收 " + Date.now() },
+    })
+  ).json();
+  const form = new FormData();
+  for (let i = 0; i < n; i++)
+    form.append(
+      "photos",
+      new Blob([await jpeg(i % 2 ? "#adb6a1" : "#91b0b5", i)], {
+        type: "image/jpeg",
+      }),
+      `photo-${i}.jpg`,
+    );
+  const result = await (
+    await fetch(`http://127.0.0.1:4174/api/projects/${p.id}/import`, {
+      method: "POST",
+      body: form,
+    })
+  ).json();
+  const ids = result.results.map((r) => r.photo.id);
+  await request.post(`/api/projects/${p.id}/groups`, {
+    data: { ids, type: "similar", action: group ? "merge" : "split" },
+  });
+  if (initial || final)
+    await request.patch(`/api/projects/${p.id}/photos`, {
+      data: { ids, round: "initial", patch: { status: "maybe" } },
+    });
+  if (final)
+    await request.patch(`/api/projects/${p.id}/photos`, {
+      data: { ids, round: "final", patch: { status: "maybe" } },
+    });
+  return { ...p, ids };
+}
+async function open(page, project) {
+  await page.addInitScript(
+    (id) => localStorage.setItem("photo-project", id),
+    project.id,
+  );
+  await page.goto("/");
+}
+async function saved(request, p) {
+  return (await request.get(`/api/projects/${p.id}/photos`)).json();
+}
+
+test("create before import, JPEG decoding, metadata filters and folding back", async ({
   page,
   request,
 }) => {
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "把旅途带进来" }),
-  ).toBeVisible();
-  await page.route("**/api/projects", async (route) => {
-    if (route.request().method() === "POST")
-      await new Promise((r) => setTimeout(r, 250));
-    await route.continue();
+  await page.getByRole("button", { name: "创建项目", exact: true }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("首次使用");
+  await page.route("**/api/projects", async (r) => {
+    if (r.request().method() === "POST")
+      await new Promise((res) => setTimeout(res, 250));
+    await r.continue();
   });
-  await page
-    .locator("input[type=file]:not([webkitdirectory])")
-    .setInputFiles([
-      {
-        name: "first-trip.jpg",
-        mimeType: "image/jpeg",
-        buffer: await jpeg("#a5bec4"),
-      },
-    ]);
-  await expect(page.locator(".photo-card")).toHaveCount(1);
-  await expect
-    .poll(() =>
-      page.locator(".photo-card img").evaluate((el) => el.naturalWidth),
-    )
-    .toBeGreaterThan(0);
-  await expect(page.getByRole("status")).toContainText("已导入 1 张");
-  const projects = await (await request.get("/api/projects")).json();
-  expect(projects).toHaveLength(1);
-  expect(projects[0].count).toBe(1);
-});
-test("real photo import, favorite, cull, undo, compare, collection and reload", async ({
-  page,
-}) => {
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
-  await page.getByRole("button", { name: "新建旅行", exact: true }).click();
-  await page
-    .getByRole("dialog")
-    .getByRole("textbox")
-    .fill("界面验收 " + Date.now());
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "把旅途带进来" }),
-  ).toBeVisible();
   await page.locator("input[type=file]:not([webkitdirectory])").setInputFiles([
-    {
-      name: "雪山近景.jpg",
-      mimeType: "image/jpeg",
-      buffer: await jpeg("#a6bcc0"),
-    },
-    {
-      name: "雪山远景.jpg",
-      mimeType: "image/jpeg",
-      buffer: await jpeg("#b6bfa8", 1),
-    },
+    { name: "first.jpg", mimeType: "image/jpeg", buffer: await jpeg() },
+    { name: "second.jpg", mimeType: "image/jpeg", buffer: await jpeg() },
   ]);
-  await expect(page.locator(".photo-card").first()).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("已导入 2 张");
   await expect
     .poll(() =>
       page
@@ -78,32 +85,228 @@ test("real photo import, favorite, cull, undo, compare, collection and reload", 
         .evaluate((el) => el.naturalWidth),
     )
     .toBeGreaterThan(0);
-  await expect(page.getByRole("status")).toContainText("已导入 2 张");
-  await page.getByTitle("显示全部照片").click();
+  await page.getByRole("button", { name: "筛选", exact: true }).click();
+  await expect(page.getByLabel("焦段筛选")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "AI 分类", exact: true }),
+  ).toHaveCount(0);
+  const project = (await (await request.get("/api/projects")).json()).find(
+    (p) => p.name === "首次使用",
+  );
+  const photos = await saved(request, project);
+  await request.post(`/api/projects/${project.id}/groups`, {
+    data: { ids: photos.map((p) => p.id), type: "similar", action: "merge" },
+  });
+  await expect(
+    page.getByRole("button", { name: "展开相似组", exact: true }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "展开相似组", exact: true }).click();
   await expect(page.locator(".photo-card")).toHaveCount(2);
-  await page.locator(".photo-card").first().click();
-  await page.keyboard.press("f");
-  await expect(page.locator(".photo-heart").first()).toBeVisible();
-  await page.keyboard.press("p");
-  await expect(page.locator(".keep-badge").first()).toBeVisible();
-  await page.getByTitle("撤销 ⌘Z").click();
-  await expect(page.locator(".keep-badge")).toHaveCount(0);
-  await expect(page.locator(".photo-heart")).toHaveCount(1);
-  await page.keyboard.press("p");
-  await page.getByRole("button", { name: "沉浸对比", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "沉浸选片" })).toBeVisible();
-  await page.getByRole("button", { name: "关闭沉浸选片", exact: true }).click();
-  await page.getByRole("button", { name: "加入新作品集", exact: true }).click();
-  await page.getByRole("dialog").getByRole("textbox").fill("朋友圈精选");
-  await page.getByRole("button", { name: "确定", exact: true }).click();
-  await expect(page.locator(".collection-tray")).toBeVisible();
-  await page.reload();
-  await expect(page.locator(".photo-card").first()).toBeVisible();
-  await expect(page.locator(".photo-heart").first()).toBeVisible();
-  await page.screenshot({ path: "test-results/library.png", fullPage: true });
-  expect(errors).toEqual([]);
+  await page
+    .getByRole("button", { name: "收起本组", exact: true })
+    .first()
+    .click();
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.getByRole("button", { name: "全部展开", exact: true }).click();
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await page.getByRole("button", { name: "全部叠放", exact: true }).click();
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.screenshot({ path: "test-results/library.png" });
 });
 
+test("list decisions and two immersive rounds advance, undo and preserve both spaces", async ({
+  page,
+  request,
+}) => {
+  const p = await seed(request, 4, { group: false });
+  await open(page, p);
+  await page.locator(".photo-card").first().click();
+  await page.keyboard.press("z");
+  await expect
+    .poll(async () => (await saved(request, p))[0].status)
+    .toBe("maybe");
+  await expect(page.locator(".photo-card")).toHaveCount(3);
+  await page.keyboard.press("Meta+z");
+  await expect(page.locator(".photo-card")).toHaveCount(4);
+  await page.keyboard.press("Space");
+  let modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
+  await expect(modal).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(modal).toHaveCount(0);
+  await page.keyboard.press("Space");
+  await expect(modal).toBeVisible();
+  await page.keyboard.press("z");
+  await expect
+    .poll(async () => (await saved(request, p))[0].status)
+    .toBe("maybe");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[1]);
+  await page.keyboard.press("x");
+  await expect
+    .poll(async () => (await saved(request, p))[1].status)
+    .toBe("keep");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[2]);
+  await page.keyboard.press("c");
+  await expect
+    .poll(async () => (await saved(request, p))[2].status)
+    .toBe("reject");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[3]);
+  await page.keyboard.press("x");
+  await expect(modal.getByText("本轮已完成")).toBeVisible();
+  await modal.getByRole("button", { name: "查看初筛结果" }).click();
+  await expect(page.getByRole("tab", { name: /初筛/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator(".photo-card")).toHaveCount(3);
+  await page.getByRole("button", { name: /^作品集/ }).click();
+  await expect(page.getByRole("tab", { name: /最终作品/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(
+    page.getByRole("heading", { name: "暂无最终作品" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "开始精筛", exact: true })
+    .first()
+    .click();
+  modal = page.getByRole("dialog", { name: "沉浸式精筛" });
+  await expect(modal).toBeVisible();
+  await page.keyboard.press("z");
+  await expect
+    .poll(async () => (await saved(request, p))[0].finalStatus)
+    .toBe("maybe");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[1]);
+  await page.keyboard.press("c");
+  await expect
+    .poll(async () => (await saved(request, p))[1].finalStatus)
+    .toBe("reject");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[3]);
+  await page.keyboard.press("x");
+  await expect(modal.getByText("本轮已完成")).toBeVisible();
+  await modal.getByRole("button", { name: "查看最终作品" }).click();
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await page.getByRole("tab", { name: /初筛/ }).click();
+  await expect(page.locator(".photo-card")).toHaveCount(3);
+  const result = await saved(request, p);
+  expect(result[1].status).toBe("keep");
+  await page.reload();
+  await page.getByRole("button", { name: /^作品集/ }).click();
+  await expect(page.getByRole("tab", { name: /最终作品/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+});
+
+test("similar carousel caps three clear photos, advances sequentially and ignores hover for decisions", async ({
+  page,
+  request,
+}) => {
+  for (const count of [1, 2, 3, 4, 10]) {
+    const p = await seed(request, count);
+    await open(page, p);
+    await page.getByRole("button", { name: "开始初筛", exact: true }).click();
+    const modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
+    if (count > 1) {
+      await expect(modal.locator(".similar-slot")).toHaveCount(2);
+      await modal.locator(".similar-slot").last().hover();
+      expect(
+        await modal.locator(".focused").getAttribute("data-photo-id"),
+      ).toBe(p.ids[0]);
+    }
+    for (let i = 0; i < count; i++) {
+      await expect
+        .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+        .toBe(p.ids[i]);
+      expect(await modal.locator(".similar-slot").count()).toBeLessThanOrEqual(
+        3,
+      );
+      if (count === 4 && i === 1) {
+        await page.screenshot({ path: "test-results/immersive-similar.png" });
+        await modal.locator(".focused").hover();
+        await page.mouse.wheel(0, -300);
+        await expect
+          .poll(() => modal.locator(".focused").getAttribute("data-zoom"))
+          .not.toBe("1.00");
+        await modal.getByRole("button", { name: "重置缩放" }).click();
+      }
+      await page.keyboard.press(i % 2 ? "x" : "z");
+      await expect
+        .poll(async () => (await saved(request, p))[i].status)
+        .toBe(i % 2 ? "keep" : "maybe");
+    }
+    await expect(modal.getByText("本轮已完成")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(modal).toHaveCount(0);
+  }
+});
+
+test("failed save never advances, input shortcuts are inert, fullscreen and undo return correctly", async ({
+  page,
+  request,
+}) => {
+  const p = await seed(request, 3, { group: false });
+  await open(page, p);
+  await page.getByLabel("搜索照片").fill("zxc");
+  expect((await saved(request, p)).every((p) => p.status === "unseen")).toBe(
+    true,
+  );
+  await page.getByLabel("搜索照片").fill("");
+  await page.getByRole("button", { name: "开始初筛", exact: true }).click();
+  const modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
+  await page.route("**/api/projects/*/photos", (r) =>
+    r.request().method() === "PATCH"
+      ? r.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "保存失败测试" }),
+        })
+      : r.continue(),
+  );
+  await page.keyboard.press("x");
+  await expect(page.getByRole("status")).toContainText("保存失败测试");
+  expect(await modal.locator(".focused").getAttribute("data-photo-id")).toBe(
+    p.ids[0],
+  );
+  await page.unroute("**/api/projects/*/photos");
+  await page.keyboard.press("x");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[1]);
+  await page.keyboard.press("Meta+z");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[0]);
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
+    .toBe(p.ids[1]);
+  expect(
+    await modal
+      .locator(".neighbor img")
+      .first()
+      .evaluate((el) => getComputedStyle(el).filter),
+  ).toContain("blur");
+  await modal.getByRole("button", { name: "原尺寸查看" }).click();
+  await expect
+    .poll(() => modal.locator(".focused img").evaluate((el) => el.naturalWidth))
+    .toBe(900);
+  await page.screenshot({ path: "test-results/immersive-single.png" });
+  await modal.getByRole("button", { name: "切换全屏" }).click();
+  await page.keyboard.press("Escape");
+  await expect(modal).toHaveCount(0);
+});
 test("model settings persist endpoint and test actual HTTP image request against fixture service", async ({
   page,
 }) => {
@@ -151,310 +354,34 @@ test("model settings persist endpoint and test actual HTTP image request against
   }
 });
 
-test("immersive similar hover zoom and blurred neighbor decisions persist", async ({
+test("studio defaults to final maybe photos and exports an actual JPEG without AI", async ({
   page,
   request,
 }) => {
-  const project = await (
-    await request.post("/api/projects", {
-      data: { name: "沉浸交互验收 " + Date.now() },
-    })
-  ).json();
-  const form = new FormData();
-  for (let i = 0; i < 4; i++)
-    form.append(
-      "photos",
-      new Blob(
-        [await jpeg(["#a5bcbf", "#91abae", "#b0b291", "#b4a59a"][i], i)],
-        { type: "image/jpeg" },
-      ),
-      `moment-${i}.jpg`,
-    );
-  const imported = await (
-    await fetch(`http://127.0.0.1:4174/api/projects/${project.id}/import`, {
-      method: "POST",
-      body: form,
-    })
-  ).json();
-  const ids = imported.results.map((r) => r.photo.id);
-  await request.post(`/api/projects/${project.id}/groups`, {
-    data: { ids: ids.slice(0, 2), type: "similar", action: "merge" },
-  });
-  await request.post(`/api/projects/${project.id}/groups`, {
-    data: { ids: ids.slice(2), type: "similar", action: "split" },
-  });
-  await page.addInitScript(
-    (id) => localStorage.setItem("photo-project", id),
-    project.id,
-  );
-  await page.goto("/");
-  await page.getByRole("button", { name: "沉浸选片", exact: true }).click();
-  const modal = page.getByRole("dialog", { name: "沉浸选片" });
-  await expect(modal.locator(".similar-slot")).toHaveCount(2);
+  const p = await seed(request, 4, { group: false, final: true });
+  await open(page, p);
+  await page.getByRole("button", { name: /^作品集/ }).click();
+  await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
+  const studio = page.getByRole("dialog", { name: "拼图工作室" });
+  await expect(studio.locator(".story-slot img")).toHaveCount(4);
   await expect
     .poll(() =>
-      modal
-        .locator(".immersive-frame>img")
+      studio
+        .locator(".story-slot img")
         .first()
         .evaluate((el) => el.naturalWidth),
     )
     .toBeGreaterThan(0);
-  const frames = modal.locator(".immersive-frame");
-  await frames.nth(1).hover();
-  await expect(frames.nth(1)).toHaveClass(/focused/);
-  await page.waitForTimeout(400);
-  expect(
-    (await modal.locator(".similar-slot").nth(1).boundingBox()).width,
-  ).toBeGreaterThan(
-    (await modal.locator(".similar-slot").nth(0).boundingBox()).width,
-  );
-  await page.mouse.wheel(0, -300);
-  await expect
-    .poll(() => frames.nth(1).getAttribute("data-zoom"))
-    .not.toBe("1.00");
-  await modal.getByRole("button", { name: "重置缩放" }).click();
-  await expect(frames.nth(1)).toHaveAttribute("data-zoom", "1.00");
-  await modal.getByRole("button", { name: "保留" }).click();
-  await expect(frames.nth(1).locator(".decision-badge")).toContainText("保留");
-  await page.screenshot({
-    path: "test-results/immersive-similar.png",
-    fullPage: true,
-  });
-  await modal.getByRole("button", { name: "下一组", exact: true }).click();
-  await expect(modal.locator(".single-focus")).toBeVisible();
-  await expect(modal.getByAltText("前一张照片（虚化）")).toBeVisible();
-  await expect
-    .poll(() =>
-      modal.locator(".single-focus img").evaluate((el) => el.naturalWidth),
-    )
-    .toBeGreaterThan(0);
-  expect(
-    await modal
-      .getByAltText("前一张照片（虚化）")
-      .evaluate((el) => getComputedStyle(el).filter),
-  ).toContain("blur");
-  await modal.getByRole("button", { name: "不要" }).click();
-  await expect(modal.locator(".single-focus .decision-badge")).toContainText(
-    "不要",
-  );
-  await modal.getByRole("button", { name: "待定" }).click();
-  await expect(modal.locator(".single-focus .decision-badge")).toContainText(
-    "待定",
-  );
-  await page.screenshot({
-    path: "test-results/immersive-single.png",
-    fullPage: true,
-  });
-  await modal.getByRole("button", { name: "关闭沉浸选片" }).click();
-  const saved = await (
-    await request.get(`/api/projects/${project.id}/photos`)
-  ).json();
-  expect(saved.find((p) => p.id === ids[1]).status).toBe("keep");
-  expect(saved.find((p) => p.id === ids[2]).status).toBe("maybe");
-});
-
-test("analyze through fixture model, chat-compose, crop, watermark, render and export", async ({
-  page,
-  request,
-}) => {
-  const { createServer } = await import("node:http");
-  const fixture = createServer(async (req, res) => {
-    let raw = "";
-    for await (const chunk of req) raw += chunk;
-    const body = JSON.parse(raw),
-      last = body.messages.at(-1);
-    let value;
-    if (Array.isArray(last.content))
-      value = {
-        description: "雪山环境中的旅行照片",
-        tags: ["雪山", "旅行"],
-        scene: "雪山",
-        shot: "远景",
-        style: "清冷",
-        people: 0,
-      };
-    else {
-      const data = JSON.parse(last.content);
-      value = {
-        template: "rows",
-        photoIds: data.current.photoIds.slice(0, 3),
-        reason: "近远景和环境互补，保留你锁定的照片。",
-        title: "雪山旅行",
-        missing: "",
-      };
-    }
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        choices: [{ message: { content: JSON.stringify(value) } }],
-        usage: { prompt_tokens: 20, completion_tokens: 10 },
-      }),
-    );
-  });
-  await new Promise((r) => fixture.listen(0, "127.0.0.1", r));
-  try {
-    const project = await (
-      await request.post("/api/projects", {
-        data: { name: "拼图验收 " + Date.now() },
-      })
-    ).json();
-    const form = new FormData();
-    for (let i = 0; i < 4; i++)
-      form.append(
-        "photos",
-        new Blob([await jpeg("#9db7bc", i)], { type: "image/jpeg" }),
-        `story-${i}.jpg`,
-      );
-    const imported = await (
-      await fetch(`http://127.0.0.1:4174/api/projects/${project.id}/import`, {
-        method: "POST",
-        body: form,
-      })
-    ).json();
-    const ids = imported.results.map((r) => r.photo.id);
-    await request.patch(`/api/projects/${project.id}/photos`, {
-      data: { ids, patch: { status: "keep" } },
-    });
-    await request.put("/api/settings", {
-      data: {
-        baseURL: `http://127.0.0.1:${fixture.address().port}/v1`,
-        model: "fixture",
-        jsonMode: true,
-      },
-    });
-    const started = await request.post(`/api/projects/${project.id}/analyze`, {
-      data: { ids },
-    });
-    expect(started.ok()).toBeTruthy();
-    await expect
-      .poll(async () => (await (await request.get("/api/jobs")).json()).ai.done)
-      .toBe(4);
-    await page.addInitScript(
-      (id) => localStorage.setItem("photo-project", id),
-      project.id,
-    );
-    await page.goto("/");
-    await page.getByRole("button", { name: "打开拼图工作室" }).click();
-    const studio = page.getByRole("dialog", { name: "拼图工作室" });
-    await expect(studio).toBeVisible();
-    await expect(studio.locator(".story-slot img")).toHaveCount(4);
-    await expect
-      .poll(() =>
-        studio
-          .locator(".story-slot img")
-          .first()
-          .evaluate((el) => el.naturalWidth),
-      )
-      .toBeGreaterThan(0);
-    await studio.getByLabel("拼图模板").selectOption("rows");
-    await studio.getByRole("button", { name: "锁定当前拼图照片" }).click();
-    await studio.getByLabel("向 AI 描述拼图").fill("雪山风景三拼，保留第一张");
-    await studio.getByRole("button", { name: "发送拼图要求" }).click();
-    await expect(
-      studio.getByRole("button", { name: "应用到画布" }),
-    ).toBeVisible();
-    await studio.getByRole("button", { name: "应用到画布" }).click();
-    await expect(studio.locator(".slot-lock")).toHaveCount(1);
-    await studio.getByLabel("相框样式").selectOption("white");
-    await studio.getByLabel("水印文字", { exact: true }).fill("TRAVEL · 2026");
-    await studio.getByLabel("拼图照片缩放").focus();
-    await page.keyboard.press("ArrowRight");
-    await studio.getByRole("button", { name: "保存当前样式" }).click();
-    await studio.getByRole("button", { name: "成品预览", exact: true }).click();
-    await expect(page.getByAltText("实际渲染成品预览")).toBeVisible();
-    await expect
-      .poll(() =>
-        page.getByAltText("实际渲染成品预览").evaluate((el) => el.naturalWidth),
-      )
-      .toBeGreaterThan(0);
-    await page.getByRole("button", { name: "关闭成品预览" }).click();
-    await page.screenshot({ path: "test-results/studio.png", fullPage: true });
-    const pending = page.waitForEvent("download");
-    await studio.getByRole("button", { name: "导出拼图", exact: true }).click();
-    const download = await pending;
-    const metadata = await sharp(await download.path()).metadata();
-    expect(metadata.height).toBe(3000);
-    expect(metadata.exif).toBeUndefined();
-    const originalDownload = page.waitForEvent("download");
-    await studio.getByRole("button", { name: "拷贝入选原片 ZIP" }).click();
-    const original = await originalDownload;
-    const { readFile } = await import("node:fs/promises");
-    expect(
-      (await readFile(await original.path())).subarray(0, 2).toString(),
-    ).toBe("PK");
-    await studio.getByRole("button", { name: "返回照片库" }).click();
-    await page.getByRole("button", { name: "打开拼图工作室" }).click();
-    await expect(page.getByLabel("水印文字", { exact: true })).toHaveValue(
-      "TRAVEL · 2026",
-    );
-  } finally {
-    await new Promise((r) => fixture.close(r));
-  }
-});
-
-test("immersive keeps current image after filtered decisions and never advances on save failure", async ({
-  page,
-  request,
-}) => {
-  const project = await (
-    await request.post("/api/projects", {
-      data: { name: "沉浸状态保护 " + Date.now() },
-    })
-  ).json();
-  const body = new FormData();
-  for (let i = 0; i < 2; i++)
-    body.append(
-      "photos",
-      new Blob([await jpeg("#9eb3bc", i)], { type: "image/jpeg" }),
-      `stable-${i}.jpg`,
-    );
-  const results = await (
-    await fetch(`http://127.0.0.1:4174/api/projects/${project.id}/import`, {
-      method: "POST",
-      body,
-    })
-  ).json();
-  const ids = results.results.map((r) => r.photo.id);
-  await request.patch(`/api/projects/${project.id}/photos`, {
-    data: { ids, patch: { status: "keep" } },
-  });
-  await request.post(`/api/projects/${project.id}/groups`, {
-    data: { ids, type: "similar", action: "split" },
-  });
-  await page.addInitScript(
-    (id) => localStorage.setItem("photo-project", id),
-    project.id,
-  );
-  await page.goto("/");
-  await page.getByRole("button", { name: "初筛保留 2" }).click();
-  await page.getByRole("button", { name: "沉浸选片", exact: true }).click();
-  const modal = page.getByRole("dialog", { name: "沉浸选片" });
-  await modal.getByRole("button", { name: "不要" }).click();
-  await expect(modal.locator(".immersive-frame")).toHaveAttribute(
-    "data-photo-id",
-    ids[0],
-  );
-  await expect(modal.locator(".decision-badge")).toContainText("不要");
-  await modal.getByLabel("选择后自动下一张").check();
-  await page.route(`**/api/projects/${project.id}/photos`, async (route) => {
-    if (route.request().method() === "PATCH")
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "模拟保存失败" }),
-      });
-    else await route.continue();
-  });
-  await modal.getByRole("button", { name: "保留" }).click();
-  await expect(page.getByRole("status")).toContainText("模拟保存失败");
-  await expect(modal.locator(".immersive-frame")).toHaveAttribute(
-    "data-photo-id",
-    ids[0],
-  );
-  await page.unroute(`**/api/projects/${project.id}/photos`);
-  await modal.getByRole("button", { name: "保留" }).click();
-  await expect(modal.locator(".immersive-frame")).toHaveAttribute(
-    "data-photo-id",
-    ids[1],
-  );
+  await studio.getByLabel("拼图模板").selectOption("rows");
+  await expect(studio.locator(".story-slot")).toHaveCount(3);
+  await studio.getByLabel("水印文字").fill("旅行 2026");
+  const download = page.waitForEvent("download");
+  await studio.getByRole("button", { name: "导出拼图", exact: true }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/\.jpg$/);
+  const { readFile } = await import("node:fs/promises");
+  const bytes = await readFile(await file.path());
+  expect(bytes[0]).toBe(255);
+  expect(bytes[1]).toBe(216);
+  await page.screenshot({ path: "test-results/studio.png" });
 });

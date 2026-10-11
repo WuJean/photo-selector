@@ -17,10 +17,22 @@ import {
   Focus,
 } from "lucide-react";
 import { photoURL } from "./api";
-import { STATUS_LABELS } from "../../shared/domain.mjs";
+import {
+  STATUS_LABELS,
+  decisionKeys,
+  decisionField,
+  isTyping,
+} from "../../shared/domain.mjs";
 import { immersiveGroups, zoomAround } from "../../shared/immersive.mjs";
 
-function Frame({ photo, active, onActivate, dense = false }) {
+function Frame({
+  photo,
+  active,
+  onActivate,
+  onNavigate,
+  round,
+  dense = false,
+}) {
   const [transform, setTransform] = useState({ zoom: 1, x: 0, y: 0 }),
     [natural, setNatural] = useState(false);
   const ref = useRef(),
@@ -33,7 +45,19 @@ function Frame({ photo, active, onActivate, dense = false }) {
     const node = ref.current;
     const wheel = (e) => {
       e.preventDefault();
-      onActivate();
+      if (
+        Math.abs(e.deltaX) > Math.abs(e.deltaY) &&
+        transform.zoom === 1 &&
+        !natural
+      ) {
+        if (!drag.current?.wheelAt || Date.now() - drag.current.wheelAt > 350) {
+          if (Math.abs(e.deltaX) > 12) {
+            onNavigate(e.deltaX > 0 ? 1 : -1);
+            drag.current = { wheelAt: Date.now() };
+          }
+        }
+        return;
+      }
       const box = node.getBoundingClientRect();
       setTransform((v) =>
         zoomAround(v, v.zoom * Math.exp(-e.deltaY * 0.002), {
@@ -44,7 +68,7 @@ function Frame({ photo, active, onActivate, dense = false }) {
     };
     node.addEventListener("wheel", wheel, { passive: false });
     return () => node.removeEventListener("wheel", wheel);
-  }, [onActivate]);
+  }, [onActivate, onNavigate, transform.zoom, natural]);
   const reset = () => {
     setTransform({ zoom: 1, x: 0, y: 0 });
     setNatural(false);
@@ -63,7 +87,6 @@ function Frame({ photo, active, onActivate, dense = false }) {
     <div
       className={`immersive-frame ${active ? "focused" : ""} ${dense ? "dense" : ""}`}
       ref={ref}
-      onMouseEnter={onActivate}
       onFocus={onActivate}
       tabIndex={0}
       data-photo-id={photo.id}
@@ -80,18 +103,28 @@ function Frame({ photo, active, onActivate, dense = false }) {
         drag.current = {
           x: e.clientX - transform.x,
           y: e.clientY - transform.y,
+          startX: e.clientX,
+          panning: transform.zoom > 1 || natural,
         };
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
-        if (drag.current)
+        if (drag.current?.panning)
           setTransform((v) => ({
             ...v,
             x: e.clientX - drag.current.x,
             y: e.clientY - drag.current.y,
           }));
       }}
-      onPointerUp={() => (drag.current = null)}
+      onPointerUp={(e) => {
+        if (
+          drag.current &&
+          !drag.current.panning &&
+          Math.abs(e.clientX - drag.current.startX) > 65
+        )
+          onNavigate(e.clientX < drag.current.startX ? 1 : -1);
+        drag.current = null;
+      }}
       onPointerCancel={() => (drag.current = null)}
     >
       <PhotoImage
@@ -109,7 +142,7 @@ function Frame({ photo, active, onActivate, dense = false }) {
       <div className="immersive-photo-top">
         <span className={`decision-badge ${photo.status}`}>
           <span />
-          {STATUS_LABELS[photo.status]}
+          {STATUS_LABELS[photo[decisionField(round)] || "unseen"]}
         </span>
         {active && <span className="hover-indicator">当前照片</span>}
       </div>
@@ -182,124 +215,136 @@ export default function Immersive({
   photos,
   scopeIds,
   startId,
+  round = "initial",
   onClose,
   onPatch,
   onUndo,
+  onComplete,
 }) {
-  // Freeze the browsing scope, but keep each photo's live state. A decision must
-  // not remove the current image just because the library was filtered by status.
-  const sequenceIds = useRef(scopeIds || photos.map((p) => p.id));
-  const units = useMemo(() => {
-    const lookup = new Map(photos.map((p) => [p.id, p]));
-    return immersiveGroups(
-      sequenceIds.current.map((id) => lookup.get(id)).filter(Boolean),
-    );
-  }, [photos]);
-  const [hovered, setHovered] = useState(startId),
-    [fullscreen, setFullscreen] = useState(false),
-    [saving, setSaving] = useState(false),
-    [autoNext, setAutoNext] = useState(false);
-  const root = useRef();
-  // Anchor to a photo rather than a group index while background grouping runs.
-  const index = Math.max(
-    0,
-    units.findIndex((unit) => unit.photos.some((p) => p.id === hovered)),
+  const sequence = useRef(
+    immersiveGroups(
+      scopeIds.map((id) => photos.find((p) => p.id === id)).filter(Boolean),
+    ).flatMap((g) => g.photos.map((p) => p.id)),
   );
-  const group = units[Math.min(index, Math.max(0, units.length - 1))],
-    active = group?.photos.find((p) => p.id === hovered) || group?.photos[0];
+  const [index, setIndex] = useState(() =>
+    Math.max(0, sequence.current.indexOf(startId)),
+  );
+  const [saving, setSaving] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const root = useRef();
+  const busy = useRef(false);
+  const history = useRef([]);
+  const lookup = new Map(photos.map((p) => [p.id, p]));
+  const list = sequence.current.map((id) => lookup.get(id)).filter(Boolean);
+  const active = list[index];
+  const complete = !active;
+  const sameGroup = (p) =>
+    active?.similarId && p?.similarId === active.similarId;
+  const similar =
+    !!active?.similarId && list.some((p) => p.id !== active.id && sameGroup(p));
+  const group = list.filter(sameGroup);
+  const groupIndex = group.findIndex((p) => p.id === active?.id);
+  const visible = similar
+    ? [group[groupIndex - 1], active, group[groupIndex + 1]]
+    : [];
   const navigate = (delta) => {
-    const next = Math.min(units.length - 1, Math.max(0, index + delta));
-    setHovered(units[next]?.photos[0]?.id);
+    if (!busy.current)
+      setIndex((i) => Math.max(0, Math.min(list.length - 1, i + delta)));
+  };
+  const activate = (id) => {
+    if (!busy.current) setIndex(list.findIndex((p) => p.id === id));
   };
   const choose = async (status) => {
-    if (!active || saving) return;
+    if (!active || busy.current) return;
+    busy.current = true;
     setSaving(true);
     try {
-      const saved = await onPatch([active.id], { status });
-      if (saved && autoNext && group.kind === "single") navigate(1);
+      const saved = await onPatch([active.id], { status }, round);
+      if (saved) {
+        history.current.push(index);
+        setIndex(index + 1);
+      }
     } finally {
+      busy.current = false;
       setSaving(false);
     }
   };
+  const undo = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      if (await onUndo()) {
+        const last = history.current.pop();
+        if (last !== undefined) setIndex(last);
+      }
+    } finally {
+      busy.current = false;
+    }
+  };
+  const exit = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    onClose(active?.id || list.at(-1)?.id);
+  };
   useEffect(() => {
-    const listener = () => setFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", listener);
-    return () => document.removeEventListener("fullscreenchange", listener);
+    let wasFull = false;
+    const change = () => {
+      const full = !!document.fullscreenElement;
+      setFullscreen(full);
+      if (wasFull && !full) onClose();
+      wasFull = full;
+    };
+    document.addEventListener("fullscreenchange", change);
+    return () => document.removeEventListener("fullscreenchange", change);
   }, []);
   useEffect(() => {
     const listener = (e) => {
-      if (e.target.tagName === "INPUT") return;
+      if (isTyping(e.target) || e.repeat) return;
       const key = e.key.toLowerCase();
-      if (
-        [
-          "arrowleft",
-          "arrowright",
-          "1",
-          "2",
-          "3",
-          "p",
-          "u",
-          "x",
-          "escape",
-          "z",
-        ].includes(key)
-      ) {
+      if ((e.metaKey || e.ctrlKey) && key === "z") {
         e.preventDefault();
         e.stopImmediatePropagation();
+        undo();
+        return;
       }
-      if (key === "arrowleft") navigate(-1);
-      if (key === "arrowright") navigate(1);
-      if (key === "1" || key === "p") choose("keep");
-      if (key === "2" || key === "u") choose("maybe");
-      if (key === "3" || key === "x") choose("reject");
-      if (key === "escape" && !document.fullscreenElement) onClose();
-      if ((e.metaKey || e.ctrlKey) && key === "z") onUndo();
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (
+        ![
+          " ",
+          "escape",
+          "arrowleft",
+          "arrowright",
+          ...Object.keys(decisionKeys),
+        ].includes(key)
+      )
+        return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (key === " " || key === "escape") exit();
+      else if (key === "arrowleft") navigate(-1);
+      else if (key === "arrowright") navigate(1);
+      else choose(decisionKeys[key]);
     };
     window.addEventListener("keydown", listener, true);
     return () => window.removeEventListener("keydown", listener, true);
-  }, [index, group, active, saving, autoNext]);
-  const exit = () => {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    onClose();
-  };
-  if (!group) return null;
-  const previous = units[index - 1]?.photos[0],
-    next = units[index + 1]?.photos[0];
+  });
   return (
     <div
       className="immersive"
       ref={root}
       role="dialog"
       aria-modal="true"
-      aria-label="沉浸选片"
+      aria-label={round === "final" ? "沉浸式精筛" : "沉浸选片"}
     >
       <header className="immersive-header">
         <button className="immersive-back" onClick={exit}>
           <ArrowLeft size={17} />
-          返回照片库
+          返回
         </button>
-        <div className="immersive-title">
-          <span className="eyebrow">FOCUS ON THE MOMENT</span>
-          <span>
-            {group.kind === "similar" ? (
-              <>
-                <Layers size={14} />
-                {group.photos.length} 张相似照片 · 移入即放大
-              </>
-            ) : (
-              "一张一张，留下心动"
-            )}
-          </span>
-        </div>
-        <div className="immersive-header-right">
-          <label>
-            <input
-              type="checkbox"
-              checked={autoNext}
-              onChange={(e) => setAutoNext(e.target.checked)}
-            />
-            选择后自动下一张
-          </label>
+        <span>
+          {round === "final" ? "精筛" : "初筛"}
+          {similar ? ` · 相似照片 ${groupIndex + 1}/${group.length}` : ""}
+        </span>
+        <div className="immersive-header-actions">
           <button
             className="icon-button"
             aria-label="切换全屏"
@@ -309,7 +354,7 @@ export default function Immersive({
                 : root.current.requestFullscreen().catch(() => {})
             }
           >
-            {fullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
+            {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </button>
           <button
             className="icon-button"
@@ -320,145 +365,137 @@ export default function Immersive({
           </button>
         </div>
       </header>
-      <div
-        className={`immersive-stage ${group.kind === "similar" ? "similar-stage" : "single-stage"} ${group.photos.length > 5 ? "many-frames" : ""}`}
-      >
-        {group.kind === "similar" ? (
-          group.photos.map((p) => (
-            <div
-              className={`similar-slot ${active.id === p.id ? "active" : ""}`}
-              key={p.id}
-              style={{ flex: active.id === p.id ? 1.65 : 1 }}
-            >
-              <Frame
-                photo={p}
-                active={active.id === p.id}
-                onActivate={() => setHovered(p.id)}
-                dense={group.photos.length > 5}
-              />
-            </div>
-          ))
-        ) : (
-          <>
-            <button
-              className={`neighbor previous ${previous ? "" : "missing"}`}
-              onClick={() => navigate(-1)}
-              aria-label="查看前一组"
-              disabled={!previous}
-            >
-              {previous && (
-                <>
+      {complete ? (
+        <div className="review-complete">
+          <Check size={40} />
+          <h2>本轮已完成</h2>
+          <button className="primary" onClick={onComplete}>
+            {round === "final" ? "查看最终作品" : "查看初筛结果"}
+          </button>
+          <button className="button" onClick={exit}>
+            返回
+          </button>
+        </div>
+      ) : (
+        <div
+          className={`immersive-stage ${similar ? "similar-stage carousel-stage" : "single-stage"}`}
+        >
+          {similar ? (
+            visible.map((p, position) =>
+              p ? (
+                <div
+                  className={`similar-slot ${p.id === active.id ? "active" : ""}`}
+                  key={p.id}
+                  style={{ flex: p.id === active.id ? 1.65 : 1 }}
+                >
+                  <Frame
+                    photo={p}
+                    active={p.id === active.id}
+                    round={round}
+                    onActivate={() => activate(p.id)}
+                    onNavigate={navigate}
+                  />
+                </div>
+              ) : (
+                <div
+                  className="carousel-spacer"
+                  key={`empty-${position}`}
+                  style={{ flex: 1 }}
+                />
+              ),
+            )
+          ) : (
+            <>
+              <button
+                className={`neighbor previous ${list[index - 1] ? "" : "missing"}`}
+                aria-label="上一张"
+                disabled={!list[index - 1]}
+                onClick={() => navigate(-1)}
+              >
+                {list[index - 1] && (
                   <PhotoImage
                     alt="前一张照片（虚化）"
-                    src={photoURL(previous.id, "preview")}
+                    src={photoURL(list[index - 1].id, "preview")}
                   />
-                  <span>
-                    <ArrowLeft size={19} />
-                    上一张
-                  </span>
-                </>
-              )}
-            </button>
-            <div className="single-focus">
-              <Frame
-                key={active.id}
-                photo={active}
-                active
-                onActivate={() => setHovered(active.id)}
-              />
-            </div>
-            <button
-              className={`neighbor next ${next ? "" : "missing"}`}
-              onClick={() => navigate(1)}
-              aria-label="查看后一组"
-              disabled={!next}
-            >
-              {next && (
-                <>
+                )}
+                <ArrowLeft />
+              </button>
+              <div className="single-focus">
+                <Frame
+                  key={active.id}
+                  photo={active}
+                  active
+                  round={round}
+                  onActivate={() => {}}
+                  onNavigate={navigate}
+                />
+              </div>
+              <button
+                className={`neighbor next ${list[index + 1] ? "" : "missing"}`}
+                aria-label="下一张"
+                disabled={!list[index + 1]}
+                onClick={() => navigate(1)}
+              >
+                {list[index + 1] && (
                   <PhotoImage
                     alt="后一张照片（虚化）"
-                    src={photoURL(next.id, "preview")}
+                    src={photoURL(list[index + 1].id, "preview")}
                   />
-                  <span>
-                    下一张
-                    <ArrowRight size={19} />
-                  </span>
-                </>
-              )}
-            </button>
-          </>
-        )}
-      </div>
+                )}
+                <ArrowRight />
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <footer className="immersive-footer">
         <div className="immersive-navigation">
           <button
             className="round-button"
-            aria-label="上一组"
+            aria-label="上一张照片"
             onClick={() => navigate(-1)}
-            disabled={index === 0}
+            disabled={index === 0 || saving}
           >
             <ArrowLeft size={18} />
           </button>
           <span>
-            <strong>{String(index + 1).padStart(2, "0")}</strong> /{" "}
-            {String(units.length).padStart(2, "0")}
-            <small>{group.kind === "similar" ? "相似组" : "照片"}</small>
+            {Math.min(index + 1, list.length)} / {list.length}
           </span>
           <button
             className="round-button"
-            aria-label="下一组"
+            aria-label="下一张照片"
             onClick={() => navigate(1)}
-            disabled={index >= units.length - 1}
+            disabled={index >= list.length - 1 || saving}
           >
             <ArrowRight size={18} />
           </button>
         </div>
         <div className="decision-buttons">
-          <button
-            className={`decision keep ${active.status === "keep" ? "chosen" : ""}`}
-            onClick={() => choose("keep")}
-            disabled={saving}
-          >
-            <Check size={21} />
-            <span>保留</span>
-            <kbd>1</kbd>
-          </button>
-          <button
-            className={`decision undecided ${active.status === "maybe" ? "chosen" : ""}`}
-            onClick={() => choose("maybe")}
-            disabled={saving}
-          >
-            <Minus size={21} />
-            <span>待定</span>
-            <kbd>2</kbd>
-          </button>
-          <button
-            className={`decision reject ${active.status === "reject" ? "chosen" : ""}`}
-            onClick={() => choose("reject")}
-            disabled={saving}
-          >
-            <X size={21} />
-            <span>不要</span>
-            <kbd>3</kbd>
-          </button>
+          {[
+            ["maybe", "待定", "Z", Minus],
+            ["keep", "保留", "X", Check],
+            ["reject", "不要", "C", X],
+          ].map(([status, label, key, Icon]) => (
+            <button
+              key={status}
+              className={`decision ${status} ${active?.[decisionField(round)] === status ? "chosen" : ""}`}
+              onClick={() => choose(status)}
+              disabled={saving || complete}
+            >
+              <Icon size={20} />
+              <span>{label}</span>
+              <kbd>{key}</kbd>
+            </button>
+          ))}
         </div>
-        <div className="immersive-hints">
-          <button
-            className="icon-button"
-            title="撤销选择 ⌘Z"
-            aria-label="撤销选择"
-            onClick={onUndo}
-          >
-            <Undo2 size={18} />
-          </button>
-          <span>
-            <MousePointer2 size={11} />
-            滚轮缩放 · 双击放大
-            <br />
-            <Move size={11} />
-            拖动看细节 · ← → 切换
-          </span>
-        </div>
+        <button
+          className="icon-button"
+          aria-label="撤销决定"
+          onClick={undo}
+          disabled={saving}
+        >
+          <Undo2 size={20} />
+        </button>
       </footer>
     </div>
   );

@@ -31,7 +31,7 @@ import {
   layoutRects,
   imagePlacement,
 } from "../../shared/layout.mjs";
-import { tagsOf } from "../../shared/domain.mjs";
+import { tagsOf, inFinal } from "../../shared/domain.mjs";
 
 async function download(url, body, name) {
   const response = await fetch("/api" + url, json("POST", body));
@@ -216,7 +216,7 @@ export default function Studio({
           ? collection.photoIds
               .map((id) => photos.find((p) => p.id === id))
               .filter(Boolean)
-          : photos.filter((p) => p.status === "keep"),
+          : photos.filter(inFinal),
     [],
   );
   const [draft, setDraft] = useState(() => newDraft(projectId, initial)),
@@ -392,8 +392,7 @@ export default function Studio({
   const batch = async (mode) => {
     const ids = selected.length
       ? selected
-      : collection?.photoIds ||
-        photos.filter((p) => p.status === "keep").map((p) => p.id);
+      : collection?.photoIds || photos.filter(inFinal).map((p) => p.id);
     if (!ids.length) {
       notify("先保留照片，或在照片库里选择要导出的照片");
       return;
