@@ -1,7 +1,7 @@
 export const TAG_CATEGORIES = ["主体", "景别", "环境", "风格", "其他"];
 export const DEFAULT_TAGS = Object.entries({
-  主体: ["人像", "多人合照", "宠物", "风景", "建筑", "美食"],
-  景别: ["特写", "近景", "中景", "远景", "全景"],
+  主体: ["人像", "多人合照", "宠物", "风景", "建筑", "美食", "其他"],
+  景别: ["特写", "近景", "中景", "远景", "全景", "不确定"],
   环境: ["雪山", "森林", "海边", "城市", "室内", "夜景"],
   风格: ["清冷", "暖调", "自然", "纪实", "极简"],
 }).flatMap(([category, names]) =>
@@ -78,5 +78,23 @@ export function samplePhotos(photos) {
       { length: quotas[i] },
       (_, j) => layer[Math.floor(((j + 0.5) * layer.length) / quotas[i])].id,
     ),
+  );
+}
+
+export const CORE_TAGS = DEFAULT_TAGS.filter((t) =>
+  ["主体", "景别"].includes(t.category),
+);
+export const structuredTags = (tags) =>
+  normalizeTags(
+    [
+      ...CORE_TAGS,
+      ...tags.filter((t) => !["主体", "景别"].includes(t.category)),
+    ].slice(0, 100),
+  );
+export function tagCategory(name, tags = DEFAULT_TAGS) {
+  return (
+    CORE_TAGS.find((t) => t.name === name)?.category ||
+    tags.find((t) => t.name === name)?.category ||
+    "其他"
   );
 }

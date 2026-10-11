@@ -133,3 +133,12 @@ test("sampling is deterministic, deduplicated, capped, covers time and missing-t
   assert.equal(samplePhotos(photos.slice(0, 100)).length, 12);
   assert.deepEqual(samplePhotos([]), []);
 });
+
+test('structured AI tags enforce one subject one shot and at most five extras; cleared tags remain empty',async()=>{
+ const {validateAnalysis}=await import('../server/ai.mjs');const {structuredTags,DEFAULT_TAGS}=await import('../shared/tags.mjs');
+ const library={version:1,schemaVersion:2,tags:structuredTags(DEFAULT_TAGS)};
+ const valid=validateAnalysis({description:'雪山中的游客',tags:['人像','远景','雪山']},library);
+ assert.equal(valid.subject,'人像');assert.equal(valid.shot,'远景');
+ for(const tags of [[],['人像'],['人像','风景','远景'],['人像','远景','雪山','森林','海边','城市','室内','夜景']]) assert.throws(()=>validateAnalysis({description:'图',tags},library));
+ assert.deepEqual(tagsOf({ai:valid,tagsCleared:true}),[]);
+});

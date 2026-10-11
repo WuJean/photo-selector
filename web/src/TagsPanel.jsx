@@ -15,7 +15,7 @@ export default function TagsPanel({
     [mode, setMode] = useState("assign"),
     [busy, setBusy] = useState(false),
     [name, setName] = useState(""),
-    [category, setCategory] = useState("主体"),
+    [category, setCategory] = useState("其他"),
     [rename, setRename] = useState(null),
     [target, setTarget] = useState("");
   const reload = () => api(`/projects/${projectId}/tags`).then(setLibrary);
@@ -58,6 +58,21 @@ export default function TagsPanel({
           管理
         </button>
       </div>
+      {!!selected.length && (
+        <button
+          className="text-button"
+          onClick={() =>
+            run(() =>
+              api(
+                `/projects/${projectId}/tags/clear`,
+                json("POST", { ids: selected.map((p) => p.id) }),
+              ),
+            )
+          }
+        >
+          清空所选标签
+        </button>
+      )}
       {!library ? (
         <p>载入中…</p>
       ) : (

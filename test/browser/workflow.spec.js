@@ -420,6 +420,7 @@ test("manual tag chips classify initial photos, filter by multiple tags and pers
     .getByRole("button", { name: "人像", exact: true })
     .click();
   await expect(page.locator(".photo-card")).toHaveCount(2);
+  await page.locator(".tag-filter summary").filter({hasText:"环境"}).click();
   await page
     .locator(".tag-filter")
     .getByRole("button", { name: "雪山", exact: true })
@@ -470,7 +471,7 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
       prompts.push(system);
       result = {
         description: "雪山远景",
-        tags: ["雪山", "风景"],
+        tags: ["雪山", "风景", "远景"],
         scene: "雪山",
         shot: "远景",
         style: "清冷",
@@ -514,7 +515,7 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
     await open(page, p);
     await page.getByRole("button", { name: /^作品集/ }).click();
 
-    await page.getByRole("button", { name: "AI 分类", exact: true }).click();
+    await page.getByRole("button", { name: "细化分类", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "AI 分类", exact: true });
     await expect(dialog.getByText("需要添加其他常用标签吗？")).toBeVisible();
     await dialog.getByLabel("补充标签").fill("登顶");

@@ -1,4 +1,9 @@
-import { DEFAULT_TAGS, normalizeTags } from "../shared/tags.mjs";
+import {
+  DEFAULT_TAGS,
+  normalizeTags,
+  CORE_TAGS,
+  tagCategory,
+} from "../shared/tags.mjs";
 import { inInitial, tagsOf } from "../shared/domain.mjs";
 export function tagLibrary(store, projectId) {
   if (!store.get("project", projectId)) throw new Error("项目不存在");
@@ -54,6 +59,32 @@ export function registerTags(app, store) {
     apply(req.params.id, changes, "编辑标签库");
     res.json(value);
   });
+  app.post("/api/projects/:id/tags/clear", (req, res) => {
+    if (!Array.isArray(req.body.ids) || !req.body.ids.length)
+      throw new Error("请选择照片");
+    const photos = [...new Set(req.body.ids)].map((id) =>
+      store.get("photo", id),
+    );
+    if (
+      photos.some((p) => !p || p.projectId !== req.params.id || !inInitial(p))
+    )
+      throw new Error("照片不属于精筛范围");
+    apply(
+      req.params.id,
+      photos.map((p) => ({
+        kind: "photo",
+        fields: ["manualTags", "excludedTags", "tagsCleared"],
+        value: {
+          ...p,
+          manualTags: [],
+          excludedTags: tagsOf(p),
+          tagsCleared: true,
+        },
+      })),
+      "清空标签",
+    );
+    res.json({ ok: true });
+  });
   app.post("/api/projects/:id/tags/assign", (req, res) => {
     const library = tagLibrary(store, req.params.id),
       name = String(req.body.name || "");
@@ -76,19 +107,41 @@ export function registerTags(app, store) {
     const enabled = req.body.enabled;
     apply(
       req.params.id,
-      photos.map((p) => ({
-        kind: "photo",
-        fields: ["manualTags", "excludedTags"],
-        value: {
-          ...p,
-          manualTags: enabled
-            ? [...new Set([...(p.manualTags || []), name])]
-            : (p.manualTags || []).filter((t) => t !== name),
-          excludedTags: enabled
-            ? (p.excludedTags || []).filter((t) => t !== name)
-            : [...new Set([...(p.excludedTags || []), name])],
-        },
-      })),
+      photos.map((p) => {
+        const category = tagCategory(name, library.tags);
+        const replaces =
+          enabled && ["主体", "景别"].includes(category)
+            ? [...CORE_TAGS, ...library.tags]
+                .filter((t) => t.category === category && t.name !== name)
+                .map((t) => t.name)
+            : [];
+        const manualTags = enabled
+          ? [
+              ...new Set([
+                ...(p.manualTags || []).filter((t) => !replaces.includes(t)),
+                name,
+              ]),
+            ]
+          : (p.manualTags || []).filter((t) => t !== name);
+        const excludedTags = enabled
+          ? [
+              ...new Set([
+                ...(p.excludedTags || []).filter((t) => t !== name),
+                ...replaces,
+              ]),
+            ]
+          : [...new Set([...(p.excludedTags || []), name])];
+        const value = { ...p, manualTags, excludedTags };
+        if (
+          enabled &&
+          !["主体", "景别"].includes(category) &&
+          tagsOf(value).filter(
+            (t) => !["主体", "景别"].includes(tagCategory(t, library.tags)),
+          ).length > 5
+        )
+          throw new Error("附加标签最多五个，请先移除一个");
+        return { kind: "photo", fields: ["manualTags", "excludedTags"], value };
+      }),
       "人工分类",
     );
     res.json({ ok: true });

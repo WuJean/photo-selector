@@ -76,7 +76,7 @@ test("sampling requires initial acceptance; confirmation gates full classificati
         }
       : {
           description: "山峰",
-          tags: ["雪山"],
+          tags: ["风景", "远景", "雪山"],
           scene: "未知山脉",
           shot: "远景",
         };
@@ -133,7 +133,12 @@ test("sampling requires initial acceptance; confirmation gates full classificati
     assert.equal((await call(base + "/vocabulary", { ids })).status, 400);
     for (const photo of photos)
       store.put("photo", { ...photo, status: "maybe" });
-    assert.equal((await call(base + "/analyze", { ids })).status, 400);
+    assert.equal((await call(base + "/analyze", { ids })).status, 200);
+    await wait(()=>!ai.running && !ai.job.photoIds.length);
+    assert.equal(ai.job.done,3); assert.equal(sampleCount,0);
+    analysisCount=0;requests.length=0;
+    for(const id of ids) { const value=store.get("photo",id);delete value.ai; delete value.aiSignature;store.put("photo",value); }
+
     assert.equal((await call(base + "/vocabulary", { ids })).status, 200);
     const q = app.locals.vocabularyQueue;
     await wait(() => q.get(p.id)?.state === "review");
@@ -146,7 +151,7 @@ test("sampling requires initial acceptance; confirmation gates full classificati
       name: "雪山",
       enabled: false,
     });
-    store.put("photo", { ...store.get("photo", ids[0]), manualTags: ["人像"] });
+    await call(base + "/tags/assign", {ids:[ids[0]],name:"人像",enabled:true});
     mode = "hold";
     const response = await call(base + "/vocabulary/confirm", {
       tags: [{ name: "雪山", category: "环境", description: "积雪覆盖山峰" }],
@@ -171,8 +176,8 @@ test("sampling requires initial acceptance; confirmation gates full classificati
       store.get("photo", ids[0]).ai.vocabularyVersion,
       snapshot.version,
     );
-    assert.deepEqual(tagsOf(store.get("photo", ids[0])), ["人像"]);
-    assert(!ai.job.vocabulary.tags.some((t) => t.name === "人像"));
+    assert.deepEqual(tagsOf(store.get("photo", ids[0])), ["人像", "远景"]);
+    assert(ai.job.vocabulary.tags.some((t) => t.name === "人像"));
     for (const body of requests.filter(
       (b) => !b.messages[0].content.includes("最多建议 8 项"),
     )) {

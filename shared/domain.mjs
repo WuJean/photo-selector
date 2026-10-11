@@ -62,7 +62,7 @@ export function tagsOf(p) {
   ]
     .filter(Boolean)
     .map(resolve)
-    .filter((t) => !excluded.has(t));
+    .filter((t) => !p.tagsCleared && !excluded.has(t));
   return [...new Set([...manual, ...automatic])];
 }
 export function filterPhotos(photos, filter = {}) {

@@ -40,6 +40,7 @@ import TagsPanel from "./TagsPanel";
 import AIWizard from "./AIWizard";
 import TaskBar from "./TaskBar";
 import Refine from "./Refine";
+import TagFilters from "./TagFilters";
 import {
   filterPhotos,
   FOCAL_LABELS,
@@ -634,6 +635,27 @@ export default function App() {
                 <Button
                   disabled={!filtered.length}
                   onClick={() =>
+                    run(async () => {
+                      await api(
+                        `/projects/${projectId}/analyze`,
+                        json("POST", {
+                          ids: (selected.length
+                            ? filtered.filter((p) => selected.includes(p.id))
+                            : filtered
+                          ).map((p) => p.id),
+                        }),
+                      );
+                      await refresh();
+                    })
+                  }
+                >
+                  AI 分类
+                </Button>
+              )}
+              {(portfolio || refining) && (
+                <Button
+                  disabled={!filtered.length}
+                  onClick={() =>
                     setAIWizard(
                       (selected.length
                         ? initial.filter((p) => selected.includes(p.id))
@@ -642,7 +664,7 @@ export default function App() {
                     )
                   }
                 >
-                  AI 分类
+                  细化分类
                 </Button>
               )}
               {(portfolio || refining) && (
@@ -744,51 +766,13 @@ export default function App() {
               </button>
             </div>
           )}
-          {portfolio && (
-            <div className="tag-filter">
-              <div className="tag-chips">
-                {[
-                  ...new Set(
-                    (tab === "final" ? final : initial).flatMap(tagsOf),
-                  ),
-                ].map((tag) => (
-                  <button
-                    key={tag}
-                    className={filters.tags?.includes(tag) ? "active" : ""}
-                    onClick={() =>
-                      setFilters({
-                        ...filters,
-                        tags: filters.tags?.includes(tag)
-                          ? filters.tags.filter((t) => t !== tag)
-                          : [...(filters.tags || []), tag],
-                      })
-                    }
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-              {filters.tags?.length > 0 && (
-                <>
-                  <select
-                    aria-label="多标签匹配"
-                    value={filters.tagMode || "all"}
-                    onChange={(e) =>
-                      setFilters({ ...filters, tagMode: e.target.value })
-                    }
-                  >
-                    <option value="all">同时满足</option>
-                    <option value="any">满足任一</option>
-                  </select>
-                  <button
-                    className="text-button"
-                    onClick={() => setFilters({ ...filters, tags: [] })}
-                  >
-                    清除标签
-                  </button>
-                </>
-              )}
-            </div>
+          {(portfolio || refining) && (
+            <TagFilters
+              projectId={projectId}
+              photos={refining ? initial : final}
+              filters={filters}
+              setFilters={setFilters}
+            />
           )}
           {showFilters && (
             <div className="filter-panel">

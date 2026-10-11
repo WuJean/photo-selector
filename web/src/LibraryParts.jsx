@@ -122,7 +122,16 @@ export function VirtualGrid({
   const columns = Math.max(1, Math.floor(size.width / 235)),
     gap = 20,
     width = (size.width - gap * (columns - 1)) / columns,
-    height = width * 0.72 + 78,
+    height =
+      width * 0.72 +
+      90 +
+      Math.ceil(
+        Math.max(
+          0,
+          ...items.map((item) => tagsOf(item.photo).join(" · ").length),
+        ) / Math.max(12, Math.floor(width / 12)),
+      ) *
+        19,
     rowHeight = height + gap;
   useEffect(() => {
     const index = items.findIndex((item) => item.photo.id === focusId);
@@ -261,7 +270,7 @@ export function VirtualGrid({
                   {p.aperture ? ` · ƒ/${p.aperture}` : ""}
                 </span>
                 <span className="photo-tags">
-                  {tagsOf(p).slice(0, 2).join(" · ")}
+                  {tagsOf(p).join(" · ")}
                   {p.issues?.length > 0 && (
                     <i title={p.issues.join("；")}>待检查</i>
                   )}
