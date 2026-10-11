@@ -16,7 +16,10 @@
     "build:vision": "swift build -c release --product VisionWorker",
     "test:all": "npm run check && npm run test:browser",
     "benchmark": "node scripts/benchmark.mjs",
-    "format": "prettier --write \"server/**/*.mjs\" \"shared/**/*.mjs\" \"web/src/**/*.{js,jsx,css}\" \"test/**/*.{mjs,js}\" \"scripts/*.mjs\" *.js *.json"
+    "format": "prettier --write \"server/**/*.mjs\" \"shared/**/*.mjs\" \"web/src/**/*.{js,jsx,css}\" \"test/**/*.{mjs,js}\" \"scripts/*.mjs\" *.js *.json",
+    "build:wechat": "node scripts/build-wechat.mjs",
+    "sync:wechat": "node scripts/build-wechat.mjs --sync",
+    "test:wechat": "node --test wechat/test/*.test.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",
