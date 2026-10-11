@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { focalCategory } from "../shared/domain.mjs";
+import { focalCategory, inInitial, decisionField } from "../shared/domain.mjs";
 const allowed = ["status", "favorite", "manualTags"];
 export class History {
   constructor(store) {
@@ -90,8 +90,18 @@ export function registerCuration(app, store) {
     const patch = {};
     for (const key of allowed)
       if (key in (req.body.patch || {})) patch[key] = req.body.patch[key];
-    if (patch.status && !["unseen", "keep", "reject"].includes(patch.status))
+    if (
+      "status" in patch &&
+      !["unseen", "maybe", "keep", "reject"].includes(patch.status)
+    )
       throw new Error("筛选状态无效");
+    const round = req.body.round || "initial";
+    if (!["initial", "final"].includes(round)) throw new Error("筛选轮次无效");
+    if ("status" in patch && round === "final") {
+      if (selected.some((p) => !inInitial(p))) throw new Error("请先完成初筛");
+      patch[decisionField(round)] = patch.status;
+      delete patch.status;
+    }
     if ("favorite" in patch && typeof patch.favorite !== "boolean")
       throw new Error("收藏状态无效");
     if ("manualTags" in patch) {
@@ -111,7 +121,7 @@ export function registerCuration(app, store) {
         fields: Object.keys(patch),
         value: { ...p, ...patch },
       })),
-      "修改选片状态",
+      `${round === "final" ? "精筛" : "初筛"}决定`,
     );
     res.json({ ok: true });
   });

@@ -17,7 +17,7 @@ test("immersive sequence unfolds similar photos and preserves independent neighb
   );
   assert.equal(groups[1].kind, "single");
   assert.equal(groups[2].photos[0].id, "d");
-  assert.deepEqual(Object.values(STATUS_LABELS), ["待定", "保留", "不要"]);
+  assert.deepEqual(Object.values(STATUS_LABELS), ["未筛选", "待定", "保留", "不要"]);
 });
 test("cursor-centered zoom preserves focus and reset clears translation", () => {
   assert.deepEqual(zoomAround({ zoom: 1, x: 0, y: 0 }, 2, { x: 50, y: 20 }), {

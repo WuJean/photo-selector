@@ -250,7 +250,7 @@ test("immersive similar hover zoom and blurred neighbor decisions persist", asyn
     await request.get(`/api/projects/${project.id}/photos`)
   ).json();
   expect(saved.find((p) => p.id === ids[1]).status).toBe("keep");
-  expect(saved.find((p) => p.id === ids[2]).status).toBe("unseen");
+  expect(saved.find((p) => p.id === ids[2]).status).toBe("maybe");
 });
 
 test("analyze through fixture model, chat-compose, crop, watermark, render and export", async ({

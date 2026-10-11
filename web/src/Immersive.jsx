@@ -250,7 +250,7 @@ export default function Immersive({
       if (key === "arrowleft") navigate(-1);
       if (key === "arrowright") navigate(1);
       if (key === "1" || key === "p") choose("keep");
-      if (key === "2" || key === "u") choose("unseen");
+      if (key === "2" || key === "u") choose("maybe");
       if (key === "3" || key === "x") choose("reject");
       if (key === "escape" && !document.fullscreenElement) onClose();
       if ((e.metaKey || e.ctrlKey) && key === "z") onUndo();
@@ -424,8 +424,8 @@ export default function Immersive({
             <kbd>1</kbd>
           </button>
           <button
-            className={`decision undecided ${active.status === "unseen" ? "chosen" : ""}`}
-            onClick={() => choose("unseen")}
+            className={`decision undecided ${active.status === "maybe" ? "chosen" : ""}`}
+            onClick={() => choose("maybe")}
             disabled={saving}
           >
             <Minus size={21} />

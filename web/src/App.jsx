@@ -704,7 +704,7 @@ export default function App() {
         e.preventDefault();
       if (key === "p") patch(selected, { status: "keep" });
       if (key === "x") patch(selected, { status: "reject" });
-      if (key === "u") patch(selected, { status: "unseen" });
+      if (key === "u") patch(selected, { status: "maybe" });
       if (key === "f") patch(selected, { favorite: !active?.favorite });
       if (key === " ") setImmersive(selected[0]);
       if (key === "arrowright" || key === "arrowleft") {
@@ -1332,7 +1332,7 @@ export default function App() {
               <div>
                 <Button
                   disabled={!selected.length}
-                  onClick={() => patch(selected, { status: "unseen" })}
+                  onClick={() => patch(selected, { status: "maybe" })}
                 >
                   待定
                 </Button>

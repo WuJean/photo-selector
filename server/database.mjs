@@ -13,6 +13,26 @@ export class Store {
     this.db.exec(
       `PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS documents (kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(kind,id)); CREATE INDEX IF NOT EXISTS documents_project ON documents(kind,json_extract(data,'$.projectId'));`,
     );
+    this.migrateReviews();
+  }
+  migrateReviews() {
+    if (this.get("migration", "two-rounds")) return;
+    const photos = this.all("photo");
+    if (photos.length) {
+      const backups = path.join(this.root, "backups");
+      mkdirSync(backups, { recursive: true });
+      this.db
+        .prepare("VACUUM INTO ?")
+        .run(path.join(backups, `before-two-rounds-${Date.now()}.sqlite`));
+    }
+    this.transaction(() => {
+      for (const p of photos)
+        this.put("photo", { ...p, finalStatus: p.finalStatus || "unseen" });
+      this.put("migration", {
+        id: "two-rounds",
+        completedAt: new Date().toISOString(),
+      });
+    });
   }
   get(kind, id) {
     const row = this.db

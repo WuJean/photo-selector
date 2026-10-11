@@ -23,7 +23,25 @@ export function focalCategory(equivalent, actual, cropFactor) {
           ? "中焦 / 85mm"
           : "长焦";
 }
-export const STATUS_LABELS = { unseen: "待定", keep: "保留", reject: "不要" };
+export const STATUS_LABELS = {
+  unseen: "未筛选",
+  maybe: "待定",
+  keep: "保留",
+  reject: "不要",
+};
+export const isAccepted = (value) => value === "keep" || value === "maybe";
+export const inInitial = (photo) => isAccepted(photo.status);
+export const inFinal = (photo) =>
+  inInitial(photo) && isAccepted(photo.finalStatus);
+export const decisionField = (round) =>
+  round === "final" ? "finalStatus" : "status";
+export const decisionKeys = { z: "maybe", x: "keep", c: "reject" };
+export function isTyping(target) {
+  return !!target?.closest?.(
+    'input, textarea, select, [contenteditable="true"]',
+  );
+}
+
 export function uniqueName(name, existing) {
   const dot = name.lastIndexOf(".");
   const base = dot > 0 ? name.slice(0, dot) : name;

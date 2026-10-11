@@ -74,6 +74,7 @@ export async function importPhoto(store, projectId, file, name, lastModified) {
     shutter: exif.ExposureTime || null,
     iso: exif.ISO || null,
     status: "unseen",
+    finalStatus: "unseen",
     favorite: false,
     manualTags: [],
     analysisStatus: "pending",
