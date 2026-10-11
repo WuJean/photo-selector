@@ -19,7 +19,11 @@ export class Vault {
   constructor(native, { root } = {}) {
     this.native = native;
     this.memory = new Map();
-    if (!native.available && root) {
+    // Installing Vision must not hide keys saved by an earlier fallback deployment.
+    this.useNative =
+      native.available &&
+      !(root && existsSync(path.join(root, "secrets/credentials.enc")));
+    if (!this.useNative && root) {
       const directory = path.join(root, "secrets");
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
@@ -57,7 +61,7 @@ export class Vault {
     }
   }
   get storage() {
-    return this.native.available
+    return this.useNative
       ? "macOS 钥匙串"
       : this.file
         ? "本地加密凭据"
@@ -92,19 +96,19 @@ export class Vault {
   }
   async get(config) {
     const account = this.account(config);
-    if (this.native.available)
+    if (this.useNative)
       return (await this.native.request({ op: "key-get", account })).key;
     return this.memory.get(account) || null;
   }
   async set(config, key) {
     const account = this.account(config);
-    if (this.native.available)
+    if (this.useNative)
       await this.native.request({ op: "key-set", account, key });
     else this.persist(new Map(this.memory).set(account, key));
   }
   async remove(config) {
     const account = this.account(config);
-    if (this.native.available)
+    if (this.useNative)
       await this.native.request({ op: "key-delete", account });
     else {
       const next = new Map(this.memory);

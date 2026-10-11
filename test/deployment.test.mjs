@@ -98,3 +98,29 @@ test("Docker published ports and proxy origins are explicit, unrelated origins a
     "local",
   );
 });
+
+test("enabling Vision preserves an existing encrypted credential store", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "vault-upgrade-"));
+  try {
+    const config = { baseURL: "https://example.com/v1" };
+    await new Vault({ available: false }, { root }).set(
+      config,
+      "fixture-existing-key",
+    );
+    const upgraded = new Vault(
+      {
+        available: true,
+        request: () => {
+          throw new Error("must not switch stores");
+        },
+      },
+      { root },
+    );
+    assert.equal(await upgraded.get(config), "fixture-existing-key");
+    assert.equal(upgraded.storage, "本地加密凭据");
+    await upgraded.remove(config);
+    assert.equal(await upgraded.get(config), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

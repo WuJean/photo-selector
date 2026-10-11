@@ -11,6 +11,7 @@ export function createApp({
   root = path.resolve(".local"),
   onImport = () => {},
   publicURL = "",
+  allowedOrigins = "",
   authentication = false,
   password,
 } = {}) {
@@ -18,7 +19,7 @@ export function createApp({
   const store = new Store(root);
   app.locals.store = store;
   app.disable("x-powered-by");
-  app.use(accessPolicy(publicURL));
+  app.use(accessPolicy(publicURL, allowedOrigins));
   app.use(express.json({ limit: "2mb" }));
   app.locals.publicURL = publicURL;
   if (authentication) registerAuth(app, store, { password });

@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-if ! command -v docker >/dev/null 2>&1; then
-  echo '请先安装 Docker Desktop（Mac/Windows）或 Docker Engine + Compose v2（Linux）。' >&2
-  exit 1
+mode=auto
+action=deploy
+for arg in "$@"; do
+  case "$arg" in
+    --native) mode=native ;;
+    --docker) mode=docker ;;
+    start|stop|restart|status|logs) action="$arg" ;;
+    --help|-h) echo '用法: ./deploy.sh [--native|--docker] [start|stop|restart|status|logs]'; exit 0 ;;
+    *) echo "未知参数: $arg" >&2; exit 1 ;;
+  esac
+done
+if [[ "$mode" == auto ]]; then
+  if [[ "$(uname -s)" == Darwin ]]; then mode=native; else mode=docker; fi
 fi
-if ! docker info >/dev/null 2>&1; then
-  echo 'Docker 尚未启动，请启动 Docker 后重新执行 ./deploy.sh。' >&2
-  exit 1
+if [[ "$mode" == docker ]]; then exec bash scripts/deploy-docker.sh "$action"; fi
+if [[ "$(uname -s)" != Darwin ]]; then echo '原生一键部署支持 macOS，请使用 ./deploy.sh --docker。' >&2; exit 1; fi
+if ! command -v node >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)' 2>/dev/null; then
+  for node_dir in /opt/homebrew/opt/node@24/bin /usr/local/opt/node@24/bin; do
+    if [[ -x "$node_dir/node" ]]; then export PATH="$node_dir:$PATH"; break; fi
+  done
 fi
-if ! docker compose version >/dev/null 2>&1; then
-  echo '需要 Docker Compose v2，请更新 Docker。' >&2
-  exit 1
+if ! command -v node >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)' 2>/dev/null; then
+  echo '需要 Node.js 24+。已有 Homebrew: brew install node@24；否则从 https://nodejs.org 下载 Node.js 24 安装包。' >&2; exit 1
 fi
-docker compose up -d --build --wait --wait-timeout 120
-echo '选片助手已启动。访问地址：'
-docker compose exec -T web node -e 'console.log(process.env.PHOTO_SELECTOR_PUBLIC_URL)'
-echo '首次密码：passwd。首次登录后必须设置自己的新密码；已修改过的密码保持不变。'
-echo '本地原片留在电脑，上传文件、分享副本和设置保存在数据卷。更新时重新运行 ./deploy.sh。'
+exec node scripts/deploy-native.mjs "$action"

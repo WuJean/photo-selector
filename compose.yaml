@@ -5,9 +5,10 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "${PHOTO_SELECTOR_BIND:-127.0.0.1}:${PHOTO_SELECTOR_PORT:-4173}:4173"
+      - "${PHOTO_SELECTOR_BIND:-0.0.0.0}:${PHOTO_SELECTOR_PORT:-4173}:4173"
     environment:
       PHOTO_SELECTOR_PUBLIC_URL: "${PHOTO_SELECTOR_PUBLIC_URL:-http://localhost:${PHOTO_SELECTOR_PORT:-4173}}"
+      PHOTO_SELECTOR_ALLOWED_ORIGINS: "${PHOTO_SELECTOR_ALLOWED_ORIGINS:-}"
       TZ: "${TZ:-Asia/Shanghai}"
     volumes:
       - photo-data:/data

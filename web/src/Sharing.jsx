@@ -145,7 +145,7 @@ export function ShareManager({ collection, onClose, notify }) {
                 <input
                   readOnly
                   aria-label="分享链接"
-                  value={location.origin + "/s/" + s.token}
+                  value={s.url || location.origin + "/s/" + s.token}
                 />
                 {secrets[s.id] && (
                   <span>
@@ -155,9 +155,7 @@ export function ShareManager({ collection, onClose, notify }) {
                 <Button
                   onClick={async () => {
                     await navigator.clipboard.writeText(
-                      location.origin +
-                        "/s/" +
-                        s.token +
+                      (s.url || location.origin + "/s/" + s.token) +
                         (secrets[s.id] ? "\n访问密码：" + secrets[s.id] : "") +
                         "\n有效期至：" +
                         new Date(s.expiresAt).toLocaleString(),

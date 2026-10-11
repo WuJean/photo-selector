@@ -22,6 +22,7 @@ const { app, store, upload } = createApp({
   root,
   authentication: true,
   publicURL: process.env.PHOTO_SELECTOR_PUBLIC_URL || "",
+  allowedOrigins: process.env.PHOTO_SELECTOR_ALLOWED_ORIGINS || "",
   onImport: (photo) => local.enqueue(photo.id),
 });
 local = new LocalQueue(store, native);
@@ -80,7 +81,7 @@ if (process.env.NODE_ENV === "production") {
 }
 errors(app);
 const port = Number(process.env.PORT || 4173);
-const host = process.env.HOST || "127.0.0.1";
+const host = process.env.HOST || "0.0.0.0";
 app.listen(port, host, () =>
   console.log(
     `选片助手 ${process.env.PHOTO_SELECTOR_PUBLIC_URL || `http://${host}:${port}`}`,

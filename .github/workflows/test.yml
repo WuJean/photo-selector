@@ -31,6 +31,8 @@ jobs:
       - run: npm run build:vision
       - name: Test and build web application
         run: npm run check
+      - name: Verify native production deployment and lifecycle
+        run: npm run test:native
       - name: Test and build WeChat application
         run: npm run test:wechat && npm run build:wechat
       - name: Test native foundation

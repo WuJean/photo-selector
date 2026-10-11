@@ -21,7 +21,8 @@
     "sync:wechat": "node scripts/build-wechat.mjs --sync",
     "test:wechat": "node --test wechat/test/*.test.mjs",
     "package:wechat": "npm run build:wechat && node scripts/package-wechat-cloud.mjs",
-    "test:docker": "node scripts/docker-smoke.mjs"
+    "test:docker": "node scripts/docker-smoke.mjs",
+    "test:native": "node scripts/native-smoke.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

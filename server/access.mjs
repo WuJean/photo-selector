@@ -1,17 +1,21 @@
-export function accessPolicy(publicURL = "") {
+export function accessPolicy(publicURL = "", allowedOrigins = "") {
   const configured = new Set();
-  if (publicURL) {
-    const url = new URL(publicURL);
+  for (const address of [publicURL, ...allowedOrigins.split(",")]
+    .map((v) => v.trim())
+    .filter(Boolean)) {
+    const url = new URL(address);
     if (
       !["http:", "https:"].includes(url.protocol) ||
       url.username ||
       url.password ||
       url.pathname !== "/" ||
       url.search ||
-      url.hash
+      url.hash ||
+      url.hostname.includes("*") ||
+      ["0.0.0.0", "[::]"].includes(url.hostname)
     )
       throw new Error(
-        "PHOTO_SELECTOR_PUBLIC_URL 必须是完整访问地址，不含路径或凭据",
+        "访问地址必须是完整 HTTP(S) 地址，不含路径、凭据或通配符",
       );
     configured.add(url.origin);
     if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {

@@ -293,3 +293,20 @@ test("guest saved collage survives share revocation, only writes fixed portfolio
     await f.close();
   }
 });
+
+test("share URLs use configured public origin even when administered on localhost", async () => {
+  const f = await fixture(registerShares);
+  try {
+    f.app.locals.publicURL = "https://photos.example.com";
+    const { c } = await seed(f);
+    const s = await f.json(`/collections/${c.id}/shares`, "POST", {
+      password: "test-only-password",
+    });
+    assert.equal(s.url, `https://photos.example.com/s/${s.token}`);
+    const list = await f.json(`/collections/${c.id}/shares`);
+    assert.equal(list[0].url, s.url);
+    assert.equal(list[0].password, undefined);
+  } finally {
+    await f.close();
+  }
+});

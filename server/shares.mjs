@@ -32,7 +32,13 @@ export function registerShares(app, store, upload) {
   const creationLimits = new Map();
   const admin = (s) => {
     const { password, ...rest } = s;
-    return { ...rest, protected: !!password };
+    return {
+      ...rest,
+      protected: !!password,
+      url: app.locals.publicURL
+        ? new URL("/s/" + s.token, app.locals.publicURL).href
+        : null,
+    };
   };
   const valid = (token) => {
     const s = store.all("share").find((s) => s.token === token);
