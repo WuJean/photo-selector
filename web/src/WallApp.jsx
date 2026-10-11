@@ -1,6 +1,11 @@
 import usePhotoGesture from "./usePhotoGesture";
 import { selectPhoto, nextAfterDecision } from "../../shared/selection.mjs";
-import { pendingAI, cancelPending, resumePending, prepareAutomaticMedia } from "./ai-media";
+import {
+  pendingAI,
+  cancelPending,
+  resumePending,
+  prepareAutomaticMedia,
+} from "./ai-media";
 import { ShareManager, PublicShare } from "./Sharing";
 import { downloadPhotos } from "./downloads";
 import {
@@ -92,13 +97,27 @@ export function Viewer({ photos, index: initial, onClose, onDownload }) {
   const [index, setIndex] = useState(initial),
     [zoom, setZoom] = useState(1),
     [pan, setPan] = useState({ x: 0, y: 0 });
+  useEffect(() => {
+    const old = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = old;
+    };
+  }, []);
   const drag = useRef();
   const move = (n) => {
     setIndex((i) => Math.max(0, Math.min(photos.length - 1, i + n)));
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
-  const gesture = usePhotoGesture({ transform: { zoom, ...pan }, setTransform: t => { setZoom(t.zoom); setPan({x:t.x,y:t.y}); }, onNavigate: move });
+  const gesture = usePhotoGesture({
+    transform: { zoom, ...pan },
+    setTransform: (t) => {
+      setZoom(t.zoom);
+      setPan({ x: t.x, y: t.y });
+    },
+    onNavigate: move,
+  });
   useEffect(() => {
     const key = (e) => {
       if (e.key === "Escape" || e.code === "Space") {
@@ -136,7 +155,12 @@ export function Viewer({ photos, index: initial, onClose, onDownload }) {
         }
       >
         <PhotoImage
-          src={photoURL(p.id, p.originalExtension && p.originalExtension !== "jpg" ? "render" : "original")}
+          src={photoURL(
+            p.id,
+            p.originalExtension && p.originalExtension !== "jpg"
+              ? "render"
+              : "original",
+          )}
           draggable={false}
           style={{
             transform: `translate(${zoom === 1 ? 0 : pan.x}px,${zoom === 1 ? 0 : pan.y}px) scale(${zoom})`,
@@ -220,7 +244,11 @@ export default function WallApp() {
     return <PublicShare token={location.pathname.split("/")[2]} />;
   const [session, setSession] = useState(null);
   const [route, setRoute] = useState(location.hash);
-  useEffect(() => { const changed = () => setRoute(location.hash); window.addEventListener("hashchange", changed); return () => window.removeEventListener("hashchange", changed); }, []);
+  useEffect(() => {
+    const changed = () => setRoute(location.hash);
+    window.addEventListener("hashchange", changed);
+    return () => window.removeEventListener("hashchange", changed);
+  }, []);
   useEffect(() => {
     api("/auth/session")
       .then(setSession)
@@ -230,7 +258,17 @@ export default function WallApp() {
   if (!session.authenticated) return <Login onLogin={setSession} />;
   if (session.mustChangePassword)
     return <FirstPassword onChanged={setSession} />;
-  if (!route || route === "#wall" || route.startsWith("#album/")) return <Browse key={route} albumId={route.startsWith("#album/") ? decodeURIComponent(route.slice(7)) : null} />;
+  if (!route || route === "#wall" || route.startsWith("#album/"))
+    return (
+      <Browse
+        key={route}
+        albumId={
+          route.startsWith("#album/")
+            ? decodeURIComponent(route.slice(7))
+            : null
+        }
+      />
+    );
   return <Workspace onLogout={() => setSession({ authenticated: false })} />;
 }
 function Workspace({ onLogout }) {
@@ -252,7 +290,9 @@ function Workspace({ onLogout }) {
     };
   }, []);
 
-  const [page, updatePage] = useState(location.hash === "#work" ? "work" : "collections"),
+  const [page, updatePage] = useState(
+      location.hash === "#work" ? "work" : "collections",
+    ),
     [photos, setPhotos] = useState([]),
     [collections, setCollections] = useState([]),
     [batches, setBatches] = useState([]),
@@ -278,9 +318,17 @@ function Workspace({ onLogout }) {
     [mode, setMode] = useState("photos"),
     [expanded, setExpanded] = useState(new Set()),
     [fold, setFold] = useState(true);
-  const setPage = (value) => { updatePage(value); if (location.hash !== "#" + value) location.hash = value; };
+  const setPage = (value) => {
+    updatePage(value);
+    if (location.hash !== "#" + value) location.hash = value;
+  };
   const [mobileSelect, setMobileSelect] = useState(false);
-  useEffect(() => { const update = () => updatePage(location.hash === "#work" ? "work" : "collections"); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
+  useEffect(() => {
+    const update = () =>
+      updatePage(location.hash === "#work" ? "work" : "collections");
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
   const [sharing, setSharing] = useState(false);
   const [networkDialog, setNetworkDialog] = useState(false),
     [networkURLs, setNetworkURLs] = useState(""),
@@ -288,7 +336,7 @@ function Workspace({ onLogout }) {
     [cleanupJobs, setCleanupJobs] = useState([]);
   const [importMenu, setImportMenu] = useState(false),
     [direct, setDirect] = useState(false);
-  const [uploadItems,setUploadItems] = useState([]);
+  const [uploadItems, setUploadItems] = useState([]);
   const uploading = useRef(false);
   const input = useRef(),
     guard = useRef(false),
@@ -541,38 +589,90 @@ function Workspace({ onLogout }) {
       },
     });
   const processUploads = async (items, id, isDirect) => {
-    if(uploading.current) return;
-    uploading.current=true;
-    let next=0;
-    const change=(item,patch)=>{Object.assign(item,patch);setUploadItems(items.map(v=>({...v})));};
+    if (uploading.current) return;
+    uploading.current = true;
+    let next = 0;
+    const change = (item, patch) => {
+      Object.assign(item, patch);
+      setUploadItems(items.map((v) => ({ ...v })));
+    };
     try {
-      await Promise.all([0,1].map(async()=>{while(next<items.length){
-        const item=items[next++]; if(item.state==="done")continue;
-        change(item,{state:"uploading",error:null});
-        try {
-          const form=new FormData(); form.append("uploadId",item.id);form.append("lastModified",String(item.file.lastModified));form.append("photos",item.file);
-          const result=await api(`/batches/${id}/import`,{method:"POST",body:form});
-          if(result.results[0]?.error)throw new Error(result.results[0].error);
-          change(item,{state:"done"}); await refresh();setBatchPhotos(await api(`/batches/${id}/photos`));
-        }catch(e){change(item,{state:"error",error:e.message});}
-      }}));
-      if(isDirect && items.every(v=>v.state==="done")) {
-        await api(`/batches/${id}/finish`,json("POST",{round:"initial"}));
-        await api(`/batches/${id}/finish`,json("POST",{round:"final"}));
-        setCollectionId("");setPage("collections");await refresh();
+      await Promise.all(
+        [0, 1].map(async () => {
+          while (next < items.length) {
+            const item = items[next++];
+            if (item.state === "done") continue;
+            change(item, { state: "uploading", error: null });
+            try {
+              const form = new FormData();
+              form.append("uploadId", item.id);
+              form.append("lastModified", String(item.file.lastModified));
+              form.append("photos", item.file);
+              const result = await api(`/batches/${id}/import`, {
+                method: "POST",
+                body: form,
+              });
+              if (result.results[0]?.error)
+                throw new Error(result.results[0].error);
+              change(item, { state: "done" });
+              await refresh();
+              setBatchPhotos(await api(`/batches/${id}/photos`));
+            } catch (e) {
+              change(item, { state: "error", error: e.message });
+            }
+          }
+        }),
+      );
+      if (isDirect && items.every((v) => v.state === "done")) {
+        await api(`/batches/${id}/finish`, json("POST", { round: "initial" }));
+        await api(`/batches/${id}/finish`, json("POST", { round: "final" }));
+        setCollectionId("");
+        setPage("collections");
+        await refresh();
       }
-    }catch(e){notify(e.message);}finally{uploading.current=false;}
+    } catch (e) {
+      notify(e.message);
+    } finally {
+      uploading.current = false;
+    }
   };
-  const uploadFiles = async files => {
-    if(uploading.current || !files.length)return;
+  const uploadFiles = async (files) => {
+    if (uploading.current || !files.length) return;
     try {
-      let id=batchId;
-      if(!batch || batch.state!=="initial" || batch.source!=="upload" || direct) {
-        const b=await api("/batches",json("POST",{name:new Date().toLocaleDateString()+" 导入",source:"upload",direct}));id=b.id;setBatchId(id);
+      let id = batchId;
+      if (
+        !batch ||
+        batch.state !== "initial" ||
+        batch.source !== "upload" ||
+        direct
+      ) {
+        const b = await api(
+          "/batches",
+          json("POST", {
+            name: new Date().toLocaleDateString() + " 导入",
+            source: "upload",
+            direct,
+          }),
+        );
+        id = b.id;
+        setBatchId(id);
       }
-      const items=files.map(file=>({id:Array.from(crypto.getRandomValues(new Uint8Array(16)), n=>n.toString(16).padStart(2,"0")).join(""),file,state:"pending",batchId:id,direct}));
-      setUploadItems(items);setPage("work");setRound("initial");await processUploads(items,id,direct);
-    }catch(e){notify(e.message);}
+      const items = files.map((file) => ({
+        id: Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
+          n.toString(16).padStart(2, "0"),
+        ).join(""),
+        file,
+        state: "pending",
+        batchId: id,
+        direct,
+      }));
+      setUploadItems(items);
+      setPage("work");
+      setRound("initial");
+      await processUploads(items, id, direct);
+    } catch (e) {
+      notify(e.message);
+    }
   };
   const download = async (list) => run(() => downloadPhotos(list, setBusy));
   const classify = () =>
@@ -637,12 +737,47 @@ function Workspace({ onLogout }) {
         </button>
       </header>
       <main className="wall-main">
-        {!!uploadItems.length && <section className="upload-progress" aria-label="上传进度">
-          <span>上传 {uploadItems.filter(v=>v.state==="done").length}/{uploadItems.length}</span>
-          <progress value={uploadItems.filter(v=>v.state==="done").length} max={uploadItems.length}/>
-          {uploadItems.some(v=>v.state==="error") && <><Button disabled={uploadItems.some(v=>v.state==="uploading")} onClick={()=>processUploads(uploadItems,uploadItems[0].batchId,uploadItems[0].direct)}>重试失败照片</Button><details><summary>查看失败照片</summary>{uploadItems.filter(v=>v.state==="error").map(v=><p key={v.id}>{v.file.name} · {v.error}</p>)}</details></>}
-          {uploadItems.every(v=>v.state==="done") && <Button onClick={()=>setUploadItems([])}>关闭</Button>}
-        </section>}
+        {!!uploadItems.length && (
+          <section className="upload-progress" aria-label="上传进度">
+            <span>
+              上传 {uploadItems.filter((v) => v.state === "done").length}/
+              {uploadItems.length}
+            </span>
+            <progress
+              value={uploadItems.filter((v) => v.state === "done").length}
+              max={uploadItems.length}
+            />
+            {uploadItems.some((v) => v.state === "error") && (
+              <>
+                <Button
+                  disabled={uploadItems.some((v) => v.state === "uploading")}
+                  onClick={() =>
+                    processUploads(
+                      uploadItems,
+                      uploadItems[0].batchId,
+                      uploadItems[0].direct,
+                    )
+                  }
+                >
+                  重试失败照片
+                </Button>
+                <details>
+                  <summary>查看失败照片</summary>
+                  {uploadItems
+                    .filter((v) => v.state === "error")
+                    .map((v) => (
+                      <p key={v.id}>
+                        {v.file.name} · {v.error}
+                      </p>
+                    ))}
+                </details>
+              </>
+            )}
+            {uploadItems.every((v) => v.state === "done") && (
+              <Button onClick={() => setUploadItems([])}>关闭</Button>
+            )}
+          </section>
+        )}
         <TaskBar
           jobs={jobs}
           projectId="library"
@@ -703,7 +838,8 @@ function Workspace({ onLogout }) {
         {cleanupJobs.some((j) => j.state === "error") && (
           <div className="task-row">
             <span>
-              清理待重试 {cleanupJobs.filter((j) => j.state === "error").length} 项
+              清理待重试 {cleanupJobs.filter((j) => j.state === "error").length}{" "}
+              项
             </span>
             <button
               onClick={() =>
@@ -730,6 +866,20 @@ function Workspace({ onLogout }) {
             )}
           </div>
           <div className="wall-actions">
+            {page === "work" &&
+              processed &&
+              batchPhotos.some((p) => p.cleaned) && (
+                <details className="cleaned-records">
+                  <summary>
+                    已清理 {batchPhotos.filter((p) => p.cleaned).length} 张
+                  </summary>
+                  {batchPhotos
+                    .filter((p) => p.cleaned)
+                    .map((p) => (
+                      <p key={p.id}>{p.name} · 已清理，无法恢复服务器副本</p>
+                    ))}
+                </details>
+              )}
             {page !== "work" && (
               <Button icon={Plus} onClick={createCollection}>
                 新建作品集
@@ -768,31 +918,34 @@ function Workspace({ onLogout }) {
                   </option>
                 ))}
             </select>
-            <Button
-              onClick={() =>
-                setDialog({
-                  title: "新建导入批次",
-                  submit: async (name) => {
-                    const b = await api(
-                      "/batches",
-                      json("POST", { name, source: "upload" }),
-                    );
-                    setBatchId(b.id);
-                    await refresh();
-                  },
-                })
-              }
-            >
-              新建批次
-            </Button>
-            <label>
-              <input
-                type="checkbox"
-                checked={history}
-                onChange={(e) => setHistory(e.target.checked)}
-              />
-              历史批次
-            </label>
+            <details className="more-menu">
+              <summary>更多</summary>
+              <Button
+                onClick={() =>
+                  setDialog({
+                    title: "新建导入批次",
+                    submit: async (name) => {
+                      const b = await api(
+                        "/batches",
+                        json("POST", { name, source: "upload" }),
+                      );
+                      setBatchId(b.id);
+                      await refresh();
+                    },
+                  })
+                }
+              >
+                新建批次
+              </Button>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={history}
+                  onChange={(e) => setHistory(e.target.checked)}
+                />
+                历史批次
+              </label>
+            </details>
             {batch && (
               <>
                 <div className="tabs">
@@ -840,9 +993,7 @@ function Workspace({ onLogout }) {
                     })
                   }
                 >
-                  {round === "initial"
-                    ? "完成初筛"
-                    : "完成精筛"}
+                  {round === "initial" ? "完成初筛" : "完成精筛"}
                 </Button>
                 {batch.source === "network" &&
                   batchPhotos.some(
@@ -908,6 +1059,9 @@ function Workspace({ onLogout }) {
             projectId="library"
             collections={collections}
             collection={collection}
+            photos={photos}
+            jobs={jobs}
+            onCollage={() => setStudio(true)}
             selected={selected}
             onChoose={setCollectionId}
             refresh={refresh}
@@ -925,28 +1079,38 @@ function Workspace({ onLogout }) {
             onChange={(e) => setFilters({ ...filters, query: e.target.value })}
           />
           <Button onClick={() => setShowFilters((v) => !v)}>筛选</Button>
-          <Button className="mobile-select-toggle" onClick={() => { setMobileSelect(v => !v); setSelected([]); }}> {mobileSelect ? "完成选择" : "选择"} </Button>
+          <Button
+            className="mobile-select-toggle"
+            onClick={() => {
+              setMobileSelect((v) => !v);
+              setSelected([]);
+            }}
+          >
+            {" "}
+            {mobileSelect ? "完成选择" : "选择"}{" "}
+          </Button>
           <span>{filtered.length} 张</span>
-          {window.showDirectoryPicker && photos.some((p) => p.storage === "local") && (
-            <Button
-              onClick={async () => {
-                try {
-                  const directory = await chooseFolder();
-                  await run(async () => {
-                    const result = await importFolder(directory, {
-                      reconnect: true,
-                      onProgress: setBusy,
+          {window.showDirectoryPicker &&
+            photos.some((p) => p.storage === "local") && (
+              <Button
+                onClick={async () => {
+                  try {
+                    const directory = await chooseFolder();
+                    await run(async () => {
+                      const result = await importFolder(directory, {
+                        reconnect: true,
+                        onProgress: setBusy,
+                      });
+                      notify(`已重新连接 ${result.matched} 张`);
                     });
-                    notify(`已重新连接 ${result.matched} 张`);
-                  });
-                } catch (e) {
-                  if (e.name !== "AbortError") notify(e.message);
-                }
-              }}
-            >
-              重新连接文件夹
-            </Button>
-          )}
+                  } catch (e) {
+                    if (e.name !== "AbortError") notify(e.message);
+                  }
+                }}
+              >
+                重新连接文件夹
+              </Button>
+            )}
           {page === "work" && round === "initial" && (
             <Button
               onClick={() => {
@@ -957,13 +1121,18 @@ function Workspace({ onLogout }) {
               {fold ? "全部展开" : "全部叠放"}
             </Button>
           )}
-          {page !== "work" && filtered.length > 0 && (
-            <Button onClick={() => setStudio(true)}>拼图与创作</Button>
+          {page !== "work" && !collection && filtered.length > 0 && (
+            <Button onClick={() => setStudio(true)}>拼图</Button>
           )}
         </div>
         {showFilters && (
           <section className="wall-filter" role="dialog" aria-label="筛选照片">
-            <Button className="filter-close" onClick={() => setShowFilters(false)}>完成筛选</Button>
+            <Button
+              className="filter-close"
+              onClick={() => setShowFilters(false)}
+            >
+              完成筛选
+            </Button>
             <select
               aria-label="焦段筛选"
               value={filters.focal || ""}
@@ -1010,22 +1179,6 @@ function Workspace({ onLogout }) {
         {collection && page !== "work" && (
           <div className="wall-actions">
             <Button onClick={() => setSharing(true)}>分享作品集</Button>
-            <Button
-              onClick={() =>
-                setDialog({
-                  title: "作品集名称",
-                  submit: async (name) => {
-                    await api(
-                      `/collections/${collection.id}`,
-                      json("PUT", { name }),
-                    );
-                    await refresh();
-                  },
-                })
-              }
-            >
-              改名
-            </Button>
             <Button
               onClick={() =>
                 download(
@@ -1205,10 +1358,19 @@ function Workspace({ onLogout }) {
                   onClick={(e) => {
                     if (e.target.closest("button,input,a,details,label"))
                       return;
-                    if (matchMedia("(pointer: coarse)").matches && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                    if (
+                      matchMedia("(pointer: coarse)").matches &&
+                      !e.metaKey &&
+                      !e.ctrlKey &&
+                      !e.shiftKey
+                    ) {
                       if (mobileSelect) choosePhoto(e, p.id, true);
                       else if (page === "work") openScreen(p.id);
-                      else setViewer({ photos: filtered, index: filtered.findIndex(v => v.id === p.id) });
+                      else
+                        setViewer({
+                          photos: filtered,
+                          index: filtered.findIndex((v) => v.id === p.id),
+                        });
                     } else choosePhoto(e, p.id);
                   }}
                   onDoubleClick={(e) => {
@@ -1281,7 +1443,13 @@ function Workspace({ onLogout }) {
                         <p>{p.description}</p>
                       </details>
                     )}
-                    {page === "work" && p.status === "reject" && <small>{p.cleaned ? "已清理" : `自动清理：${p.cleanupAt ? new Date(p.cleanupAt).toLocaleString() : "三小时后"}`}</small>}
+                    {page === "work" && p.status === "reject" && (
+                      <small>
+                        {p.cleaned
+                          ? "已清理"
+                          : `自动清理：${p.cleanupAt ? new Date(p.cleanupAt).toLocaleString() : "三小时后"}`}
+                      </small>
+                    )}
                     {page === "work" && !p.cleaned && (
                       <div className="decision-buttons">
                         {round === "initial" && (
@@ -1406,38 +1574,42 @@ function Workspace({ onLogout }) {
               />
               已经选好，直接进入待归集
             </label>
-            {window.showDirectoryPicker && <Button
-              primary
-              onClick={async () => {
-                try {
-                  const directory = await chooseFolder();
-                  setImportMenu(false);
-                  await run(async () => {
-                    const result = await importFolder(directory, {
-                      direct,
-                      onProgress: setBusy,
+            {window.showDirectoryPicker && (
+              <Button
+                primary
+                onClick={async () => {
+                  try {
+                    const directory = await chooseFolder();
+                    setImportMenu(false);
+                    await run(async () => {
+                      const result = await importFolder(directory, {
+                        direct,
+                        onProgress: setBusy,
+                      });
+                      setBatchId(result.batch.id);
+                      setPage(direct ? "collections" : "work");
+                      setRound("initial");
+                      notify(
+                        `已读取 ${result.done} 张，失败 ${result.failed} 张`,
+                      );
                     });
-                    setBatchId(result.batch.id);
-                    setPage(direct ? "collections" : "work");
-                    setRound("initial");
-                    notify(
-                      `已读取 ${result.done} 张，失败 ${result.failed} 张`,
-                    );
-                  });
-                } catch (e) {
-                  if (e.name !== "AbortError") notify(e.message);
-                }
-              }}
-            >
-              连接电脑文件夹
-            </Button>}
+                  } catch (e) {
+                    if (e.name !== "AbortError") notify(e.message);
+                  }
+                }}
+              >
+                连接电脑文件夹
+              </Button>
+            )}
             <Button
               onClick={() => {
                 setImportMenu(false);
                 input.current.click();
               }}
             >
-              {matchMedia("(pointer: coarse)").matches ? "从相册选择" : "普通上传到服务器"}
+              {matchMedia("(pointer: coarse)").matches
+                ? "从相册选择"
+                : "普通上传到服务器"}
             </Button>
             <Button
               onClick={() => {
@@ -1492,18 +1664,20 @@ function Workspace({ onLogout }) {
         />
       )}{" "}
       {studio && (
-        <Studio
-          projectId="library"
-          photos={photos}
-          selected={selected}
-          collection={collection}
-          onClose={() => {
-            setStudio(false);
-            void refresh();
-          }}
-          notify={notify}
-          onSettings={() => setSettings(true)}
-        />
+        <div className="studio-shade">
+          <Studio
+            projectId="library"
+            photos={photos}
+            selected={selected}
+            collection={collection}
+            onClose={() => {
+              setStudio(false);
+              void refresh();
+            }}
+            notify={notify}
+            onSettings={() => setSettings(true)}
+          />
+        </div>
       )}
     </div>
   );

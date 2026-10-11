@@ -2,14 +2,22 @@ import React, { useEffect, useRef, useState } from "react";
 import PhotoImage from "./PhotoImage";
 import { photoURL } from "./api";
 import { collectionTimeline } from "../../shared/collections.mjs";
-export default function Gallery({ photos = [], collections = [], entries: summaries, navigate, onOpen }) {
+let rememberedLimit = 20;
+export default function Gallery({
+  photos = [],
+  collections = [],
+  entries: summaries,
+  navigate,
+  onOpen,
+}) {
   const entries = summaries || collectionTimeline(collections, photos);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(rememberedLimit);
   const more = useRef();
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) setLimit((n) => n + 20);
+        if (entries.some((e) => e.isIntersecting))
+          setLimit((n) => (rememberedLimit = n + 20));
       },
       { rootMargin: "600px" },
     );

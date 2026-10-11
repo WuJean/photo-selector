@@ -5,8 +5,8 @@ import { randomUUID } from "node:crypto";
 import { entries, requireItem, reconcileMany, timestamp } from "./library.mjs";
 import { inInitial } from "../shared/domain.mjs";
 export function activeReference(store, id) {
-  const automatic=store.get("analysisTask",id);
-  if(automatic?.state === "running")return true;
+  const automatic = store.get("analysisTask", id);
+  if (automatic?.state === "running") return true;
   const ai = store.get("job", "ai");
   if (ai && [...(ai.photoIds || []), ...(ai.runningIds || [])].includes(id))
     return true;
@@ -53,12 +53,18 @@ export class CleanupQueue {
     this.running = true;
     try {
       for (const task of this.store.all("cleanup")) {
-        if (["done","cancelled"].includes(task.state)) continue;
-        if (task.dueAt && Date.parse(task.dueAt)>this.now()) continue;
-        if(task.entryId) {
-          const entry=this.store.get("entry",task.entryId);
-          if(!entry || entry.status!=="reject" || entry.cleaned || entry.cleanupAt!==task.dueAt) {
-            this.store.put("cleanup",{...task,state:"cancelled"});continue;
+        if (["done", "cancelled"].includes(task.state)) continue;
+        if (task.dueAt && Date.parse(task.dueAt) > this.now()) continue;
+        if (task.entryId) {
+          const entry = this.store.get("entry", task.entryId);
+          if (
+            !entry ||
+            entry.status !== "reject" ||
+            entry.cleaned ||
+            entry.cleanupAt !== task.dueAt
+          ) {
+            this.store.put("cleanup", { ...task, state: "cancelled" });
+            continue;
           }
         }
         const p = this.store.get("photo", task.assetId);
@@ -93,8 +99,20 @@ export class CleanupQueue {
         this.store.put("photo", { ...p, deleting: true });
         try {
           let bytes = task.bytes || 0;
-          const files = ["originals","previews","thumbs","analysis-previews"].map(folder=>path.join(this.store.root,folder,p.id+".jpg"));
-          if(p.originalExtension && p.originalExtension!=="jpg") files.push(path.join(this.store.root,"source-files",p.id+"."+p.originalExtension));
+          const files = [
+            "originals",
+            "previews",
+            "thumbs",
+            "analysis-previews",
+          ].map((folder) => path.join(this.store.root, folder, p.id + ".jpg"));
+          if (p.originalExtension && p.originalExtension !== "jpg")
+            files.push(
+              path.join(
+                this.store.root,
+                "source-files",
+                p.id + "." + p.originalExtension,
+              ),
+            );
           for (const file of files) {
             try {
               const info = await stat(file);
@@ -106,9 +124,14 @@ export class CleanupQueue {
             }
           }
           this.store.transaction(() => {
-            if(task.kind === "discard") {
-              for(const e of this.store.all("entry").filter(e=>e.assetId===p.id && e.status==="reject")) this.store.put("entry",{...e,cleaned:true});
-              for(const h of this.store.all("batchUndo")) if(h.entries.some(e=>e.assetId===p.id)) this.store.remove("batchUndo",h.id);
+            if (task.kind === "discard") {
+              for (const e of this.store
+                .all("entry")
+                .filter((e) => e.assetId === p.id && e.status === "reject"))
+                this.store.put("entry", { ...e, cleaned: true });
+              for (const h of this.store.all("batchUndo"))
+                if (h.entries.some((e) => e.assetId === p.id))
+                  this.store.remove("batchUndo", h.id);
             }
             this.store.put("cleanup", {
               ...task,
@@ -136,15 +159,25 @@ export class CleanupQueue {
   }
 }
 export function registerCleanup(app, store) {
-  if(!store.get("migration","three-hour-retention")) {
-    if(store.all("entry").length) store.db.prepare("VACUUM INTO ?").run(path.join(store.root,`before-retention-${Date.now()}.sqlite`));
-    store.transaction(()=>{
-      for(const task of store.all("cleanup")) if(task.kind==="discard" && task.state!=="done") store.put("cleanup",{...task,state:"cancelled"});
-      for(const e of store.all("entry")) {
-        const p=store.get("photo",e.assetId);
-        if(e.status==="reject" && p && !p.deleted && !p.deleting) syncRetention(store,{...e,cleaned:false},null);
+  if (!store.get("migration", "three-hour-retention")) {
+    if (store.all("entry").length)
+      store.db
+        .prepare("VACUUM INTO ?")
+        .run(path.join(store.root, `before-retention-${Date.now()}.sqlite`));
+    store.transaction(() => {
+      for (const task of store.all("cleanup"))
+        if (
+          task.kind === "discard" &&
+          task.state !== "done" &&
+          !store.get("photo", task.assetId)?.deleting
+        )
+          store.put("cleanup", { ...task, state: "cancelled" });
+      for (const e of store.all("entry")) {
+        const p = store.get("photo", e.assetId);
+        if (e.status === "reject" && p && !p.deleted && !p.deleting)
+          syncRetention(store, { ...e, cleaned: false }, null);
       }
-      store.put("migration",{id:"three-hour-retention",at:timestamp()});
+      store.put("migration", { id: "three-hour-retention", at: timestamp() });
     });
   }
   const queue = new CleanupQueue(store);

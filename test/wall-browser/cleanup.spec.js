@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { login, jpeg } from "./helpers";
-test("failed save stays put, completing the whole initial batch cleans rejected bytes and clears undo", async ({
+test("failed save stays put and finishing initial selection preserves rejected photos and undo during retention", async ({
   page,
 }) => {
   await login(page);
@@ -35,9 +35,7 @@ test("failed save stays put, completing the whole initial batch cleans rejected 
   await page.unroute("**/api/batches/*/decisions");
   await card.getByRole("button", { name: "不要 C", exact: true }).click();
   await expect(card).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "完成初筛", exact: true })
-    .click();
+  await page.getByRole("button", { name: "完成初筛", exact: true }).click();
   await expect
     .poll(
       async () =>

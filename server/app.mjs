@@ -86,10 +86,13 @@ export function createApp({
     },
   );
   app.get("/api/photos/:id/:variant", async (req, res, next) => {
-    if (!["thumb", "preview", "original", "render"].includes(req.params.variant))
+    if (
+      !["thumb", "preview", "original", "render"].includes(req.params.variant)
+    )
       return next();
     const photo = store.get("photo", req.params.id);
-    if (!photo) return res.status(404).json({ error: "照片不存在" });
+    if (!photo || photo.deleted || photo.deleting)
+      return res.status(404).json({ error: "照片不存在" });
     if (req.params.variant === "original" && req.query.download === "1")
       res.attachment(photo.name);
     res.set("Cache-Control", "private, no-store");

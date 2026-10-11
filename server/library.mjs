@@ -1,10 +1,14 @@
+import archiver from "archiver";
 import { syncRetention } from "./retention.mjs";
-import { collectionTimeline, collectionDetails } from "../shared/collections.mjs";
+import {
+  collectionTimeline,
+  collectionDetails,
+} from "../shared/collections.mjs";
 import { hamming } from "./analysis.mjs";
-import { focalCategory } from "../shared/domain.mjs";
+import { focalCategory, uniqueName } from "../shared/domain.mjs";
 import { randomUUID } from "node:crypto";
-import { unlink } from "node:fs/promises";
-import { importPhoto, digest } from "./images.mjs";
+import { unlink, access } from "node:fs/promises";
+import { importPhoto, digest, originalPath } from "./images.mjs";
 import { inInitial, inFinal } from "../shared/domain.mjs";
 export const LIBRARY = "library";
 export const timestamp = () => new Date().toISOString();
@@ -75,21 +79,81 @@ export function registerLibrary(
       createdAt: timestamp(),
     });
   app.get("/api/timeline", (req, res) => {
-    const items = collectionTimeline(store.all("collection").filter(c => c.projectId === LIBRARY), store.photos(LIBRARY));
-    res.json(items.map(({ collection, cover, date }) => ({
-      collection: { id: collection.id, name: collection.name, location: collection.location, poem: collection.poem, description: collection.description, date: collection.date },
-      cover: cover ? publicAsset(store, cover) : null, date,
-    })));
+    const items = collectionTimeline(
+      store.all("collection").filter((c) => c.projectId === LIBRARY),
+      store.photos(LIBRARY),
+    );
+    res.json(
+      items.map(({ collection, cover, date }) => ({
+        collection: {
+          id: collection.id,
+          name: collection.name,
+          location: collection.location,
+          poem: collection.poem,
+          description: collection.description,
+          date: collection.date,
+        },
+        cover: cover ? publicAsset(store, cover) : null,
+        date,
+      })),
+    );
+  });
+  app.get("/api/collections/:id/download", async (req, res, next) => {
+    const c = requireItem(store, "collection", req.params.id);
+    const photos = c.photoIds
+      .map((id) => store.get("photo", id))
+      .filter((p) => p && !p.deleted && !p.deleting);
+    if (!photos.length) throw new Error("作品集没有照片");
+    if (photos.some((p) => p.storage === "local"))
+      throw new Error("作品集含电脑本地照片，请在原电脑下载");
+    for (const p of photos) {
+      try {
+        await access(originalPath(store, p.id));
+      } catch {
+        throw new Error("部分原片不可访问，请检查文件");
+      }
+    }
+    const archive = archiver("zip", { zlib: { level: 0 } });
+    const names = new Set();
+    res.attachment(c.name + ".zip");
+    archive.on("error", (e) => {
+      if (!res.headersSent) next(e);
+      else res.destroy(e);
+    });
+    res.on("close", () => archive.abort());
+    archive.pipe(res);
+    for (const p of photos)
+      archive.file(originalPath(store, p.id), {
+        name: uniqueName(p.name, names),
+      });
+    await archive.finalize();
   });
   app.get("/api/collections/:id/photos", (req, res) => {
     const c = requireItem(store, "collection", req.params.id);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40));
-    const ids = c.photoIds.filter(id => { const p = store.get("photo", id); return p && !p.deleted && !p.deleting; });
+    const ids = c.photoIds.filter((id) => {
+      const p = store.get("photo", id);
+      return p && !p.deleted && !p.deleting;
+    });
     const after = String(req.query.cursor || "");
-    if (after && !ids.includes(after)) return res.status(409).json({ error: "作品集已更新，请重新打开" });
+    if (after && !ids.includes(after))
+      return res.status(409).json({ error: "作品集已更新，请重新打开" });
     const start = after ? ids.indexOf(after) + 1 : 0;
     const slice = ids.slice(start, start + limit);
-    res.json({ collection: { id: c.id, name: c.name, location: c.location, date: c.date, poem: c.poem, description: c.description }, items: slice.map(id => publicAsset(store, store.get("photo", id))), total: ids.length, nextCursor: start + slice.length < ids.length ? slice.at(-1) : null });
+    res.json({
+      collection: {
+        id: c.id,
+        name: c.name,
+        location: c.location,
+        date: c.date,
+        poem: c.poem,
+        description: c.description,
+        hasLocal: ids.some((id) => store.get("photo", id).storage === "local"),
+      },
+      items: slice.map((id) => publicAsset(store, store.get("photo", id))),
+      total: ids.length,
+      nextCursor: start + slice.length < ids.length ? slice.at(-1) : null,
+    });
   });
   app.get("/api/assets", (req, res) =>
     res.json(
@@ -240,30 +304,57 @@ export function registerLibrary(
         for (const f of req.files || []) {
           try {
             const uploadId = String(req.body.uploadId || "");
-            if (uploadId && (!/^[a-zA-Z0-9-]{8,100}$/.test(uploadId) || req.files.length !== 1)) throw new Error("上传标识无效");
-            const key = uploadId ? batch.id+":"+uploadId : "";
+            if (
+              uploadId &&
+              (!/^[a-zA-Z0-9-]{8,100}$/.test(uploadId) ||
+                req.files.length !== 1)
+            )
+              throw new Error("上传标识无效");
+            const key = uploadId ? batch.id + ":" + uploadId : "";
             const hash = uploadId ? await digest(f.path) : null;
             const perform = async () => {
-              const old = key && store.get("uploadReceipt",key);
+              const old = key && store.get("uploadReceipt", key);
               if (old) {
-                if (old.hash !== hash) throw new Error("同一上传标识不能用于不同文件");
-                const p = requireItem(store,"photo",old.assetId);
-                if (p.deleted || p.deleting) throw new Error("照片已清理，请重新导入");
-                return {photo:publicAsset(store,p)};
+                if (old.hash !== hash)
+                  throw new Error("同一上传标识不能用于不同文件");
+                const p = requireItem(store, "photo", old.assetId);
+                if (p.deleted || p.deleting)
+                  throw new Error("照片已清理，请重新导入");
+                return { photo: publicAsset(store, p) };
               }
-              const p = await importPhoto(store, LIBRARY, f.path, Buffer.from(f.originalname, "latin1").toString("utf8"),req.body.lastModified);
-              store.transaction(()=>{
-                store.put("photo", { ...p, storage: "server", direct: batch.direct });
+              const p = await importPhoto(
+                store,
+                LIBRARY,
+                f.path,
+                Buffer.from(f.originalname, "latin1").toString("utf8"),
+                req.body.lastModified,
+              );
+              store.transaction(() => {
+                store.put("photo", {
+                  ...p,
+                  storage: "server",
+                  direct: batch.direct,
+                });
                 addEntry(store, batch.id, p.id, batch.direct);
-                if(key) store.put("uploadReceipt",{id:key,assetId:p.id,hash,createdAt:timestamp()});
+                if (key)
+                  store.put("uploadReceipt", {
+                    id: key,
+                    assetId: p.id,
+                    hash,
+                    createdAt: timestamp(),
+                  });
               });
               onImport(p);
               return { photo: publicAsset(store, store.get("photo", p.id)) };
             };
             if (key && uploads.has(key)) await uploads.get(key);
-            const task=perform(); if(key) uploads.set(key,task);
-            try { results.push(await task); } finally { if(key) uploads.delete(key); }
-
+            const task = perform();
+            if (key) uploads.set(key, task);
+            try {
+              results.push(await task);
+            } finally {
+              if (key) uploads.delete(key);
+            }
           } catch (error) {
             results.push({ error: error.message });
           }
@@ -288,7 +379,12 @@ export function registerLibrary(
     const selected = [...new Set(ids)].map((id) => own.get(id));
     if (
       selected.some(
-        (e) => !e || e.cleaned || store.get("photo",e.assetId)?.deleting || store.get("photo",e.assetId)?.deleted || (round === "final" && !inInitial(e)),
+        (e) =>
+          !e ||
+          e.cleaned ||
+          store.get("photo", e.assetId)?.deleting ||
+          store.get("photo", e.assetId)?.deleted ||
+          (round === "final" && !inInitial(e)),
       )
     )
       throw new Error("照片不在当前筛选范围");
@@ -300,12 +396,27 @@ export function registerLibrary(
         createdAt: timestamp(),
       });
       for (const e of selected) {
-        const updated = store.put("entry", { ...e, [round === "final" ? "finalStatus" : "status"]: status });
-        if(round === "initial") syncRetention(store,updated,e);
+        const updated = store.put("entry", {
+          ...e,
+          [round === "final" ? "finalStatus" : "status"]: status,
+        });
+        if (round === "initial") syncRetention(store, updated, e);
       }
-      if(batch.state==="completed" && round==="initial" && status!=="reject") store.put("batch",{...batch,state:status==="unseen"?"initial":"refining"});
-      if(round==="initial" && status==="unseen") store.put("batch",{...batch,state:"initial"});
-      reconcileMany(store, selected.map((e) => e.assetId));
+      if (
+        batch.state === "completed" &&
+        round === "initial" &&
+        status !== "reject"
+      )
+        store.put("batch", {
+          ...batch,
+          state: status === "unseen" ? "initial" : "refining",
+        });
+      if (round === "initial" && status === "unseen")
+        store.put("batch", { ...batch, state: "initial" });
+      reconcileMany(
+        store,
+        selected.map((e) => e.assetId),
+      );
     });
     res.json({ ok: true });
   });
@@ -315,20 +426,33 @@ export function registerLibrary(
       .all("batchUndo")
       .filter((h) => h.batchId === b.id)
       .at(-1);
-    if (!last || last.entries.some((e) => store.get("entry", e.id)?.cleaned || store.get("photo",e.assetId)?.deleting || store.get("photo",e.assetId)?.deleted))
+    if (
+      !last ||
+      last.entries.some(
+        (e) =>
+          store.get("entry", e.id)?.cleaned ||
+          store.get("photo", e.assetId)?.deleting ||
+          store.get("photo", e.assetId)?.deleted,
+      )
+    )
       return res.json({ ok: false });
     store.transaction(() => {
       for (const e of last.entries) {
-        const current=store.get("entry",e.id);
+        const current = store.get("entry", e.id);
         store.put("entry", e);
-        syncRetention(store,e,current);
+        syncRetention(store, e, current);
       }
       reconcileMany(
         store,
         last.entries.map((e) => e.assetId),
       );
       store.remove("batchUndo", last.id);
-      store.put("batch",{...b,state:last.entries.some(e=>e.status==="unseen")?"initial":"refining"});
+      store.put("batch", {
+        ...b,
+        state: last.entries.some((e) => e.status === "unseen")
+          ? "initial"
+          : "refining",
+      });
     });
     res.json({ ok: true, ids: last.entries.map((e) => e.assetId) });
   });

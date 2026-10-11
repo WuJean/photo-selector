@@ -215,8 +215,22 @@ export default function Studio({
           : photos.filter(inFinal),
     [],
   );
+  useEffect(() => {
+    const old = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = old;
+    };
+  }, []);
+  const [mobilePanel, setMobilePanel] = useState("canvas");
   const [scopeId] = useState(
-    () => collection?.id || (selected.length ? crypto.randomUUID() : ""),
+    () =>
+      collection?.id ||
+      (selected.length
+        ? Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
+            n.toString(16).padStart(2, "0"),
+          ).join("")
+        : ""),
   );
   const scope = {
     scopeId,
@@ -535,6 +549,7 @@ export default function Studio({
   return (
     <section
       className="studio"
+      data-panel={mobilePanel}
       role="dialog"
       aria-modal="true"
       aria-label="拼图工作室"
@@ -589,6 +604,21 @@ export default function Studio({
           </button>
         </div>
       </header>
+      <nav className="studio-mobile-tabs" aria-label="拼图面板">
+        {[
+          ["canvas", "画布"],
+          ["photos", "选照片"],
+          ["style", "样式"],
+        ].map(([v, title]) => (
+          <button
+            className={mobilePanel === v ? "active" : ""}
+            key={v}
+            onClick={() => setMobilePanel(v)}
+          >
+            {title}
+          </button>
+        ))}
+      </nav>
       <div className="studio-body">
         <aside className="studio-source">
           <div className="section-heading">
@@ -611,7 +641,10 @@ export default function Studio({
                 className={
                   draft.slots.some((s) => s.photoId === p.id) ? "used" : ""
                 }
-                onClick={() => fillSlot(p)}
+                onClick={() => {
+                  fillSlot(p);
+                  setMobilePanel("canvas");
+                }}
                 title={`放入 ${p.name}`}
               >
                 <PhotoImage loading="lazy" src={photoURL(p.id)} alt={p.name} />

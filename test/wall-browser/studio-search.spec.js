@@ -49,10 +49,10 @@ test("collage keyword and domain filters preserve canvas and scoped draft; rando
       ),
     });
   });
-  await page.reload();
+  await page.goto("/#wall");
   await page.getByRole("link", { name: "作品集", exact: true }).click();
   await page.getByRole("button", { name: "检索验收 4", exact: true }).click();
-  await page.getByRole("button", { name: "拼图与创作", exact: true }).click();
+  await page.getByRole("button", { name: "拼图", exact: true }).click();
   await page.getByLabel("搜索拼图候选").fill("雪山 冷色");
   await expect(page.locator(".source-grid button")).toHaveCount(3);
   await page

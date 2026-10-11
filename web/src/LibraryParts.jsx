@@ -22,6 +22,52 @@ export function Button({
   );
 }
 export function Modal({ title, children, onClose, wide = false }) {
+  const ref = useRef(),
+    closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const previous = document.activeElement,
+      overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    ref.current?.focus();
+    const key = (e) => {
+      if (
+        document.querySelectorAll(".modal-shade").length > 1 &&
+        !ref.current?.contains(document.activeElement)
+      )
+        return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeRef.current();
+      }
+      if (e.key === "Tab") {
+        const nodes = [
+          ...ref.current.querySelectorAll(
+            "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]",
+          ),
+        ].filter((n) => n.getClientRects().length);
+        const first = nodes[0],
+          last = nodes.at(-1);
+        if (
+          e.shiftKey &&
+          (document.activeElement === first ||
+            document.activeElement === ref.current)
+        ) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => {
+      document.body.style.overflow = overflow;
+      document.removeEventListener("keydown", key);
+      previous?.focus?.({ preventScroll: true });
+    };
+  }, []);
   return (
     <div
       className="modal-shade"
@@ -30,6 +76,8 @@ export function Modal({ title, children, onClose, wide = false }) {
       }}
     >
       <section
+        ref={ref}
+        tabIndex={-1}
         className={`modal ${wide ? "wide" : ""}`}
         role="dialog"
         aria-modal="true"

@@ -4,7 +4,7 @@ test("folder files are read in a worker, registered without original upload, and
   page,
 }) => {
   await login(page);
-  const image = await jpeg();
+  const image = await jpeg("#bc88ad");
   await folderFixture(page, [{ name: "local.jpg", bytes: [...image] }]);
   const uploads = [];
   page.on("request", (r) => {
@@ -40,7 +40,7 @@ test("folder files are read in a worker, registered without original upload, and
   await expect(
     page.locator(".wall-card").filter({ hasText: "local.jpg" }),
   ).toHaveCount(1);
-  await page.reload();
+  await page.goto("/#wall");
   await page.getByRole("link", { name: "作品集", exact: true }).click();
   await page.getByRole("button", { name: "作品集", exact: true }).click();
   await expect

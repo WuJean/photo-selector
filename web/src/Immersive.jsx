@@ -42,7 +42,13 @@ export function Frame({
 }) {
   const [transform, setTransform] = useState({ zoom: 1, x: 0, y: 0 }),
     [natural, setNatural] = useState(false);
-  const gesture = usePhotoGesture({ transform, setTransform, onNavigate, onActivate, natural });
+  const gesture = usePhotoGesture({
+    transform,
+    setTransform,
+    onNavigate,
+    onActivate,
+    natural,
+  });
   const ref = useRef(),
     drag = useRef();
   useEffect(() => {
@@ -108,7 +114,14 @@ export function Frame({
       {...gesture}
     >
       <PhotoImage
-        src={photoURL(photo.id, natural ? (photo.originalExtension && photo.originalExtension !== "jpg" ? "render" : "original") : "preview")}
+        src={photoURL(
+          photo.id,
+          natural
+            ? photo.originalExtension && photo.originalExtension !== "jpg"
+              ? "render"
+              : "original"
+            : "preview",
+        )}
         draggable="false"
         alt={photo.name}
         style={{
@@ -203,6 +216,13 @@ export default function Immersive({
   onUndo,
   onComplete,
 }) {
+  useEffect(() => {
+    const old = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = old;
+    };
+  }, []);
   const sequence = useRef(
     immersiveGroups(
       scopeIds.map((id) => photos.find((p) => p.id === id)).filter(Boolean),
@@ -324,7 +344,7 @@ export default function Immersive({
           返回
         </button>
         <span>
-          {round === "final" ? "精筛" : "粗筛"}
+          {round === "final" ? "精筛" : "初筛"}
           {similar ? ` · 相似照片 ${groupIndex + 1}/${group.length}` : ""}
         </span>
         <div className="immersive-header-actions">

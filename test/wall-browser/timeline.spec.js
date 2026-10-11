@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { login, jpeg } from "./helpers";
-test("timeline shows one cover per collection in ascending order and edits location date poem and description", async ({
+test("timeline shows one cover per collection in ascending order and opens independent album browsing", async ({
   page,
 }) => {
   await login(page);
@@ -52,7 +52,9 @@ test("timeline shows one cover per collection in ascending order and edits locat
   );
   await late.click();
   await expect(page.locator(".album-photo")).toHaveCount(1);
-  await expect(page.getByText("编辑作品集信息", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("编辑作品集信息", { exact: true })).toHaveCount(
+    0,
+  );
   await page.reload();
   await expect(page.locator(".album-photo")).toHaveCount(1);
   await page.getByRole("link", { name: "← 时间线" }).click();

@@ -173,7 +173,12 @@ export function registerShares(app, store, upload) {
     } catch {
       return res.status(409).json({ error: "需要从电脑上传此照片" });
     }
-    await write(s, req.params.assetId, renderPath(store, req.params.assetId), "display");
+    await write(
+      s,
+      req.params.assetId,
+      renderPath(store, req.params.assetId),
+      "display",
+    );
     if (s.download === "original")
       await write(s, req.params.assetId, source, "original");
     res.json({ ok: true });
@@ -294,9 +299,18 @@ export function registerShares(app, store, upload) {
     if (req.query.download && s.download === "none")
       return res.status(403).json({ error: "此作品集不开放下载" });
     res.set("Cache-Control", "private, no-store");
-    if (req.query.download) res.attachment(p?.name || creation.title + ".jpg");
+    if (req.query.download)
+      res.attachment(
+        p
+          ? variant === "original"
+            ? p.name
+            : p.name.replace(/\.[^.]+$/, "") + ".jpg"
+          : creation.title + ".jpg",
+      );
     res
-      .type(variant === "original" ? p.originalMime || "image/jpeg" : "image/jpeg")
+      .type(
+        variant === "original" ? p.originalMime || "image/jpeg" : "image/jpeg",
+      )
       .sendFile(filename(store, s, id, variant), { dotfiles: "allow" });
   });
   app.post("/api/public/shares/:token/collages/:action", async (req, res) => {
@@ -431,7 +445,14 @@ export function registerShares(app, store, upload) {
           p.id,
           s.download === "original" ? "original" : "display",
         ),
-        { name: uniqueName(p.name, names) },
+        {
+          name: uniqueName(
+            s.download === "original"
+              ? p.name
+              : p.name.replace(/\.[^.]+$/, "") + ".jpg",
+            names,
+          ),
+        },
       );
     for (const c of s.creations.filter((c) => c.file))
       zip.file(filename(store, s, c.id, "display"), {

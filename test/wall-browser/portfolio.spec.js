@@ -41,7 +41,7 @@ test("independent portfolio cover, rename, drag order and reuse remain after ref
   await page.request.put(`/api/collections/${second.id}`, {
     data: { photoIds: [ids[0]] },
   });
-  await page.reload();
+  await page.goto("/#wall");
   await page.getByRole("link", { name: "作品集", exact: true }).click();
   await page.getByRole("button", { name: "排序验收 3", exact: true }).click();
   const card = (name) => page.locator(".wall-card").filter({ hasText: name });
@@ -57,10 +57,12 @@ test("independent portfolio cover, rename, drag order and reuse remain after ref
   await expect(page.locator(".selection-toolbar")).toHaveCount(0);
   await page.getByLabel("选择 order-2.jpg").check();
   await page.getByRole("button", { name: "设为封面", exact: true }).click();
-  await page.getByRole("button", { name: "改名", exact: true }).click();
-  await page.getByRole("dialog").getByRole("textbox").fill("新的旅行");
-  await page.getByRole("button", { name: "确定", exact: true }).click();
-  await page.reload();
+  await page.getByRole("button", { name: "编辑作品集", exact: true }).click();
+  await page.getByLabel("作品集名称", { exact: true }).fill("新的旅行");
+  await page
+    .getByRole("button", { name: "保存作品集信息", exact: true })
+    .click();
+  await page.goto("/#wall");
   await page.getByRole("link", { name: "作品集", exact: true }).click();
   await page.getByRole("button", { name: "新的旅行 3", exact: true }).click();
   await expect(page.locator(".wall-card").first()).toContainText("order-2.jpg");

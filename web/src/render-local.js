@@ -56,7 +56,14 @@ export async function renderLocal(
     draft.frame,
   );
   for (const [i, slot] of draft.slots.entries()) {
-    const bitmap = await createImageBitmap(await photoBlob(slot.photoId));
+    const bitmap = await createImageBitmap(
+      await photoBlob(
+        slot.photoId,
+        photos.find((p) => p.id === slot.photoId)?.originalExtension === "heic"
+          ? "render"
+          : "original",
+      ),
+    );
     try {
       const rect = rects[i],
         p = imagePlacement(bitmap, rect, slot);

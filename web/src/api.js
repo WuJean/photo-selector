@@ -17,6 +17,8 @@ export async function api(url, options = {}) {
     throw new Error(message);
   }
   completePending(url, options);
+  if (options.method && options.method !== "GET" && /collections/.test(url))
+    window.dispatchEvent(new Event("photo-collections-changed"));
   return response.json();
 }
 export const json = (method, body) => ({
