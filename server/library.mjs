@@ -1,3 +1,4 @@
+import { syncRetention } from "./retention.mjs";
 import { collectionTimeline, collectionDetails } from "../shared/collections.mjs";
 import { hamming } from "./analysis.mjs";
 import { focalCategory } from "../shared/domain.mjs";
@@ -221,6 +222,7 @@ export function registerLibrary(
         finalStatus: e.finalStatus,
         entryId: e.id,
         cleaned: e.cleaned,
+        cleanupAt: e.cleanupAt,
       })),
     );
   });
@@ -280,16 +282,11 @@ export function registerLibrary(
     )
       throw new Error("筛选决定无效");
     if (!Array.isArray(ids) || !ids.length) throw new Error("请选择照片");
-    if (
-      (round === "initial" && batch.state !== "initial") ||
-      batch.state === "completed"
-    )
-      throw new Error("该阶段已完成，不能撤销已清理的照片");
     const own = new Map(entries(store, batch.id).map((e) => [e.assetId, e]));
     const selected = [...new Set(ids)].map((id) => own.get(id));
     if (
       selected.some(
-        (e) => !e || e.cleaned || (round === "final" && !inInitial(e)),
+        (e) => !e || e.cleaned || store.get("photo",e.assetId)?.deleting || store.get("photo",e.assetId)?.deleted || (round === "final" && !inInitial(e)),
       )
     )
       throw new Error("照片不在当前筛选范围");
@@ -301,15 +298,12 @@ export function registerLibrary(
         createdAt: timestamp(),
       });
       for (const e of selected) {
-        store.put("entry", {
-          ...e,
-          [round === "final" ? "finalStatus" : "status"]: status,
-        });
+        const updated = store.put("entry", { ...e, [round === "final" ? "finalStatus" : "status"]: status });
+        if(round === "initial") syncRetention(store,updated,e);
       }
-      reconcileMany(
-        store,
-        selected.map((e) => e.assetId),
-      );
+      if(batch.state==="completed" && round==="initial" && status!=="reject") store.put("batch",{...batch,state:status==="unseen"?"initial":"refining"});
+      if(round==="initial" && status==="unseen") store.put("batch",{...batch,state:"initial"});
+      reconcileMany(store, selected.map((e) => e.assetId));
     });
     res.json({ ok: true });
   });
@@ -319,17 +313,20 @@ export function registerLibrary(
       .all("batchUndo")
       .filter((h) => h.batchId === b.id)
       .at(-1);
-    if (!last || last.entries.some((e) => store.get("entry", e.id)?.cleaned))
+    if (!last || last.entries.some((e) => store.get("entry", e.id)?.cleaned || store.get("photo",e.assetId)?.deleting || store.get("photo",e.assetId)?.deleted))
       return res.json({ ok: false });
     store.transaction(() => {
       for (const e of last.entries) {
+        const current=store.get("entry",e.id);
         store.put("entry", e);
+        syncRetention(store,e,current);
       }
       reconcileMany(
         store,
         last.entries.map((e) => e.assetId),
       );
       store.remove("batchUndo", last.id);
+      store.put("batch",{...b,state:last.entries.some(e=>e.status==="unseen")?"initial":"refining"});
     });
     res.json({ ok: true, ids: last.entries.map((e) => e.assetId) });
   });

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { syncRetention } from "./retention.mjs";
 import { unlink, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { entries, requireItem, reconcileMany, timestamp } from "./library.mjs";
@@ -40,8 +41,9 @@ export function keptReference(store, id, exceptBatch) {
   );
 }
 export class CleanupQueue {
-  constructor(store) {
+  constructor(store, now = () => Date.now()) {
     this.store = store;
+    this.now = now;
     this.running = false;
   }
   async drain() {
@@ -49,7 +51,14 @@ export class CleanupQueue {
     this.running = true;
     try {
       for (const task of this.store.all("cleanup")) {
-        if (task.state === "done") continue;
+        if (["done","cancelled"].includes(task.state)) continue;
+        if (task.dueAt && Date.parse(task.dueAt)>this.now()) continue;
+        if(task.entryId) {
+          const entry=this.store.get("entry",task.entryId);
+          if(!entry || entry.status!=="reject" || entry.cleaned || entry.cleanupAt!==task.dueAt) {
+            this.store.put("cleanup",{...task,state:"cancelled"});continue;
+          }
+        }
         const p = this.store.get("photo", task.assetId);
         if (!p) {
           this.store.put("cleanup", { ...task, state: "done" });
@@ -73,21 +82,18 @@ export class CleanupQueue {
         ) {
           this.store.put("cleanup", {
             ...task,
-            state: "done",
+            state: "waiting",
             protected: true,
+            error: "照片仍被其他内容使用",
           });
           continue;
         }
         this.store.put("photo", { ...p, deleting: true });
         try {
           let bytes = task.bytes || 0;
-          for (const folder of [
-            "originals",
-            "previews",
-            "thumbs",
-            "analysis-previews",
-          ]) {
-            const file = path.join(this.store.root, folder, p.id + ".jpg");
+          const files = ["originals","previews","thumbs","analysis-previews"].map(folder=>path.join(this.store.root,folder,p.id+".jpg"));
+          if(p.originalExtension && p.originalExtension!=="jpg") files.push(path.join(this.store.root,"source-files",p.id+"."+p.originalExtension));
+          for (const file of files) {
             try {
               const info = await stat(file);
               await unlink(file);
@@ -98,6 +104,10 @@ export class CleanupQueue {
             }
           }
           this.store.transaction(() => {
+            if(task.kind === "discard") {
+              for(const e of this.store.all("entry").filter(e=>e.assetId===p.id && e.status==="reject")) this.store.put("entry",{...e,cleaned:true});
+              for(const h of this.store.all("batchUndo")) if(h.entries.some(e=>e.assetId===p.id)) this.store.remove("batchUndo",h.id);
+            }
             this.store.put("cleanup", {
               ...task,
               state: "done",
@@ -124,10 +134,21 @@ export class CleanupQueue {
   }
 }
 export function registerCleanup(app, store) {
+  if(!store.get("migration","three-hour-retention")) {
+    if(store.all("entry").length) store.db.prepare("VACUUM INTO ?").run(path.join(store.root,`before-retention-${Date.now()}.sqlite`));
+    store.transaction(()=>{
+      for(const task of store.all("cleanup")) if(task.kind==="discard" && task.state!=="done") store.put("cleanup",{...task,state:"cancelled"});
+      for(const e of store.all("entry")) {
+        const p=store.get("photo",e.assetId);
+        if(e.status==="reject" && p && !p.deleted && !p.deleting) syncRetention(store,{...e,cleaned:false},null);
+      }
+      store.put("migration",{id:"three-hour-retention",at:timestamp()});
+    });
+  }
   const queue = new CleanupQueue(store);
   app.locals.cleanupQueue = queue;
   void queue.drain();
-  const timer = setInterval(() => void queue.drain(), 5000);
+  const timer = setInterval(() => void queue.drain(), 60000);
   timer.unref();
   queue.close = () => clearInterval(timer);
   app.get("/api/cleanup-jobs", (req, res) => res.json(store.all("cleanup")));
@@ -141,7 +162,7 @@ export function registerCleanup(app, store) {
       list = entries(store, b.id);
     if (!["initial", "final"].includes(round)) throw new Error("阶段无效");
     if (round === "final" && b.state === "initial")
-      throw new Error("请先完成初筛和清理，再完成精筛");
+      throw new Error("请先完成初筛，再完成精筛");
     if (
       b.state === "completed" ||
       (round === "initial" && b.state !== "initial")
@@ -176,22 +197,6 @@ export function registerCleanup(app, store) {
     )
       throw new Error("请先把入选照片保存到电脑文件夹");
     store.transaction(() => {
-      for (const e of relevant.filter(
-        (e) => e[round === "initial" ? "status" : "finalStatus"] === "reject",
-      )) {
-        store.put("entry", { ...e, cleaned: true });
-        store.put("cleanup", {
-          id: randomUUID(),
-          kind: "discard",
-          assetId: e.assetId,
-          batchId: b.id,
-          state: "pending",
-          bytes: 0,
-          createdAt: timestamp(),
-        });
-      }
-      for (const h of store.all("batchUndo").filter((h) => h.batchId === b.id))
-        store.remove("batchUndo", h.id);
       store.put("batch", {
         ...b,
         state:

@@ -45,6 +45,8 @@ test("cleanup rejects incomplete batches, preserves shared assets, deletes real 
       ids: [p.id],
     });
     await f.json(`/batches/${b.id}/finish`, "POST", { round: "initial" });
+    f.app.locals.cleanupQueue.now=()=>Date.now()+3*60*60*1000+1;
+    await f.app.locals.cleanupQueue.drain();
     while (f.app.locals.cleanupQueue.running)
       await new Promise((r) => setTimeout(r, 5));
     await assert.rejects(access(path.join(f.root, "originals", p.id + ".jpg")));
@@ -213,6 +215,8 @@ test("cleanup survives an interrupted partial deletion without losing freed-byte
     await rm(blocked);
     await mkdir(blocked);
     await f.json(`/batches/${b.id}/finish`, "POST", { round: "initial" });
+    f.app.locals.cleanupQueue.now=()=>Date.now()+3*60*60*1000+1;
+    await f.app.locals.cleanupQueue.drain();
     while (f.app.locals.cleanupQueue.running)
       await new Promise((r) => setTimeout(r, 5));
     const failed = f.store.all("cleanup")[0];

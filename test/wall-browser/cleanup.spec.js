@@ -16,7 +16,7 @@ test("failed save stays put, completing the whole initial batch cleans rejected 
   const photo = (
     await (await page.request.get(`/api/batches/${batch.id}/photos`)).json()
   )[0];
-  await page.getByRole("button", { name: /完成初筛并清理/ }).click();
+  await page.getByRole("button", { name: /^完成初筛$/ }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "还有未处理照片" }),
   ).toBeVisible();
@@ -36,7 +36,7 @@ test("failed save stays put, completing the whole initial batch cleans rejected 
   await card.getByRole("button", { name: "不要 C", exact: true }).click();
   await expect(card).toHaveCount(0);
   await page
-    .getByRole("button", { name: "完成初筛并清理 1 张", exact: true })
+    .getByRole("button", { name: "完成初筛", exact: true })
     .click();
   await expect
     .poll(
@@ -44,9 +44,9 @@ test("failed save stays put, completing the whole initial batch cleans rejected 
         (await page.request.get(`/api/photos/${photo.id}/original`)).status(),
       { timeout: 12000 },
     )
-    .toBe(404);
+    .toBe(200);
   const undo = await (
     await page.request.post(`/api/batches/${batch.id}/undo`, { data: {} })
   ).json();
-  expect(undo.ok).toBe(false);
+  expect(undo.ok).toBe(true);
 });

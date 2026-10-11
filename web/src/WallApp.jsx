@@ -699,10 +699,10 @@ function Workspace({ onLogout }) {
               ))}
             </div>
           ))}
-        {cleanupJobs.some((j) => j.state !== "done") && (
+        {cleanupJobs.some((j) => j.state === "error") && (
           <div className="task-row">
             <span>
-              正在清理 {cleanupJobs.filter((j) => j.state !== "done").length} 项
+              清理待重试 {cleanupJobs.filter((j) => j.state === "error").length} 项
             </span>
             <button
               onClick={() =>
@@ -840,7 +840,7 @@ function Workspace({ onLogout }) {
                   }
                 >
                   {round === "initial"
-                    ? `完成初筛并清理 ${batchPhotos.filter((p) => p.status === "reject" && !p.cleaned).length} 张`
+                    ? "完成初筛"
                     : "完成精筛"}
                 </Button>
                 {batch.source === "network" &&
@@ -1292,7 +1292,8 @@ function Workspace({ onLogout }) {
                         <p>{p.description}</p>
                       </details>
                     )}
-                    {page === "work" && (
+                    {page === "work" && p.status === "reject" && <small>{p.cleaned ? "已清理" : `自动清理：${p.cleanupAt ? new Date(p.cleanupAt).toLocaleString() : "三小时后"}`}</small>}
+                    {page === "work" && !p.cleaned && (
                       <div className="decision-buttons">
                         {round === "initial" && (
                           <button
