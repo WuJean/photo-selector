@@ -901,3 +901,98 @@ test("direct parallel classification and one-click collection copy and reference
     await new Promise((r) => fixture.close(r));
   }
 });
+
+test("quick composition presets randomly pair tagged photos, honor locks and work without AI requests", async ({
+  page,
+  request,
+}) => {
+  const { createServer } = await import("node:http");
+  let index = 0;
+  const tagSets = [
+    ["人像", "近景"],
+    ["人像", "近景"],
+    ["风景", "远景"],
+    ["风景", "远景"],
+    ["人像", "远景"],
+    ["人像", "远景"],
+  ];
+  const fixture = createServer(async (req, res) => {
+    for await (const chunk of req) {
+    }
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                description: "旅行照片",
+                tags: tagSets[index++],
+              }),
+            },
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise((r) => fixture.listen(0, "127.0.0.1", r));
+  try {
+    const p = await seed(request, 6, { group: false, final: true });
+    await request.put("/api/settings", {
+      data: {
+        baseURL: `http://127.0.0.1:${fixture.address().port}/v1`,
+        model: "fixture",
+      },
+    });
+    await request.post(`/api/projects/${p.id}/analyze`, {
+      data: { ids: p.ids },
+    });
+    await expect
+      .poll(
+        async () =>
+          (await saved(request, p)).filter((p) => p.aiStatus === "done").length,
+      )
+      .toBe(6);
+    await open(page, p);
+    await page.getByRole("button", { name: /^作品集/ }).click();
+    await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
+    const studio = page.getByRole("dialog", { name: "拼图工作室" });
+    let recommendationCalls = 0;
+    await page.route("**/recommend", (route) => {
+      recommendationCalls++;
+      return route.abort();
+    });
+    const images = () =>
+      studio
+        .locator(".story-slot img")
+        .evaluateAll((images) => images.map((i) => i.getAttribute("src")));
+    await studio.getByRole("button", { name: "随机组合", exact: true }).click();
+    const first = await images();
+    expect(new Set(first).size).toBe(3);
+    const library = await saved(request, p);
+    const tagged = first.map(
+      (src) => library.find((p) => src.includes(p.id)).ai.tags,
+    );
+    expect(tagged).toEqual([
+      ["人像", "近景"],
+      ["风景", "远景"],
+      ["人像", "远景"],
+    ]);
+    await studio.getByRole("button", { name: "随机组合", exact: true }).click();
+    const second = await images();
+    expect(second).not.toEqual(first);
+    await studio
+      .getByRole("button", { name: "锁定当前拼图照片", exact: true })
+      .click();
+    await studio.getByRole("button", { name: "随机组合", exact: true }).click();
+    expect((await images())[0]).toBe(second[0]);
+    await studio.getByLabel("快捷搭配模板").selectOption("random_four");
+    await studio.getByRole("button", { name: "随机组合", exact: true }).click();
+    await expect(studio.locator(".story-slot img")).toHaveCount(4);
+    expect(recommendationCalls).toBe(0);
+    expect(index).toBe(6);
+    await page.screenshot({ path: "test-results/quick-pairing.png" });
+  } finally {
+    await new Promise((r) => fixture.close(r));
+  }
+});

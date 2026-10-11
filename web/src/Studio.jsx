@@ -31,6 +31,7 @@ import {
   layoutRects,
   imagePlacement,
 } from "../../shared/layout.mjs";
+import { QUICK_PAIRINGS, randomPairing } from "../../shared/pairing.mjs";
 import { tagsOf, inFinal } from "../../shared/domain.mjs";
 
 async function download(url, body, name) {
@@ -244,6 +245,7 @@ export default function Studio({
     [active, setActive] = useState(0),
     [query, setQuery] = useState(""),
     [prompt, setPrompt] = useState(""),
+    [quickPreset, setQuickPreset] = useState("portrait_triptych"),
     [messages, setMessages] = useState([]),
     [busy, setBusy] = useState(""),
     [presets, setPresets] = useState([]),
@@ -351,6 +353,7 @@ export default function Studio({
         `/projects/${projectId}/recommend`,
         json("POST", {
           prompt: text,
+          ratio: draft.ratio,
           collectionId: collection?.id,
           sourceIds: scope.sourceIds,
           lockedIds: draft.slots.filter((s) => s.locked).map((s) => s.photoId),
@@ -376,6 +379,37 @@ export default function Studio({
       setMessages((v) => [...v, { role: "assistant", text: e.message }]);
     } finally {
       setBusy("");
+    }
+  };
+  const quickShuffle = () => {
+    try {
+      const result = randomPairing(initial, quickPreset, {
+        slots: draft.slots,
+        requiredIds: collection?.lockedIds || [],
+      });
+      if (result.unchanged) {
+        notify("当前范围只有这一组符合模板的组合");
+        return;
+      }
+      change({
+        ...draft,
+        template:
+          TEMPLATES[draft.template].count === result.photoIds.length
+            ? draft.template
+            : result.template,
+        slots: result.photoIds.map(
+          (id) =>
+            draft.slots.find(
+              (s) =>
+                s.photoId === id &&
+                (s.locked || collection?.lockedIds?.includes(id)),
+            ) || slotFor(initial.find((p) => p.id === id)),
+        ),
+      });
+      setCandidate(null);
+      setActive(0);
+    } catch (e) {
+      notify(e.message);
     }
   };
   const applyRecommendation = () => {
@@ -585,6 +619,27 @@ export default function Studio({
           )}
         </aside>
         <main className="studio-main">
+          <div className="quick-pairing">
+            <select
+              aria-label="快捷搭配模板"
+              value={quickPreset}
+              onChange={(e) => setQuickPreset(e.target.value)}
+            >
+              {Object.entries(QUICK_PAIRINGS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="button"
+              disabled={!!busy || !loaded || !!previousDraft}
+              onClick={quickShuffle}
+            >
+              <RefreshCw size={15} />
+              随机组合
+            </button>
+          </div>
           <div className="canvas-toolbar">
             <select
               aria-label="拼图模板"
@@ -709,6 +764,11 @@ export default function Studio({
               </button>
             </div>
             <div className="chat-messages">
+              {busy === "chat" && (
+                <div className="chat-message assistant" role="status">
+                  正在查看候选照片并搭配…
+                </div>
+              )}
               {messages.map((m, i) => (
                 <div key={i} className={`chat-message ${m.role}`}>
                   {m.text}
