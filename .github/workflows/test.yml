@@ -1,0 +1,11 @@
+name: macOS checks
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        run: bash scripts/test.sh
+      - name: Package application
+        run: bash scripts/build-app.sh
