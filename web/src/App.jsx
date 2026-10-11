@@ -35,6 +35,7 @@ import Immersive from "./Immersive";
 import Studio from "./Studio";
 import Settings from "./Settings";
 import TagsPanel from "./TagsPanel";
+import AIWizard from "./AIWizard";
 import {
   filterPhotos,
   FOCAL_LABELS,
@@ -67,6 +68,7 @@ export default function App() {
     [inspector, setInspector] = useState(false),
     [more, setMore] = useState(false);
   const [tagPanel, setTagPanel] = useState(false);
+  const [aiWizard, setAIWizard] = useState(null);
   const [dialog, setDialog] = useState(null),
     [settings, setSettings] = useState(false),
     [immersive, setImmersive] = useState(null),
@@ -381,6 +383,7 @@ export default function App() {
         immersive ||
         studio ||
         tagPanel ||
+        aiWizard ||
         e.repeat
       )
         return;
@@ -557,6 +560,21 @@ export default function App() {
               )}
             </div>
             <div className="toolbar-actions">
+              {portfolio && (
+                <Button
+                  disabled={!initial.length}
+                  onClick={() =>
+                    setAIWizard(
+                      (selected.length
+                        ? initial.filter((p) => selected.includes(p.id))
+                        : filtered
+                      ).map((p) => p.id),
+                    )
+                  }
+                >
+                  AI 分类
+                </Button>
+              )}
               {portfolio && (
                 <Button
                   onClick={() => {
@@ -1130,6 +1148,16 @@ export default function App() {
       {dialog && (
         <InputDialog dialog={dialog} onClose={() => setDialog(null)} />
       )}
+      {aiWizard && (
+        <AIWizard
+          projectId={projectId}
+          ids={aiWizard}
+          onClose={() => setAIWizard(null)}
+          onChanged={refresh}
+          notify={notify}
+          onSettings={() => setSettings(true)}
+        />
+      )}
       {settings && (
         <Modal title="模型与服务设置" onClose={() => setSettings(false)}>
           <Settings onClose={() => setSettings(false)} notify={notify} />
@@ -1160,7 +1188,19 @@ export default function App() {
           projectId={projectId}
           photos={final}
           selected={selected.filter((id) => final.some((p) => p.id === id))}
-          collection={collection}
+          collection={
+            collection
+              ? {
+                  ...collection,
+                  photoIds: collection.photoIds.filter((id) =>
+                    final.some((p) => p.id === id),
+                  ),
+                  lockedIds: collection.lockedIds.filter((id) =>
+                    final.some((p) => p.id === id),
+                  ),
+                }
+              : undefined
+          }
           onClose={() => {
             setStudio(false);
             refresh();

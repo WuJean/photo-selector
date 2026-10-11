@@ -446,3 +446,121 @@ test("manual tag chips classify initial photos, filter by multiple tags and pers
   ).toBeVisible();
   await page.screenshot({ path: "test-results/manual-tags.png" });
 });
+
+test("AI samples first, waits for vocabulary confirmation, then labels and chats using final photos", async ({
+  page,
+  request,
+}) => {
+  const { createServer } = await import("node:http");
+  let samples = 0,
+    analyses = 0;
+  const prompts = [];
+  const fixture = createServer(async (req, res) => {
+    let raw = "";
+    for await (const c of req) raw += c;
+    const body = JSON.parse(raw),
+      system = body.messages[0].content,
+      last = body.messages.at(-1);
+    let result;
+    if (system.includes("最多建议 8 项")) {
+      samples++;
+      result = {
+        tags: [{ name: "云海", category: "环境", description: "山间大片云层" }],
+      };
+    } else if (Array.isArray(last.content)) {
+      analyses++;
+      prompts.push(system);
+      result = {
+        description: "雪山远景",
+        tags: ["雪山", "风景"],
+        scene: "雪山",
+        shot: "远景",
+        style: "清冷",
+      };
+    } else {
+      const input = JSON.parse(last.content);
+      result = {
+        template: "rows",
+        photoIds: input.current.photoIds.slice(0, 3),
+        reason: "景别搭配",
+        title: "雪山",
+        missing: "",
+      };
+    }
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(result) } }],
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      }),
+    );
+  });
+  await new Promise((r) => fixture.listen(0, "127.0.0.1", r));
+  try {
+    const p = await seed(request, 4, {
+      group: false,
+      initial: true,
+      final: true,
+    });
+    await request.put("/api/settings", {
+      data: {
+        baseURL: `http://127.0.0.1:${fixture.address().port}/v1`,
+        model: "fixture",
+        jsonMode: true,
+      },
+    });
+    await request.get(`/api/projects/${p.id}/tags`);
+    await request.post(`/api/projects/${p.id}/tags/assign`, {
+      data: { ids: [p.ids[0]], name: "雪山", enabled: false },
+    });
+    await open(page, p);
+    await page.getByRole("button", { name: /^作品集/ }).click();
+    await page.getByRole("tab", { name: /初筛/ }).click();
+    await page.getByRole("button", { name: "AI 分类", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "AI 分类", exact: true });
+    await expect(dialog.getByText("需要添加其他常用标签吗？")).toBeVisible();
+    await dialog.getByLabel("补充标签").fill("登顶");
+    await dialog.getByRole("button", { name: "添加候选标签" }).click();
+    await dialog.getByRole("button", { name: "开始抽样", exact: true }).click();
+    await expect(
+      dialog.getByText("确认候选标签", { exact: true }),
+    ).toBeVisible();
+    expect(samples).toBe(4);
+    expect(analyses).toBe(0);
+    await dialog.getByRole("button", { name: "编辑标签 云海" }).click();
+    await dialog.getByLabel("候选标签新名称").fill("云雾");
+    await dialog.getByRole("button", { name: "保存／合并" }).click();
+    await expect(
+      dialog.getByRole("button", { name: "云雾", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({ path: "test-results/ai-vocabulary.png" });
+    await dialog.getByRole("button", { name: "确认并开始分类" }).click();
+    await expect
+      .poll(async () => (await (await request.get("/api/jobs")).json()).ai.done)
+      .toBe(4);
+    expect(analyses).toBe(4);
+    expect(
+      prompts.every(
+        (t) =>
+          t.includes("云雾") &&
+          t.includes("登顶") &&
+          t.includes("不得新造标签"),
+      ),
+    ).toBe(true);
+    expect((await saved(request, p))[0].excludedTags).toContain("雪山");
+    await dialog.getByRole("button", { name: "返回作品集" }).click();
+    await page.getByRole("tab", { name: /最终作品/ }).click();
+    await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
+    const studio = page.getByRole("dialog", { name: "拼图工作室" });
+    await studio.getByLabel("拼图模板").selectOption("rows");
+    await studio.getByRole("button", { name: "锁定当前拼图照片" }).click();
+    await studio
+      .getByLabel("向 AI 描述拼图")
+      .fill("从雪山中选三张，保留第一张");
+    await studio.getByRole("button", { name: "发送拼图要求" }).click();
+    await studio.getByRole("button", { name: "应用到画布" }).click();
+    await expect(studio.locator(".story-slot img")).toHaveCount(3);
+  } finally {
+    await new Promise((r) => fixture.close(r));
+  }
+});
