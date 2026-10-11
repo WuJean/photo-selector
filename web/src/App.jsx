@@ -3,6 +3,7 @@ import {Camera,Images,Layers,Heart,Check,Plus,ArrowUpRight,Settings2,Search,Slid
 import {api,json,photoURL} from './api';
 import Settings from './Settings';
 import Immersive from './Immersive';
+import Studio from './Studio';
 import {filterPhotos,FOCAL_LABELS,tagsOf,STATUS_LABELS} from '../../shared/domain.mjs';
 
 export function Button({children,icon:Icon,onClick,primary=false,className='',...props}){return <button className={`${primary?'primary':'button'} ${className}`} onClick={onClick} {...props}>{Icon&&<Icon size={16}/>} {children}</button>}
@@ -81,7 +82,7 @@ export default function App(){
  {collection&&<CollectionBar collection={collection} photos={photos} onSave={value=>run(async()=>{await api(`/projects/${projectId}/collections/${collection.id}`,json('PUT',value));await refresh()})}/>}
  {immersive&&<Immersive photos={filtered.length?filtered:photos} startId={immersive} onClose={()=>setImmersive(null)} onPatch={patch} onUndo={undo}/>}{dialog&&<InputDialog dialog={dialog} onClose={()=>setDialog(null)}/>}{compare&&<Compare photos={compare.map(id=>photos.find(p=>p.id===id)).filter(Boolean)} onClose={()=>setCompare(null)} onPatch={patch}/>}
  {settings&&<Modal title="模型与服务设置" onClose={()=>setSettings(false)}><Settings onClose={()=>setSettings(false)} notify={notify}/></Modal>}
- {studio&&<Modal title="拼图工作室" onClose={()=>setStudio(false)}><p className="muted">已选 {selectionPhotos.length} 张，拼图编辑器正在接入。</p></Modal>}
+ {studio&&projectId&&<Studio projectId={projectId} photos={photos} selected={selected} collection={collection} onClose={()=>{setStudio(false);refresh()}} notify={notify} onSettings={()=>setSettings(true)}/>}
  {toast&&<div className="toast" role="status"><CheckCircle2 size={17}/>{toast}<button aria-label="关闭提示" onClick={()=>setToast('')}><X size={14}/></button></div>}{dragging&&<div className="drop-overlay"><Upload size={44}/><h2>把照片放在这里</h2><p>它们会被导入当前旅行，本地分析随即开始</p></div>}
  </div>
 }
