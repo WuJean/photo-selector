@@ -1,1 +1,4 @@
-{"navigationBarTitleText":"AI 分类","usingComponents":{"tasks":"/components/tasks/index"}}
+{
+  "navigationBarTitleText": "AI 分类",
+  "usingComponents": { "tasks": "/components/tasks/index" }
+}

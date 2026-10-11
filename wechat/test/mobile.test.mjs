@@ -1,6 +1,104 @@
-import test from 'node:test';import assert from 'node:assert/strict';import vm from 'node:vm';import {readFile} from 'node:fs/promises';
-import {visibleCards} from '../core/mobile.mjs';
-async function page(file,{call,context}={}){let config;const wx={getStorageSync:()=>[],setStorageSync(){},showToast(){},navigateBack(){}};vm.runInNewContext(await readFile('wechat/miniprogram/pages/'+file+'/index.js','utf8'),{Page:p=>config=p,wx,getApp:()=>({globalData:{review:context}}),require:()=>({call,toast(){},hydrate:async p=>p,tagsOf:p=>p.ai?.tags||[]}),console});config.data=structuredClone(config.data);config.setData=function(v){Object.assign(this.data,v);};return config;}
-test('similar groups fold and unfold without dropping members for 1,2,3,4,10 images',()=>{for(const n of [1,2,3,4,10]){const photos=Array.from({length:n},(_,i)=>({id:String(i),similarId:'group'}));assert.equal(visibleCards(photos).length,1);assert.equal(visibleCards(photos,['group']).length,n);assert.equal(visibleCards(photos,['group'])[0].count,n);}});
-test('mobile immersion failure stays on the photo, success advances, undo restores cursor',async()=>{const photos=[{id:'a',revision:1},{id:'b',revision:1}];let fail=true;const p=await page('review',{context:{projectId:'p',photos,ids:['a','b'],startId:'a',stage:'refine',total:2},call:async action=>{if(action==='photos.decide'){if(fail)throw Error('network');return {photo:{id:'a',revision:2},historyId:'h'};}return {photo:photos[0]};}});p.onLoad();await new Promise(r=>setImmediate(r));await p.decide({currentTarget:{dataset:{value:'keep'}}});assert.equal(p.data.index,0);fail=false;await p.decide({currentTarget:{dataset:{value:'keep'}}});assert.equal(p.data.index,1);await p.undo();assert.equal(p.data.index,0);assert.equal(p.data.stage,'refine');});
-test('immutable review IDs fetch next page despite prior decisions leaving the query',async()=>{let ids;const photos=Array.from({length:60},(_,i)=>({id:String(i)}));const p=await page('review',{context:{projectId:'p',photos,ids:photos.map(p=>p.id).concat('60'),startId:'59',stage:'rough',total:61},call:async(action,input)=>{assert.equal(action,'photos.get');ids=input.ids;return [{id:'60'}];}});p.onLoad();await new Promise(r=>setImmediate(r));await p.show(60);assert.deepEqual([...ids],['60']);assert.equal(p.data.current.id,'60');assert(p.data.neighbors.length<=3);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import { readFile } from "node:fs/promises";
+import { visibleCards } from "../core/mobile.mjs";
+async function page(file, { call, context } = {}) {
+  let config;
+  const wx = {
+    getStorageSync: () => [],
+    setStorageSync() {},
+    showToast() {},
+    navigateBack() {},
+  };
+  vm.runInNewContext(
+    await readFile("wechat/miniprogram/pages/" + file + "/index.js", "utf8"),
+    {
+      Page: (p) => (config = p),
+      wx,
+      getApp: () => ({ globalData: { review: context } }),
+      require: () => ({
+        call,
+        toast() {},
+        hydrate: async (p) => p,
+        tagsOf: (p) => p.ai?.tags || [],
+      }),
+      console,
+    },
+  );
+  config.data = structuredClone(config.data);
+  config.setData = function (v) {
+    Object.assign(this.data, v);
+  };
+  return config;
+}
+test("similar groups fold and unfold without dropping members for 1,2,3,4,10 images", () => {
+  for (const n of [1, 2, 3, 4, 10]) {
+    const photos = Array.from({ length: n }, (_, i) => ({
+      id: String(i),
+      similarId: "group",
+    }));
+    assert.equal(visibleCards(photos).length, 1);
+    assert.equal(visibleCards(photos, ["group"]).length, n);
+    assert.equal(visibleCards(photos, ["group"])[0].count, n);
+  }
+});
+test("mobile immersion failure stays on the photo, success advances, undo restores cursor", async () => {
+  const photos = [
+    { id: "a", revision: 1 },
+    { id: "b", revision: 1 },
+  ];
+  let fail = true;
+  const p = await page("review", {
+    context: {
+      projectId: "p",
+      photos,
+      ids: ["a", "b"],
+      startId: "a",
+      stage: "refine",
+      total: 2,
+    },
+    call: async (action) => {
+      if (action === "photos.decide") {
+        if (fail) throw Error("network");
+        return { photo: { id: "a", revision: 2 }, historyId: "h" };
+      }
+      return { photo: photos[0] };
+    },
+  });
+  p.onLoad();
+  await new Promise((r) => setImmediate(r));
+  await p.decide({ currentTarget: { dataset: { value: "keep" } } });
+  assert.equal(p.data.index, 0);
+  fail = false;
+  await p.decide({ currentTarget: { dataset: { value: "keep" } } });
+  assert.equal(p.data.index, 1);
+  await p.undo();
+  assert.equal(p.data.index, 0);
+  assert.equal(p.data.stage, "refine");
+});
+test("immutable review IDs fetch next page despite prior decisions leaving the query", async () => {
+  let ids;
+  const photos = Array.from({ length: 60 }, (_, i) => ({ id: String(i) }));
+  const p = await page("review", {
+    context: {
+      projectId: "p",
+      photos,
+      ids: photos.map((p) => p.id).concat("60"),
+      startId: "59",
+      stage: "rough",
+      total: 61,
+    },
+    call: async (action, input) => {
+      assert.equal(action, "photos.get");
+      ids = input.ids;
+      return [{ id: "60" }];
+    },
+  });
+  p.onLoad();
+  await new Promise((r) => setImmediate(r));
+  await p.show(60);
+  assert.deepEqual([...ids], ["60"]);
+  assert.equal(p.data.current.id, "60");
+  assert(p.data.neighbors.length <= 3);
+});

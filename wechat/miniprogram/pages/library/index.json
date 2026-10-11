@@ -1,1 +1,4 @@
-{"navigationBarTitleText": "照片库", "usingComponents": {"tasks": "/components/tasks/index"}}
+{
+  "navigationBarTitleText": "照片库",
+  "usingComponents": { "tasks": "/components/tasks/index" }
+}

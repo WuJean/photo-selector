@@ -1,0 +1,4 @@
+{
+  "navigationBarTitleText": "作品集",
+  "usingComponents": { "tasks": "/components/tasks/index" }
+}

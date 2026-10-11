@@ -1,0 +1,4 @@
+{
+  "navigationBarTitleText": "拼图创作",
+  "usingComponents": { "tasks": "/components/tasks/index" }
+}

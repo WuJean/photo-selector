@@ -1,0 +1,1 @@
+.collection-strip{white-space:nowrap;margin:20rpx 0}.collection-strip button{display:inline-block;margin-right:12rpx}.chosen{outline:4rpx solid #d3ec8c;outline-offset:-4rpx}.creation-image{width:100%;margin:20rpx 0}.copy{white-space:pre-wrap;line-height:1.8;margin-bottom:20rpx}textarea{height:45vh}
