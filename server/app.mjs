@@ -3,7 +3,7 @@ import multer from "multer";
 import path from "node:path";
 import { unlink } from "node:fs/promises";
 import { Store } from "./database.mjs";
-import { importPhoto } from "./images.mjs";
+import { importPhoto, imageFile } from "./images.mjs";
 
 export function createApp({
   root = path.resolve(".local"),
@@ -90,20 +90,15 @@ export function createApp({
       }
     },
   );
-  app.get("/api/photos/:id/:variant", (req, res, next) => {
+  app.get("/api/photos/:id/:variant", async (req, res, next) => {
     if (!["thumb", "preview", "original"].includes(req.params.variant))
       return next();
     const photo = store.get("photo", req.params.id);
     if (!photo) return res.status(404).json({ error: "照片不存在" });
-    const folder = {
-      thumb: "thumbs",
-      preview: "previews",
-      original: "originals",
-    }[req.params.variant];
     if (req.params.variant === "original" && req.query.download === "1")
       res.attachment(photo.name);
     res.set("Cache-Control", "private, max-age=86400");
-    res.sendFile(path.join(root, folder, photo.id + ".jpg"), {
+    res.sendFile(await imageFile(store, photo.id, req.params.variant), {
       dotfiles: "allow",
     });
   });

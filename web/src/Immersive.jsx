@@ -1,3 +1,4 @@
+import PhotoImage from "./PhotoImage";
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
   ArrowLeft,
@@ -93,7 +94,7 @@ function Frame({ photo, active, onActivate, dense = false }) {
       onPointerUp={() => (drag.current = null)}
       onPointerCancel={() => (drag.current = null)}
     >
-      <img
+      <PhotoImage
         src={photoURL(photo.id, natural ? "original" : "preview")}
         draggable="false"
         alt={photo.name}
@@ -347,7 +348,7 @@ export default function Immersive({
             >
               {previous && (
                 <>
-                  <img
+                  <PhotoImage
                     alt="前一张照片（虚化）"
                     src={photoURL(previous.id, "preview")}
                   />
@@ -374,7 +375,7 @@ export default function Immersive({
             >
               {next && (
                 <>
-                  <img
+                  <PhotoImage
                     alt="后一张照片（虚化）"
                     src={photoURL(next.id, "preview")}
                   />

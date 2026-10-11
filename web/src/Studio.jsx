@@ -1,3 +1,4 @@
+import PhotoImage from "./PhotoImage";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   ArrowLeft,
@@ -134,7 +135,7 @@ function Canvas({ draft, photos, active, setActive, updateSlot }) {
             onPointerCancel={() => (drag.current = null)}
           >
             {photo ? (
-              <img
+              <PhotoImage
                 draggable="false"
                 src={photoURL(photo.id, "preview")}
                 alt={`拼图位置 ${i + 1}：${photo.name}`}
@@ -183,7 +184,7 @@ function Canvas({ draft, photos, active, setActive, updateSlot }) {
       )}
       {wm.text && <div style={wmStyle}>{wm.text}</div>}
       {wm.assetId && (
-        <img
+        <PhotoImage
           className="canvas-logo"
           src={`/api/assets/${wm.assetId}`}
           alt="图片水印"
@@ -516,7 +517,7 @@ export default function Studio({
                 onClick={() => fillSlot(p)}
                 title={`放入 ${p.name}`}
               >
-                <img loading="lazy" src={photoURL(p.id)} alt={p.name} />
+                <PhotoImage loading="lazy" src={photoURL(p.id)} alt={p.name} />
                 <span>{p.name}</span>
                 {draft.slots.some((s) => s.photoId === p.id) && (
                   <Check size={12} />
@@ -669,7 +670,7 @@ export default function Studio({
                   <strong>{candidate.title}</strong>
                   <div>
                     {candidate.photoIds.map((id) => (
-                      <img key={id} src={photoURL(id)} alt="推荐照片" />
+                      <PhotoImage key={id} src={photoURL(id)} alt="推荐照片" />
                     ))}
                   </div>
                   <button className="primary" onClick={applyRecommendation}>
@@ -952,7 +953,7 @@ export default function Studio({
           <button className="icon-button" aria-label="关闭成品预览">
             <X size={23} />
           </button>
-          <img src={preview} alt="实际渲染成品预览" />
+          <PhotoImage src={preview} alt="实际渲染成品预览" />
           <span>实际渲染结果 · 点击关闭</span>
         </div>
       )}

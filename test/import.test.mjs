@@ -94,3 +94,35 @@ test("public photo listing isolates projects and omits private paths and model v
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("missing previews regenerate atomically from originals; missing originals report 404", async () => {
+  const { imageFile } = await import("../server/images.mjs");
+  const dir = await mkdtemp(path.join(os.tmpdir(), "photo-repair-"));
+  const store = new Store(dir);
+  try {
+    const project = store.project("repair");
+    const source = path.join(dir, "fixture.jpg");
+    await sharp({
+      create: { width: 80, height: 100, channels: 3, background: "#aaccee" },
+    })
+      .jpeg()
+      .toFile(source);
+    const p = await importPhoto(store, project.id, source, "test.jpg");
+    const before = await digest(p.originalPath);
+    await rm(path.join(dir, "thumbs", p.id + ".jpg"));
+    await rm(path.join(dir, "previews", p.id + ".jpg"));
+    const files = await Promise.all([
+      imageFile(store, p.id, "thumb"),
+      imageFile(store, p.id, "thumb"),
+      imageFile(store, p.id, "preview"),
+    ]);
+    assert.equal(files[0], files[1]);
+    assert.equal((await sharp(files[2]).metadata()).height, 100);
+    assert.equal(await digest(p.originalPath), before);
+    await rm(p.originalPath);
+    await assert.rejects(imageFile(store, p.id, "original"), { status: 404 });
+  } finally {
+    store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

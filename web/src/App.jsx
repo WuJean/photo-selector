@@ -1,3 +1,4 @@
+import PhotoImage from "./PhotoImage";
 import React, {
   useEffect,
   useState,
@@ -212,7 +213,7 @@ function VirtualGrid({
               aria-label={p.name}
             >
               <div className="photo-image" style={{ height: width * 0.72 }}>
-                <img
+                <PhotoImage
                   loading="lazy"
                   draggable="false"
                   src={photoURL(p.id)}
@@ -359,7 +360,7 @@ function Compare({ photos, onClose, onPatch }) {
               onPointerUp={() => (drag.current = null)}
               onPointerCancel={() => (drag.current = null)}
             >
-              <img
+              <PhotoImage
                 draggable="false"
                 src={photoURL(p.id, oneToOne ? "original" : "preview")}
                 alt={p.name}
@@ -1369,7 +1370,7 @@ export default function App() {
               {active ? (
                 <>
                   <div className="inspector-preview">
-                    <img src={photoURL(active.id)} alt={active.name} />
+                    <PhotoImage src={photoURL(active.id)} alt={active.name} />
                   </div>
                   <h3>{active.name}</h3>
                   <div className="subtle">
@@ -1749,7 +1750,7 @@ function CollectionBar({ collection, photos, onSave }) {
                 onSave({ photoIds: ids });
               }}
             >
-              <img src={photoURL(id)} alt={p.name} />
+              <PhotoImage src={photoURL(id)} alt={p.name} />
               <button
                 aria-label={`锁定 ${p.name}`}
                 className={collection.lockedIds.includes(id) ? "locked" : ""}

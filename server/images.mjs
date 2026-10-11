@@ -2,7 +2,7 @@ import sharp from "sharp";
 import exifr from "exifr";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { rename, unlink, copyFile } from "node:fs/promises";
+import { rename, unlink, copyFile, access } from "node:fs/promises";
 import path from "node:path";
 import { focalCategory } from "../shared/domain.mjs";
 
@@ -100,4 +100,48 @@ export async function previewData(store, id) {
     .toColourspace("srgb")
     .jpeg({ quality: 82 })
     .toBuffer();
+}
+
+const repairs = new Map();
+export async function imageFile(store, id, variant) {
+  const source = originalPath(store, id);
+  const target = path.join(
+    store.root,
+    { thumb: "thumbs", preview: "previews", original: "originals" }[variant],
+    id + ".jpg",
+  );
+  try {
+    await access(target);
+    return target;
+  } catch {}
+  try {
+    await access(source);
+  } catch {
+    throw Object.assign(new Error("原片不存在"), { status: 404 });
+  }
+  if (variant === "original") return source;
+  if (!repairs.has(target))
+    repairs.set(
+      target,
+      (async () => {
+        const temporary = target + "." + randomUUID() + ".tmp";
+        try {
+          await sharp(source)
+            .rotate()
+            .resize(
+              variant === "thumb" ? 520 : 1536,
+              variant === "thumb" ? 520 : 1536,
+              { fit: "inside", withoutEnlargement: true },
+            )
+            .toColourspace("srgb")
+            .jpeg({ quality: variant === "thumb" ? 78 : 85 })
+            .toFile(temporary);
+          await rename(temporary, target);
+        } finally {
+          await unlink(temporary).catch(() => {});
+        }
+      })().finally(() => repairs.delete(target)),
+    );
+  await repairs.get(target);
+  return target;
 }
