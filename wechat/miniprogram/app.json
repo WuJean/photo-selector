@@ -2,7 +2,8 @@
   "pages": [
     "pages/projects/index",
     "pages/library/index",
-    "pages/review/index"
+    "pages/review/index",
+    "pages/classify/index"
   ],
   "window": {
     "navigationBarTitleText": "选片助手",

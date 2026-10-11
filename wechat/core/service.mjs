@@ -1,11 +1,14 @@
+import { jobActions } from './jobs.mjs';
 import { curation } from './curation.mjs';
 import { uid } from './store.mjs';
 export const fail = (message, code = 'INVALID') => { throw Object.assign(new Error(message), {code}); };
 export async function owned(store, kind, id) { return await store.get(kind,id) || fail('内容不存在或无权访问','NOT_FOUND'); }
 export const title = (v, fallback='未命名旅行') => String(v || fallback).trim().slice(0,80) || fallback;
-export function createService({store, files, env, media}) {
+export function createService({store, files, env, media, jobs}) {
   return async (action, input={}) => {
     if(!store.owner) fail('请在微信中登录','AUTH');
+    const job = await jobActions(store, action, input, jobs);
+    if(job !== undefined) return job;
     const handled = await curation(store, action, input);
     if(handled !== undefined) return handled;
     switch(action) {

@@ -1,0 +1,1 @@
+.task{background:#252a25;border-radius:16rpx;padding:18rpx;margin:16rpx 0;font-size:24rpx;color:#e7e8e3}.actions{display:flex;gap:12rpx;margin-top:12rpx}.actions button{font-size:22rpx;line-height:2;background:#373e32;color:#d3ec8c;margin:0}.error{color:#f6b6a5;font-size:22rpx}

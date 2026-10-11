@@ -1,3 +1,5 @@
+import {configFor} from './config.mjs';
+import {dispatch} from './dispatch.mjs';
 import cloud from 'wx-server-sdk';
 import { CloudStore, COLLECTION } from '../core/store.mjs';
 import { createService } from '../core/service.mjs';
@@ -13,7 +15,7 @@ export async function main(event) {
     await ready;
     const store=new CloudStore(db,OPENID);
     const files={urls:async ids=>(await cloud.getTempFileURL({fileList:ids})).fileList.map(v=>({fileID:v.fileID,url:v.tempFileURL,status:v.status}))};
-    const service=createService({store,files,env:ENV||process.env.TCB_ENV,media:{inspect:fileID=>inspectImage(cloud,fileID)}});
+    const service=createService({store,files,env:ENV||process.env.TCB_ENV,media:{inspect:fileID=>inspectImage(cloud,fileID)},jobs:{config:configFor(OPENID),dispatch}});
     return {ok:true,data:await service(event.action,event.data)};
   }catch(e){return {ok:false,error:{code:e.code||'FAILED',message:e.message||'操作失败'}};}
 }
