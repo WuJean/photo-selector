@@ -35,7 +35,8 @@ test("two review rounds preserve initial choices, gate final decisions, and undo
     assert.equal((await edit("initial", "maybe")).status, 200);
     assert.equal(inInitial(store.get("photo", "p")), true);
     assert.equal(inFinal(store.get("photo", "p")), false);
-    await edit("final", "maybe");
+    assert.equal((await edit("final", "maybe")).status, 400);
+    await edit("final", "keep");
     assert.equal(inFinal(store.get("photo", "p")), true);
     await edit("final", "reject");
     assert.equal(inInitial(store.get("photo", "p")), true);
@@ -44,7 +45,7 @@ test("two review rounds preserve initial choices, gate final decisions, and undo
     assert.equal(inFinal(store.get("photo", "p")), true);
     await edit("initial", "reject");
     assert.equal(inFinal(store.get("photo", "p")), false);
-    assert.equal(store.get("photo", "p").finalStatus, "maybe");
+    assert.equal(store.get("photo", "p").finalStatus, "keep");
     app.locals.history.undo(p.id);
     assert.equal(inFinal(store.get("photo", "p")), true);
     assert.equal((await edit("invalid", "keep")).status, 400);
@@ -101,7 +102,7 @@ test("rebuilding a legacy draft archives it and only final photos can enter rend
         width: 100,
         height: 100,
       },
-      final = { ...initial, id: "b", finalStatus: "maybe" };
+      final = { ...initial, id: "b", finalStatus: "keep" };
     store.put("photo", initial);
     store.put("photo", final);
     const old = newDraft(project.id, [initial]);
@@ -124,6 +125,23 @@ test("rebuilding a legacy draft archives it and only final photos can enter rend
     assert.equal(store.get("draft", old.id).slots[0].photoId, "a");
   } finally {
     await new Promise((r) => server.close(r));
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy final maybe migrates to keep with a recoverable backup", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "three-stages-"));
+  let store = new Store(root);
+  try {
+    store.remove("migration", "three-stages");
+    store.put("photo", { id: "legacy", status: "maybe", finalStatus: "maybe" });
+    store.close();
+    store = new Store(root);
+    assert.equal(store.get("photo", "legacy").finalStatus, "keep");
+    assert.equal(store.get("photo", "legacy").legacyFinalStatus, "maybe");
+    assert.equal((await readdir(path.join(root, "backups"))).length, 1);
+  } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
   }

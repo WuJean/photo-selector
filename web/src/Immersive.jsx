@@ -1,5 +1,11 @@
 import PhotoImage from "./PhotoImage";
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, {
+  useMemo,
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -25,7 +31,7 @@ import {
 } from "../../shared/domain.mjs";
 import { immersiveGroups, zoomAround } from "../../shared/immersive.mjs";
 
-function Frame({
+export function Frame({
   photo,
   active,
   onActivate,
@@ -298,7 +304,7 @@ export default function Immersive({
     document.addEventListener("fullscreenchange", change);
     return () => document.removeEventListener("fullscreenchange", change);
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const listener = (e) => {
       if (isTyping(e.target) || e.repeat) return;
       const key = e.key.toLowerCase();
@@ -343,7 +349,7 @@ export default function Immersive({
           返回
         </button>
         <span>
-          {round === "final" ? "精筛" : "初筛"}
+          {round === "final" ? "精筛" : "粗筛"}
           {similar ? ` · 相似照片 ${groupIndex + 1}/${group.length}` : ""}
         </span>
         <div className="immersive-header-actions">

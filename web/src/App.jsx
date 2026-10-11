@@ -1,5 +1,7 @@
+import { flushSync } from "react-dom";
 import React, {
   useState,
+  useLayoutEffect,
   useEffect,
   useRef,
   useMemo,
@@ -37,6 +39,7 @@ import Settings from "./Settings";
 import TagsPanel from "./TagsPanel";
 import AIWizard from "./AIWizard";
 import TaskBar from "./TaskBar";
+import Refine from "./Refine";
 import {
   filterPhotos,
   FOCAL_LABELS,
@@ -82,7 +85,9 @@ export default function App() {
     currentProject = useRef(projectId),
     uploadPaused = useRef(false),
     decisionBusy = useRef(false),
-    focusHistory = useRef([]);
+    decisionPromise = useRef(Promise.resolve()),
+    focusHistory = useRef([]),
+    refreshVersion = useRef(0);
   const notify = useCallback((message) => setToast(message), []);
   const run = async (fn) => {
     try {
@@ -100,13 +105,18 @@ export default function App() {
   }, []);
   const refresh = useCallback(async () => {
     if (!projectId) return;
+    const version = ++refreshVersion.current;
     const [p, g, c, j] = await Promise.all([
       api(`/projects/${projectId}/photos`),
       api(`/projects/${projectId}/groups`),
       api(`/projects/${projectId}/collections`),
       api("/jobs"),
     ]);
-    if (currentProject.current !== projectId) return;
+    if (
+      currentProject.current !== projectId ||
+      version !== refreshVersion.current
+    )
+      return;
     setPhotos(p);
     setGroups(g);
     setCollections(c);
@@ -145,14 +155,29 @@ export default function App() {
   const initial = photos.filter(inInitial),
     final = photos.filter(inFinal),
     pending = photos.filter((p) => p.status === "unseen");
-  const portfolio = space === "portfolio";
+  const portfolio = space === "portfolio",
+    refining = space === "refine";
+  const [reviewed, setReviewed] = useState(false),
+    [candidateMode, setCandidateMode] = useState("unassigned");
   const filtered = useMemo(() => {
     let list =
       space === "pending"
         ? photos.filter((p) => p.status === "unseen")
         : space === "history"
           ? photos.filter((p) => p.status !== "unseen")
-          : photos.filter(tab === "initial" ? inInitial : inFinal);
+          : space === "refine"
+            ? photos.filter(
+                (p) =>
+                  inInitial(p) &&
+                  (reviewed
+                    ? p.finalStatus !== "unseen"
+                    : p.finalStatus === "unseen"),
+              )
+            : photos.filter(inFinal);
+    if (space === "portfolio" && !collection && candidateMode === "unassigned")
+      list = list.filter(
+        (p) => !collections.some((c) => c.photoIds.includes(p.id)),
+      );
     if (collection)
       list = collection.photoIds
         .map((id) => list.find((p) => p.id === id))
@@ -162,11 +187,20 @@ export default function App() {
     list = filterPhotos(list, { ...filters, status: null, query });
     if (status && status !== "all")
       list = list.filter(
-        (p) =>
-          (portfolio && tab === "final" ? p.finalStatus : p.status) === status,
+        (p) => (portfolio || refining ? p.finalStatus : p.status) === status,
       );
     return list;
-  }, [photos, space, tab, collection, filters, query]);
+  }, [
+    photos,
+    space,
+    tab,
+    collection,
+    filters,
+    query,
+    reviewed,
+    candidateMode,
+    collections,
+  ]);
   const items = useMemo(() => {
     const memberMap = new Map();
     for (const p of filtered) {
@@ -207,6 +241,8 @@ export default function App() {
     setQuery("");
     setCollectionId("");
     setMore(false);
+    setReviewed(false);
+    setTagPanel(value === "refine");
     if (value === "portfolio") setTab("final");
   };
   const createProject = () =>
@@ -276,6 +312,7 @@ export default function App() {
     });
   const undo = async () =>
     run(async () => {
+      await decisionPromise.current;
       const result = await api(`/projects/${projectId}/undo`, json("POST", {}));
       await refresh();
       if (result.ok) {
@@ -292,14 +329,36 @@ export default function App() {
         ...ids.map((id) => filtered.findIndex((p) => p.id === id)),
       ),
       next = filtered.slice(index + 1).find((p) => !ids.includes(p.id));
-    try {
-      if (await patch(ids, { status }, "initial")) {
+    const work = async () => {
+      try {
+        await api(
+          `/projects/${projectId}/photos`,
+          json("PATCH", {
+            ids,
+            patch: { status },
+            round: refining ? "final" : "initial",
+          }),
+        );
         focusHistory.current.push(ids[0]);
-        setSelected(next ? [next.id] : []);
+        ++refreshVersion.current;
+        flushSync(() => {
+          setPhotos((list) =>
+            list.map((p) =>
+              ids.includes(p.id)
+                ? { ...p, [refining ? "finalStatus" : "status"]: status }
+                : p,
+            ),
+          );
+          setSelected(next ? [next.id] : []);
+        });
+      } catch (e) {
+        notify(e.message);
+      } finally {
+        decisionBusy.current = false;
       }
-    } finally {
-      decisionBusy.current = false;
-    }
+    };
+    decisionPromise.current = work();
+    await decisionPromise.current;
   };
   const select = (id, event) => {
     if (event?.metaKey || event?.ctrlKey)
@@ -315,23 +374,15 @@ export default function App() {
     } else setSelected([id]);
   };
   const openReview = (id, explicit = false) => {
-    const round = portfolio ? "final" : "initial";
-    let list;
-    if (round === "final") {
-      if (explicit) list = filtered.filter(inInitial);
-      else if (selected.length)
-        list = photos.filter((p) => selected.includes(p.id) && inInitial(p));
-      else
-        list = filterPhotos(initial, {
-          ...filters,
-          status: null,
-          query,
-        }).filter((p) => (p.finalStatus || "unseen") === "unseen");
-    } else list = filtered;
-    if (!list.length) {
-      notify(round === "final" ? "当前范围没有待精筛照片" : "当前范围已筛完");
+    if (portfolio || refining) {
+      changeSpace("refine");
+      setReviewed(true);
+      if (id) setSelected([id]);
       return;
     }
+    const round = "initial",
+      list = filtered;
+    if (!list.length) return;
     setImmersive({
       round,
       scopeIds: list.map((p) => p.id),
@@ -375,7 +426,7 @@ export default function App() {
       );
       await refresh();
     });
-  useEffect(() => {
+  useLayoutEffect(() => {
     const handle = (e) => {
       if (
         isTyping(e.target) ||
@@ -383,7 +434,7 @@ export default function App() {
         settings ||
         immersive ||
         studio ||
-        tagPanel ||
+        (tagPanel && !refining) ||
         aiWizard ||
         e.repeat
       )
@@ -396,7 +447,7 @@ export default function App() {
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (!selected.length) return;
-      if (key === " ") {
+      if (key === " " && !refining) {
         e.preventDefault();
         openReview(selected[0], true);
         return;
@@ -407,7 +458,7 @@ export default function App() {
         const next = filtered[at + (key === "arrowright" ? 1 : -1)];
         if (next) setSelected([next.id]);
       }
-      if (decisionKeys[key] && (!portfolio || tab === "initial")) {
+      if (decisionKeys[key] && !portfolio && (!refining || key !== "z")) {
         e.preventDefault();
         decide(decisionKeys[key]);
       }
@@ -489,10 +540,19 @@ export default function App() {
         {projectId && (
           <nav className="space-nav">
             <button
-              className={!portfolio ? "active" : ""}
+              className={!portfolio && !refining ? "active" : ""}
               onClick={() => changeSpace("pending")}
             >
-              初筛 <small>{pending.length}</small>
+              粗筛 <small>{pending.length}</small>
+            </button>
+            <button
+              className={refining ? "active" : ""}
+              onClick={() => changeSpace("refine")}
+            >
+              精筛{" "}
+              <small>
+                {initial.filter((p) => p.finalStatus === "unseen").length}
+              </small>
             </button>
             <button
               className={portfolio ? "active" : ""}
@@ -528,49 +588,49 @@ export default function App() {
         <main className="simple-workspace">
           <div className="simple-toolbar">
             <div className="view-heading">
-              {portfolio ? (
-                <>
-                  <h1>{collection?.name || "本次作品集"}</h1>
-                  <div className="tabs" role="tablist">
-                    {[
-                      ["final", "最终作品", final.length],
-                      ["initial", "初筛", initial.length],
-                    ].map(([key, label, count]) => (
-                      <button
-                        role="tab"
-                        aria-selected={tab === key}
-                        key={key}
-                        onClick={() => {
-                          setTab(key);
-                          setSelected([]);
-                          setFilters({});
-                          setQuery("");
-                        }}
-                      >
-                        {label}
-                        <small>{count}</small>
-                      </button>
-                    ))}
-                  </div>
-                </>
+              <h1>
+                {portfolio
+                  ? collection?.name || "作品集候选"
+                  : refining
+                    ? "精筛"
+                    : space === "history"
+                      ? "已粗筛"
+                      : "粗筛"}
+              </h1>
+              {refining ? (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setReviewed(!reviewed);
+                    setSelected([]);
+                  }}
+                >
+                  {reviewed ? "返回待精筛" : "已精筛"}
+                </button>
+              ) : portfolio ? (
+                <select
+                  aria-label="候选范围"
+                  value={candidateMode}
+                  onChange={(e) => setCandidateMode(e.target.value)}
+                >
+                  <option value="unassigned">未归入作品集</option>
+                  <option value="all">全部</option>
+                </select>
               ) : (
-                <>
-                  <h1>{space === "history" ? "已筛选" : "初筛"}</h1>
-                  <button
-                    className="text-button"
-                    onClick={() =>
-                      changeSpace(space === "history" ? "pending" : "history")
-                    }
-                  >
-                    {space === "history"
-                      ? "返回未筛选"
-                      : `已筛选 ${photos.length - pending.length}`}
-                  </button>
-                </>
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    changeSpace(space === "history" ? "pending" : "history")
+                  }
+                >
+                  {space === "history"
+                    ? "返回未筛选"
+                    : `已筛选 ${photos.length - pending.length}`}
+                </button>
               )}
             </div>
             <div className="toolbar-actions">
-              {portfolio && (
+              {(portfolio || refining) && (
                 <Button
                   disabled={!filtered.length}
                   onClick={() =>
@@ -585,7 +645,7 @@ export default function App() {
                   AI 分类
                 </Button>
               )}
-              {portfolio && (
+              {(portfolio || refining) && (
                 <Button
                   onClick={() => {
                     setTagPanel((v) => !v);
@@ -597,25 +657,16 @@ export default function App() {
               )}
               {portfolio ? (
                 <>
+                  <Button onClick={addCollection}>新建作品集</Button>
                   <Button
-                    primary
-                    icon={Expand}
-                    onClick={() => openReview()}
-                    disabled={!initial.length}
+                    icon={ImagePlus}
+                    onClick={() => setStudio(true)}
+                    disabled={!final.length}
                   >
-                    {selected.length ? "精筛所选" : "开始精筛"}
+                    拼图与导出
                   </Button>
-                  {tab === "final" && (
-                    <Button
-                      icon={ImagePlus}
-                      onClick={() => setStudio(true)}
-                      disabled={!final.length}
-                    >
-                      拼图与导出
-                    </Button>
-                  )}
                 </>
-              ) : (
+              ) : refining ? null : (
                 <>
                   <Button
                     primary
@@ -623,7 +674,7 @@ export default function App() {
                     onClick={() => openReview(selected[0])}
                     disabled={!filtered.length}
                   >
-                    开始初筛
+                    开始粗筛
                   </Button>
                   <Button
                     icon={Upload}
@@ -853,7 +904,6 @@ export default function App() {
               )}
               {portfolio && (
                 <>
-                  <Button onClick={addCollection}>新建作品集</Button>
                   <select
                     aria-label="加入作品集"
                     value=""
@@ -1009,7 +1059,16 @@ export default function App() {
           )}
           <div className="photo-workspace">
             <section className="photo-main">
-              {filtered.length ? (
+              {refining ? (
+                <Refine
+                  photos={filtered}
+                  selected={selected}
+                  onSelect={(id) => setSelected([id])}
+                  onDecide={decide}
+                  onUndo={undo}
+                  onComplete={() => changeSpace("portfolio")}
+                />
+              ) : filtered.length ? (
                 <VirtualGrid
                   items={items}
                   selected={selected}
@@ -1044,12 +1103,12 @@ export default function App() {
                       ? "导入照片"
                       : portfolio
                         ? tab === "final"
-                          ? "暂无最终作品"
-                          : "暂无初筛照片"
+                          ? "暂无作品集候选"
+                          : "暂无精筛照片"
                         : space === "pending"
                           ? pending.length
                             ? "没有匹配的照片"
-                            : "初筛已完成"
+                            : "粗筛已完成"
                           : "没有匹配的照片"}
                   </h2>
                   {!photos.length ? (
@@ -1059,7 +1118,7 @@ export default function App() {
                   ) : portfolio && tab === "final" ? (
                     <Button
                       primary
-                      onClick={() => openReview()}
+                      onClick={() => changeSpace("refine")}
                       disabled={
                         !initial.some((p) => p.finalStatus === "unseen")
                       }
@@ -1067,8 +1126,8 @@ export default function App() {
                       开始精筛
                     </Button>
                   ) : space === "pending" && !pending.length ? (
-                    <Button primary onClick={() => changeSpace("portfolio")}>
-                      查看作品集
+                    <Button primary onClick={() => changeSpace("refine")}>
+                      开始精筛
                     </Button>
                   ) : (
                     <Button
@@ -1083,7 +1142,7 @@ export default function App() {
                 </div>
               )}
             </section>
-            {portfolio && tagPanel && (
+            {(portfolio || refining) && tagPanel && (
               <TagsPanel
                 key={projectId}
                 projectId={projectId}
@@ -1161,7 +1220,7 @@ export default function App() {
               </aside>
             )}
           </div>
-          {!!selected.length && (
+          {!!selected.length && !refining && (
             <footer className="selection-bar">
               <span>已选 {selected.length}</span>
               {!portfolio || tab === "initial" ? (
@@ -1226,8 +1285,7 @@ export default function App() {
             setSelected(id && filtered.some((p) => p.id === id) ? [id] : []);
           }}
           onComplete={() => {
-            setSpace("portfolio");
-            setTab(immersive.round === "final" ? "final" : "initial");
+            changeSpace("refine");
             setFilters({});
             setQuery("");
             setSelected([]);

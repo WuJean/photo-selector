@@ -103,7 +103,8 @@ export function registerCuration(app, store) {
     const round = req.body.round || "initial";
     if (!["initial", "final"].includes(round)) throw new Error("筛选轮次无效");
     if ("status" in patch && round === "final") {
-      if (selected.some((p) => !inInitial(p))) throw new Error("请先完成初筛");
+      if (patch.status === "maybe") throw new Error("精筛只支持保留或不要");
+      if (selected.some((p) => !inInitial(p))) throw new Error("请先完成粗筛");
       patch[decisionField(round)] = patch.status;
       delete patch.status;
     }

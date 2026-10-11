@@ -32,7 +32,7 @@ export const STATUS_LABELS = {
 export const isAccepted = (value) => value === "keep" || value === "maybe";
 export const inInitial = (photo) => isAccepted(photo.status);
 export const inFinal = (photo) =>
-  inInitial(photo) && isAccepted(photo.finalStatus);
+  inInitial(photo) && photo.finalStatus === "keep";
 export const decisionField = (round) =>
   round === "final" ? "finalStatus" : "status";
 export const decisionKeys = { z: "maybe", x: "keep", c: "reject" };

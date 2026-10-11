@@ -43,7 +43,7 @@ async function seed(
     });
   if (final)
     await request.patch(`/api/projects/${p.id}/photos`, {
-      data: { ids, round: "final", patch: { status: "maybe" } },
+      data: { ids, round: "final", patch: { status: "keep" } },
     });
   return { ...p, ids };
 }
@@ -114,7 +114,7 @@ test("create before import, JPEG decoding, metadata filters and folding back", a
   await page.screenshot({ path: "test-results/library.png" });
 });
 
-test("list decisions and two immersive rounds advance, undo and preserve both spaces", async ({
+test("three stages advance without labels; refinement has two decisions and restores undo", async ({
   page,
   request,
 }) => {
@@ -125,88 +125,86 @@ test("list decisions and two immersive rounds advance, undo and preserve both sp
   await expect
     .poll(async () => (await saved(request, p))[0].status)
     .toBe("maybe");
-  await expect(page.locator(".photo-card")).toHaveCount(3);
+  await expect(page.locator(".photo-card.selected")).toHaveAttribute(
+    "aria-label",
+    "photo-1.jpg",
+  );
   await page.keyboard.press("Meta+z");
-  await expect(page.locator(".photo-card")).toHaveCount(4);
-  await page.keyboard.press("Space");
-  let modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
-  await expect(modal).toBeVisible();
-  await page.keyboard.press("Space");
-  await expect(modal).toHaveCount(0);
-  await page.keyboard.press("Space");
-  await expect(modal).toBeVisible();
-  await page.keyboard.press("z");
   await expect
     .poll(async () => (await saved(request, p))[0].status)
-    .toBe("maybe");
-  await expect
-    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
-    .toBe(p.ids[1]);
-  await page.keyboard.press("x");
-  await expect
-    .poll(async () => (await saved(request, p))[1].status)
-    .toBe("keep");
-  await expect
-    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
-    .toBe(p.ids[2]);
-  await page.keyboard.press("c");
-  await expect
-    .poll(async () => (await saved(request, p))[2].status)
-    .toBe("reject");
-  await expect
-    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
-    .toBe(p.ids[3]);
-  await page.keyboard.press("x");
-  await expect(modal.getByText("本轮已完成")).toBeVisible();
-  await modal.getByRole("button", { name: "查看初筛结果" }).click();
-  await expect(page.getByRole("tab", { name: /初筛/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
+    .toBe("unseen");
+  await expect(page.locator(".photo-card")).toHaveCount(4);
+  await expect(page.locator(".photo-card.selected")).toHaveAttribute(
+    "aria-label",
+    "photo-0.jpg",
   );
-  await expect(page.locator(".photo-card")).toHaveCount(3);
-  await page.getByRole("button", { name: /^作品集/ }).click();
-  await expect(page.getByRole("tab", { name: /最终作品/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await page.keyboard.press("Space");
   await expect(
-    page.getByRole("heading", { name: "暂无最终作品" }),
+    page.getByRole("dialog", { name: "沉浸选片", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "开始精筛", exact: true })
-    .first()
-    .click();
-  modal = page.getByRole("dialog", { name: "沉浸式精筛" });
-  await expect(modal).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.keyboard.press("z");
+  await expect(page.locator(".photo-card")).toHaveCount(3);
+  await expect(page.locator(".photo-card.selected")).toHaveAttribute(
+    "aria-label",
+    "photo-1.jpg",
+  );
+  await page.keyboard.press("x");
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await expect(page.locator(".photo-card.selected")).toHaveAttribute(
+    "aria-label",
+    "photo-2.jpg",
+  );
+  await page.getByRole("button", { name: /^精筛/ }).click();
+  const view = page.getByLabel("精筛照片", { exact: true });
+  await expect(view).toBeVisible();
+  await expect(view.getByRole("button", { name: /待定/ })).toHaveCount(0);
+  await page.keyboard.press("z");
+  expect((await saved(request, p))[0].finalStatus).toBe("unseen");
+  await page.route("**/photos", (r) =>
+    r.request().method() === "PATCH"
+      ? r.fulfill({ status: 500, json: { error: "测试保存失败" } })
+      : r.continue(),
+  );
+  await page.keyboard.press("x");
+  await expect(page.getByRole("status")).toContainText("测试保存失败");
+  await expect(view.locator(".focused")).toHaveAttribute(
+    "data-photo-id",
+    p.ids[0],
+  );
+  await page.unroute("**/photos");
+  await page.keyboard.press("x");
   await expect
     .poll(async () => (await saved(request, p))[0].finalStatus)
-    .toBe("maybe");
-  await expect
-    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
-    .toBe(p.ids[1]);
-  await page.keyboard.press("c");
-  await expect
-    .poll(async () => (await saved(request, p))[1].finalStatus)
-    .toBe("reject");
-  await expect
-    .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
-    .toBe(p.ids[3]);
+    .toBe("keep");
+  await expect(view.locator(".focused")).toHaveAttribute(
+    "data-photo-id",
+    p.ids[1],
+  );
+  await page.keyboard.press("Meta+z");
+  await expect(view.locator(".focused")).toHaveAttribute(
+    "data-photo-id",
+    p.ids[0],
+  );
   await page.keyboard.press("x");
-  await expect(modal.getByText("本轮已完成")).toBeVisible();
-  await modal.getByRole("button", { name: "查看最终作品" }).click();
-  await expect(page.locator(".photo-card")).toHaveCount(2);
-  await page.getByRole("tab", { name: /初筛/ }).click();
-  await expect(page.locator(".photo-card")).toHaveCount(3);
-  const result = await saved(request, p);
-  expect(result[1].status).toBe("keep");
+  await expect(view.locator(".focused")).toHaveAttribute(
+    "data-photo-id",
+    p.ids[1],
+  );
+  await page.keyboard.press("c");
+  await expect(page.getByText("当前范围已精筛", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "查看作品集候选", exact: true })
+    .click();
+  await expect(page.locator(".photo-card")).toHaveCount(1);
   await page.reload();
   await page.getByRole("button", { name: /^作品集/ }).click();
-  await expect(page.getByRole("tab", { name: /最终作品/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.getByRole("button", { name: /^精筛/ }).click();
+  await page.getByRole("button", { name: "已精筛", exact: true }).click();
+  await expect(page.locator(".refine-strip button")).toHaveCount(2);
+  await page.screenshot({ path: "test-results/refinement.png" });
 });
 
 test("similar carousel caps three clear photos, advances sequentially and ignores hover for decisions", async ({
@@ -216,7 +214,7 @@ test("similar carousel caps three clear photos, advances sequentially and ignore
   for (const count of [1, 2, 3, 4, 10]) {
     const p = await seed(request, count);
     await open(page, p);
-    await page.getByRole("button", { name: "开始初筛", exact: true }).click();
+    await page.getByRole("button", { name: "开始粗筛", exact: true }).click();
     const modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
     if (count > 1) {
       await expect(modal.locator(".similar-slot")).toHaveCount(2);
@@ -263,7 +261,7 @@ test("failed save never advances, input shortcuts are inert, fullscreen and undo
     true,
   );
   await page.getByLabel("搜索照片").fill("");
-  await page.getByRole("button", { name: "开始初筛", exact: true }).click();
+  await page.getByRole("button", { name: "开始粗筛", exact: true }).click();
   const modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
   await page.route("**/api/projects/*/photos", (r) =>
     r.request().method() === "PATCH"
@@ -390,10 +388,10 @@ test("manual tag chips classify initial photos, filter by multiple tags and pers
   page,
   request,
 }) => {
-  const p = await seed(request, 3, { group: false, initial: true });
+  const p = await seed(request, 3, { group: false, final: true });
   await open(page, p);
   await page.getByRole("button", { name: /^作品集/ }).click();
-  await page.getByRole("tab", { name: /初筛/ }).click();
+
   await page.locator(".photo-card").first().click();
   await page.getByRole("button", { name: "人工标签", exact: true }).click();
   const panel = page.getByLabel("人工标签", { exact: true });
@@ -515,7 +513,7 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
     });
     await open(page, p);
     await page.getByRole("button", { name: /^作品集/ }).click();
-    await page.getByRole("tab", { name: /初筛/ }).click();
+
     await page.getByRole("button", { name: "AI 分类", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "AI 分类", exact: true });
     await expect(dialog.getByText("需要添加其他常用标签吗？")).toBeVisible();
@@ -549,7 +547,7 @@ test("AI samples first, waits for vocabulary confirmation, then labels and chats
     ).toBe(true);
     expect((await saved(request, p))[0].excludedTags).toContain("雪山");
     await dialog.getByRole("button", { name: "返回作品集" }).click();
-    await page.getByRole("tab", { name: /最终作品/ }).click();
+
     await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
     const studio = page.getByRole("dialog", { name: "拼图工作室" });
     await studio.getByLabel("拼图模板").selectOption("rows");
@@ -583,6 +581,7 @@ test("custom collections reuse final photos, lock and reorder them without movin
     await (await request.get(`/api/projects/${p.id}/collections`)).json()
   )[0];
   await page.getByLabel("选择作品集").selectOption("");
+  await page.getByLabel("候选范围").selectOption("all");
   await expect(page.locator(".photo-card")).toHaveCount(3);
   await page.locator(".photo-card").nth(1).click();
   await page
@@ -608,7 +607,7 @@ test("custom collections reuse final photos, lock and reorder them without movin
     .toBe(p.ids[1]);
   expect(
     (await saved(request, p)).every(
-      (p) => p.status === "maybe" && p.finalStatus === "maybe",
+      (p) => p.status === "maybe" && p.finalStatus === "keep",
     ),
   ).toBe(true);
 });
