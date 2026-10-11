@@ -31,7 +31,8 @@ import {
   layoutRects,
   imagePlacement,
 } from "../../shared/layout.mjs";
-import { QUICK_PAIRINGS, randomPairing } from "../../shared/pairing.mjs";
+import PairingPresets from "./PairingPresets";
+import { randomPairing } from "../../shared/pairing.mjs";
 import { tagsOf, inFinal } from "../../shared/domain.mjs";
 
 async function download(url, body, name) {
@@ -387,16 +388,19 @@ export default function Studio({
         slots: draft.slots,
         requiredIds: collection?.lockedIds || [],
       });
-      if (result.unchanged) {
+      const nextTemplate =
+        typeof quickPreset === "object"
+          ? result.template
+          : TEMPLATES[draft.template].count === result.photoIds.length
+            ? draft.template
+            : result.template;
+      if (result.unchanged && nextTemplate === draft.template) {
         notify("当前范围只有这一组符合模板的组合");
         return;
       }
       change({
         ...draft,
-        template:
-          TEMPLATES[draft.template].count === result.photoIds.length
-            ? draft.template
-            : result.template,
+        template: nextTemplate,
         slots: result.photoIds.map(
           (id) =>
             draft.slots.find(
@@ -619,27 +623,11 @@ export default function Studio({
           )}
         </aside>
         <main className="studio-main">
-          <div className="quick-pairing">
-            <select
-              aria-label="快捷搭配模板"
-              value={quickPreset}
-              onChange={(e) => setQuickPreset(e.target.value)}
-            >
-              {Object.entries(QUICK_PAIRINGS).map(([id, p]) => (
-                <option key={id} value={id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button
-              className="button"
-              disabled={!!busy || !loaded || !!previousDraft}
-              onClick={quickShuffle}
-            >
-              <RefreshCw size={15} />
-              随机组合
-            </button>
-          </div>
+          <PairingPresets
+            onChange={setQuickPreset}
+            onShuffle={quickShuffle}
+            disabled={!!busy || !loaded || !!previousDraft}
+          />
           <div className="canvas-toolbar">
             <select
               aria-label="拼图模板"

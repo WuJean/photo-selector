@@ -1,4 +1,47 @@
 import { tagsOf, rankCandidates } from "./domain.mjs";
+import { DEFAULT_TAGS } from "./tags.mjs";
+import { TEMPLATES } from "./layout.mjs";
+export const PAIRING_SUBJECTS = DEFAULT_TAGS.filter(
+  (t) => t.category === "主体",
+).map((t) => t.name);
+export const PAIRING_SHOTS = DEFAULT_TAGS.filter(
+  (t) => t.category === "景别",
+).map((t) => t.name);
+export function validatePairingPreset(input) {
+  if (
+    !input ||
+    typeof input.name !== "string" ||
+    !input.name.trim() ||
+    input.name.trim().length > 60
+  )
+    throw new Error("模板名称应为 1–60 个字");
+  if (!["rows", "columns", "hero", "grid"].includes(input.template))
+    throw new Error("请选择三拼或四拼布局");
+  if (
+    !Array.isArray(input.roles) ||
+    input.roles.length !== TEMPLATES[input.template].count
+  )
+    throw new Error("格子数量与布局不一致");
+  const roles = input.roles.map((r, i) => {
+    for (const [key, allowed] of [
+      ["subject", PAIRING_SUBJECTS],
+      ["shot", PAIRING_SHOTS],
+    ])
+      if (
+        !r ||
+        !Array.isArray(r[key]) ||
+        r[key].length > 1 ||
+        r[key].some((v) => !allowed.includes(v))
+      )
+        throw new Error(`第 ${i + 1} 格的主体或景别无效`);
+    return {
+      subject: [...r.subject],
+      shot: [...r.shot],
+      label: [...r.subject, ...r.shot].join("") || "任意照片",
+    };
+  });
+  return { name: input.name.trim(), template: input.template, roles };
+}
 const role = (label, subject = [], shot = []) => ({ label, subject, shot });
 export const QUICK_PAIRINGS = {
   portrait_triptych: {
@@ -51,7 +94,12 @@ export function randomPairing(
   presetId,
   { slots = [], requiredIds = [], random = Math.random } = {},
 ) {
-  const preset = QUICK_PAIRINGS[presetId];
+  const preset =
+    typeof presetId === "string"
+      ? Object.hasOwn(QUICK_PAIRINGS, presetId)
+        ? QUICK_PAIRINGS[presetId]
+        : null
+      : validatePairingPreset(presetId);
   if (!preset) throw new Error("请选择快捷搭配模板");
   const byId = new Map(photos.map((p) => [p.id, p])),
     fixed = new Map();

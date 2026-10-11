@@ -3616,3 +3616,56 @@ a {
   max-width: 100%;
   flex: 1;
 }
+
+.pairing-editor {
+  margin: 0 12px 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #171b20;
+}
+.pairing-editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.pairing-editor label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.pairing-editor input,
+.pairing-editor select {
+  width: 100%;
+  min-width: 0;
+}
+.pairing-roles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+.pairing-role {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #20262c;
+}
+.pairing-role strong {
+  font-size: 12px;
+}
+.pairing-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.pairing-error {
+  padding: 10px 12px;
+  color: #ffb5a6;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

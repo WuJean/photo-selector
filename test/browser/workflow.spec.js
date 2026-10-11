@@ -982,11 +982,79 @@ test("quick composition presets randomly pair tagged photos, honor locks and wor
     await studio.getByRole("button", { name: "随机组合", exact: true }).click();
     const second = await images();
     expect(second).not.toEqual(first);
+    await studio.getByRole("button", { name: "新建模板", exact: true }).click();
+    const editor = studio.getByRole("form", { name: "自定义快捷模板" });
+    await editor.getByLabel("模板名称", { exact: true }).fill("我的旅行三拼");
+    await editor.getByLabel("快捷模板布局").selectOption("columns");
+    for (const [i, [subject, shot]] of [
+      ["人像", "近景"],
+      ["风景", "远景"],
+      ["人像", "远景"],
+    ].entries()) {
+      await editor.getByLabel(`第 ${i + 1} 格主体`).selectOption(subject);
+      await editor.getByLabel(`第 ${i + 1} 格景别`).selectOption(shot);
+    }
+    await page.screenshot({ path: "test-results/custom-pairing-editor.png" });
+    await editor.getByRole("button", { name: "保存模板", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    const customId = await studio.getByLabel("快捷搭配模板").inputValue();
+    await studio.getByRole("button", { name: "随机组合", exact: true }).click();
+    await expect(studio.getByLabel("拼图模板", { exact: true })).toHaveValue(
+      "columns",
+    );
+    const customFirst = await images();
+    expect(
+      customFirst.map((src) => library.find((p) => src.includes(p.id)).ai.tags),
+    ).toEqual(tagged);
+    await expect
+      .poll(async () =>
+        (
+          await (await request.get(`/api/projects/${p.id}/draft`)).json()
+        )?.slots.map((s) => s.photoId),
+      )
+      .toEqual(
+        customFirst.map((src) => library.find((p) => src.includes(p.id)).id),
+      );
+    await page.reload();
+    await page.getByRole("button", { name: /^作品集/ }).click();
+    await page.getByRole("button", { name: "拼图与导出", exact: true }).click();
+    await expect(studio.getByLabel("快捷搭配模板")).toHaveValue(customId);
+    await studio.getByRole("button", { name: "随机组合", exact: true }).click();
+    const customSecond = await images();
+    expect(customSecond).not.toEqual(customFirst);
+    expect(
+      customSecond.map(
+        (src) => library.find((p) => src.includes(p.id)).ai.tags,
+      ),
+    ).toEqual(tagged);
+    await expect
+      .poll(async () =>
+        studio
+          .locator(".story-slot img")
+          .evaluateAll((imgs) =>
+            imgs.every((i) => i.complete && i.naturalWidth > 0),
+          ),
+      )
+      .toBe(true);
+    await page.screenshot({ path: "test-results/custom-pairing.png" });
+    await studio.getByRole("button", { name: "编辑模板", exact: true }).click();
+    await editor.getByLabel("模板名称", { exact: true }).fill("旅行竖版三拼");
+    await editor.getByRole("button", { name: "保存模板", exact: true }).click();
+    await expect(
+      studio.getByLabel("快捷搭配模板").locator("option:checked"),
+    ).toHaveText("旅行竖版三拼");
+    await studio.getByRole("button", { name: "编辑模板", exact: true }).click();
+    await editor.getByRole("button", { name: "删除模板", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    await expect(studio.getByLabel("快捷搭配模板")).toHaveValue(
+      "portrait_triptych",
+    );
+    expect(await images()).toEqual(customSecond);
     await studio
       .getByRole("button", { name: "锁定当前拼图照片", exact: true })
       .click();
     await studio.getByRole("button", { name: "随机组合", exact: true }).click();
-    expect((await images())[0]).toBe(second[0]);
+    expect((await images())[0]).toBe(customSecond[0]);
     await studio.getByLabel("快捷搭配模板").selectOption("random_four");
     await studio.getByRole("button", { name: "随机组合", exact: true }).click();
     await expect(studio.locator(".story-slot img")).toHaveCount(4);

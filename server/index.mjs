@@ -8,6 +8,7 @@ import { registerCuration } from "./curation.mjs";
 import { registerAI } from "./ai.mjs";
 import { registerVocabulary } from "./vocabulary.mjs";
 import { registerTags } from "./tags.mjs";
+import { registerPairingPresets } from "./pairing-presets.mjs";
 import { registerExports } from "./exports.mjs";
 const root = path.resolve(process.env.PHOTO_SELECTOR_DATA_DIR || ".local");
 const native = new NativeBridge();
@@ -23,6 +24,7 @@ registerTags(app, store);
 const aiQueue = registerAI(app, store, native);
 registerVocabulary(app, store);
 registerExports(app, store, upload);
+registerPairingPresets(app, store);
 const generate = registerImageGeneration(app, store);
 const creations = registerCreations(app, store, { generate });
 app.get("/api/jobs", (req, res) =>
