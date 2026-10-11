@@ -119,6 +119,26 @@ export default function Settings({ onClose, notify }) {
         />
         启用 JSON 模式
       </label>
+      <div className="concurrency-settings">
+        {[
+          ["sampleConcurrency", "抽样并发", 4],
+          ["analysisConcurrency", "打标并发", 8],
+          ["serviceConcurrency", "服务总并发", 8],
+        ].map(([key, label, fallback]) => (
+          <label className="field" key={key}>
+            <span>{label}</span>
+            <input
+              type="number"
+              min="1"
+              max="16"
+              value={config[key] || fallback}
+              onChange={(e) =>
+                setConfig({ ...config, [key]: Number(e.target.value) })
+              }
+            />
+          </label>
+        ))}
+      </div>
       {status && (
         <div className="settings-result" role="status">
           {status}

@@ -110,6 +110,7 @@ test("sampling requires initial acceptance; confirmation gates full classificati
       baseURL: `http://127.0.0.1:${fixture.address().port}/v1`,
       model: "fixture",
       jsonMode: true,
+      analysisConcurrency: 1,
     });
     const p = store.project("vocabulary");
     const photos = [];

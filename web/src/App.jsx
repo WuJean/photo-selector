@@ -36,6 +36,7 @@ import Studio from "./Studio";
 import Settings from "./Settings";
 import TagsPanel from "./TagsPanel";
 import AIWizard from "./AIWizard";
+import TaskBar from "./TaskBar";
 import {
   filterPhotos,
   FOCAL_LABELS,
@@ -509,6 +510,12 @@ export default function App() {
           <Settings2 size={19} />
         </button>
       </header>
+      <TaskBar
+        jobs={jobs}
+        projectId={projectId}
+        refresh={refresh}
+        notify={notify}
+      />
       {!projectId ? (
         <main className="start-screen">
           <Camera size={40} />

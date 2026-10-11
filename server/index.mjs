@@ -22,7 +22,11 @@ const aiQueue = registerAI(app, store, native);
 registerVocabulary(app, store);
 registerExports(app, store, upload);
 app.get("/api/jobs", (req, res) =>
-  res.json({ local: local.state(), ai: aiQueue.state() }),
+  res.json({
+    local: local.state(),
+    ai: aiQueue.state(),
+    vocabulary: store.all("vocabularyJob").map(({ config, ...job }) => job),
+  }),
 );
 app.post("/api/local/:action", (req, res) => {
   if (req.params.action === "pause") local.pause();

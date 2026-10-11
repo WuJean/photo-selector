@@ -1,3 +1,4 @@
+import { scheduler, concurrency, workers } from "./scheduler.mjs";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { previewData } from "./images.mjs";
@@ -29,7 +30,15 @@ export function normalizeConfig(input = {}) {
     throw new Error("云端地址需要 HTTPS；本机服务可以使用 HTTP");
   const model = String(input.model || "").trim();
   if (!model) throw new Error("请填写支持图片输入的模型名称");
-  return { id: "ai", baseURL: base, model, jsonMode: input.jsonMode !== false };
+  return {
+    id: "ai",
+    baseURL: base,
+    model,
+    jsonMode: input.jsonMode !== false,
+    sampleConcurrency: concurrency(input.sampleConcurrency, 4),
+    analysisConcurrency: concurrency(input.analysisConcurrency, 8),
+    serviceConcurrency: concurrency(input.serviceConcurrency, 8),
+  };
 }
 export function endpoint(config) {
   return config.baseURL.endsWith("/chat/completions")
@@ -151,23 +160,40 @@ export class AIClient {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (signal?.aborted) throw new Error("任务已取消");
       try {
-        const response = await this.fetch(endpoint(this.config), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(this.key ? { Authorization: `Bearer ${this.key}` } : {}),
-          },
-          body: JSON.stringify({
-            model: this.config.model,
-            messages,
-            ...(this.config.jsonMode
-              ? { response_format: { type: "json_object" } }
-              : {}),
-          }),
-          signal: signal
-            ? AbortSignal.any([signal, AbortSignal.timeout(60_000)])
-            : AbortSignal.timeout(60_000),
-        });
+        const response = await scheduler.run(
+          this.config.baseURL,
+          concurrency(this.config.serviceConcurrency, 8),
+          signal,
+          () =>
+            this.fetch(endpoint(this.config), {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(this.key ? { Authorization: `Bearer ${this.key}` } : {}),
+              },
+              body: JSON.stringify({
+                model: this.config.model,
+                messages,
+                ...(this.config.jsonMode
+                  ? { response_format: { type: "json_object" } }
+                  : {}),
+              }),
+              signal: signal
+                ? AbortSignal.any([signal, AbortSignal.timeout(60_000)])
+                : AbortSignal.timeout(60_000),
+            }),
+        );
+        if (response.status === 429) {
+          const value = response.headers.get("retry-after");
+          const delay = Math.min(
+            60000,
+            Math.max(
+              500,
+              Number(value) * 1000 || Date.parse(value) - Date.now() || 1000,
+            ),
+          );
+          scheduler.limited(this.config.baseURL, delay);
+        } else if (response.ok) scheduler.success(this.config.baseURL);
         if (response.status === 401 || response.status === 403) {
           const error = new Error("API 认证失败，请检查密钥和服务地址");
           error.auth = true;
@@ -273,6 +299,7 @@ export class AIQueue {
     };
     this.job.paused = true;
     this.job.failedIds ||= [];
+    this.job.runningIds = [];
     this.persist();
   }
   persist() {
@@ -364,85 +391,93 @@ export class AIQueue {
   async drain() {
     if (this.running || this.job.paused) return;
     this.running = true;
+    const job = this.job,
+      claimed = new Set(),
+      controller = new AbortController();
+    this.abort = controller;
+    job.runningIds = [];
     try {
-      while (this.job.photoIds.length && !this.job.paused) {
-        const id = this.job.photoIds[0],
-          p = this.store.get("photo", id);
-        if (!p || !inInitial(p)) {
-          if (p)
-            this.store.put("photo", { ...p, aiStatus: p.ai ? "done" : "idle" });
-          this.job.photoIds.shift();
-          this.job.skipped++;
-          this.persist();
-          continue;
-        }
-        this.abort = new AbortController();
-        const config = this.job.config;
-        let client;
-        try {
-          client = new AIClient(config, await this.vault.get(config));
-          this.store.put("photo", {
-            ...this.store.get("photo", id),
-            aiStatus: "running",
-          });
-          const image = await previewData(this.store, id);
-          if (this.abort.signal.aborted) break;
-          if (!inInitial(this.store.get("photo", id))) {
-            const current = this.store.get("photo", id);
-            this.store.put("photo", {
-              ...current,
-              aiStatus: current.ai ? "done" : "idle",
-            });
-            this.job.skipped++;
-            this.job.photoIds.shift();
-            continue;
-          }
-          const ai = await client.analyze(image, {
-            signal: this.abort.signal,
-            vocabulary: this.job.vocabulary,
-          });
-          if (this.abort.signal.aborted) break;
-          const current = this.store.get("photo", id);
-          if (inInitial(current))
-            this.store.put("photo", {
-              ...current,
-              ai,
-              aiStatus: "done",
-              aiError: null,
-              aiSignature: signature(config, this.job.vocabulary),
-            });
-          else
-            this.store.put("photo", {
-              ...current,
-              aiStatus: current.ai ? "done" : "idle",
-            });
-          this.job.done++;
-        } catch (e) {
-          if (this.abort.signal.aborted) break;
-          this.store.put("photo", {
-            ...this.store.get("photo", id),
-            aiStatus: "error",
-            aiError: e.message,
-          });
-          if (e.auth) {
-            this.job.paused = true;
-            this.job.error = e.message;
+      await workers(
+        concurrency(job.config?.analysisConcurrency, 8),
+        () => {
+          if (job.paused || controller.signal.aborted) return null;
+          const id = job.photoIds.find((id) => !claimed.has(id));
+          if (id) {
+            claimed.add(id);
+            job.runningIds.push(id);
             this.persist();
-            break;
           }
-          this.job.errors++;
-          this.job.failedIds.push(id);
-        } finally {
-          if (client)
-            for (const key of ["prompt_tokens", "completion_tokens"])
-              this.job.usage[key] += client.usage[key];
-        }
-        this.job.photoIds.shift();
-        this.persist();
-      }
+          return id;
+        },
+        async (id) => {
+          let client,
+            completed = false;
+          try {
+            const p = this.store.get("photo", id);
+            if (!p || !inInitial(p)) {
+              job.skipped++;
+              completed = true;
+              return;
+            }
+            this.store.put("photo", { ...p, aiStatus: "running" });
+            const image = await previewData(this.store, id);
+            if (controller.signal.aborted) return;
+            client = new AIClient(job.config, await this.vault.get(job.config));
+            const ai = await client.analyze(image, {
+              signal: controller.signal,
+              vocabulary: job.vocabulary,
+            });
+            if (controller.signal.aborted) return;
+            const current = this.store.get("photo", id);
+            if (current && inInitial(current)) {
+              this.store.put("photo", {
+                ...current,
+                ai,
+                aiStatus: "done",
+                aiError: null,
+                aiSignature: signature(job.config, job.vocabulary),
+              });
+              job.done++;
+            } else {
+              if (current)
+                this.store.put("photo", {
+                  ...current,
+                  aiStatus: current.ai ? "done" : "idle",
+                });
+              job.skipped++;
+            }
+            completed = true;
+          } catch (e) {
+            if (controller.signal.aborted) return;
+            const current = this.store.get("photo", id);
+            if (current)
+              this.store.put("photo", {
+                ...current,
+                aiStatus: "error",
+                aiError: e.message,
+              });
+            if (e.auth) {
+              job.paused = true;
+              job.error = e.message;
+            } else {
+              job.errors++;
+              job.failedIds.push(id);
+              completed = true;
+            }
+          } finally {
+            if (client)
+              for (const key of ["prompt_tokens", "completion_tokens"])
+                job.usage[key] += client.usage[key];
+            job.runningIds = job.runningIds.filter((v) => v !== id);
+            if (completed) job.photoIds = job.photoIds.filter((v) => v !== id);
+            this.persist();
+          }
+        },
+      );
     } finally {
       this.running = false;
       this.abort = null;
+      job.runningIds = [];
       this.persist();
     }
   }
