@@ -255,7 +255,7 @@ try {
     await page.goto(`http://${host}:${port}`);
     await page.getByLabel("管理员密码").fill(password);
     await page.getByRole("button", { name: "登录", exact: true }).click();
-    const card = page.locator(".wall-card img").first();
+    const card = page.locator(".timeline-cover img").first();
     await card.waitFor();
     await card.evaluate((image) => image.decode());
     assert.ok(await card.evaluate((image) => image.naturalWidth > 0));

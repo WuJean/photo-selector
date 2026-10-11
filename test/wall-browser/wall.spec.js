@@ -40,9 +40,9 @@ test("login, upload, two decisions, independent portfolio and photo-wall downloa
   await page
     .getByLabel("加入作品集", { exact: true })
     .selectOption({ label: "旅途" });
-  await page.getByRole("button", { name: "照片墙", exact: true }).click();
-  const photo = page.getByRole("button", {
-    name: "查看 test.jpg",
+  await page.getByRole("button", { name: "时间线", exact: true }).click();
+  const photo = page.getByRole("link", {
+    name: "查看作品集 旅途",
     exact: true,
   });
   await expect(photo).toHaveCount(1);
@@ -51,6 +51,7 @@ test("login, upload, two decisions, independent portfolio and photo-wall downloa
   ).toHaveCount(0);
   await photo.locator("img").evaluate((el) => el.decode());
   await photo.click();
+  await page.locator(".wall-card").filter({ hasText: "test.jpg" }).dblclick();
   await expect(page.getByRole("dialog", { name: "查看照片" })).toBeVisible();
   const download = page.waitForEvent("download");
   await page
@@ -62,6 +63,8 @@ test("login, upload, two decisions, independent portfolio and photo-wall downloa
   await page.reload();
   await expect(photo).toHaveCount(1);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator(".gallery-masonry")).toHaveCSS("column-count", "2");
+  await expect(
+    page.locator(".timeline-entry").filter({ hasText: "旅途" }),
+  ).toHaveCount(1);
   await page.screenshot({ path: "test-results/wall-home.png" });
 });

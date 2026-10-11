@@ -1,29 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
 import PhotoImage from "./PhotoImage";
 import { photoURL } from "./api";
+import { collectionTimeline } from "../../shared/collections.mjs";
 export default function Gallery({ photos, collections, navigate, onOpen }) {
-  const members = new Set(collections.flatMap((c) => c.photoIds));
-  const ordered = photos
-    .filter((p) => members.has(p.id) && !p.deleted)
-    .sort(
-      (a, b) =>
-        String(b.takenAt || b.createdAt || "").localeCompare(
-          String(a.takenAt || a.createdAt || ""),
-        ) || a.id.localeCompare(b.id),
-    );
-  const [limit, setLimit] = useState(80);
+  const entries = collectionTimeline(collections, photos);
+  const [limit, setLimit] = useState(20);
   const more = useRef();
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting))
-          setLimit((n) => Math.min(ordered.length, n + 80));
+        if (entries.some((e) => e.isIntersecting)) setLimit((n) => n + 20);
       },
       { rootMargin: "600px" },
     );
     if (more.current) observer.observe(more.current);
     return () => observer.disconnect();
-  }, [ordered.length, limit]);
+  }, [entries.length, limit]);
   const link = (id, label) => (
     <a
       href={"#" + id}
@@ -39,37 +31,68 @@ export default function Gallery({ photos, collections, navigate, onOpen }) {
     <div className="gallery-page">
       <header className="wall-header gallery-header">
         <a className="gallery-brand" href="/">
-          我的照片墙
+          我的作品集
         </a>
         <nav>
           {link("collections", "作品集")}
           {link("work", "导入与筛选")}
         </nav>
       </header>
-      <main className="gallery-body">
-        <div className="gallery-masonry">
-          {ordered.slice(0, limit).map((p, i) => (
-            <button
-              className="gallery-photo"
-              key={p.id}
-              aria-label={"查看 " + p.name}
-              style={{ aspectRatio: `${p.width || 4}/${p.height || 3}` }}
-              onClick={() => onOpen({ photos: ordered, index: i })}
+      <main className="album-timeline">
+        {entries.slice(0, limit).map(({ collection: c, cover, date }) => (
+          <article className="timeline-entry" key={c.id}>
+            <div className="timeline-date">
+              <span className="timeline-dot" />
+              <time dateTime={date || undefined}>
+                {date ? date.replaceAll("-", ".") : "未设时间"}
+              </time>
+            </div>
+            <a
+              className="timeline-album"
+              href={"#collection-" + c.id}
+              aria-label={"查看作品集 " + c.name}
+              onClick={(e) => {
+                e.preventDefault();
+                onOpen(c.id);
+              }}
             >
-              <PhotoImage
-                quiet
-                src={photoURL(p.id, "preview")}
-                alt={p.name}
-                loading="lazy"
-              />
-              <span className="gallery-unavailable">照片暂不可用</span>
-            </button>
-          ))}
-        </div>
-        {!ordered.length && (
+              <div
+                className="timeline-cover"
+                style={
+                  cover
+                    ? {
+                        aspectRatio: `${cover.width || 4}/${cover.height || 3}`,
+                      }
+                    : undefined
+                }
+              >
+                {cover ? (
+                  <PhotoImage
+                    quiet
+                    unavailable
+                    src={photoURL(cover.id, "preview")}
+                    alt={c.name + "封面"}
+                    loading="lazy"
+                  />
+                ) : (
+                  <span className="timeline-empty-cover">尚无照片</span>
+                )}
+              </div>
+              <div className="timeline-caption">
+                <h2>{c.name}</h2>
+                {c.location && (
+                  <span className="timeline-location">{c.location}</span>
+                )}
+                {c.poem && <blockquote>{c.poem}</blockquote>}
+                {c.description && <p>{c.description}</p>}
+              </div>
+            </a>
+          </article>
+        ))}
+        {!entries.length && (
           <div className="gallery-empty">{link("work", "前往导入与筛选")}</div>
         )}
-        {limit < ordered.length && (
+        {limit < entries.length && (
           <div ref={more} className="gallery-sentinel" />
         )}
       </main>

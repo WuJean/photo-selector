@@ -1,3 +1,4 @@
+import { collectionDetails } from "../shared/collections.mjs";
 import { hamming } from "./analysis.mjs";
 import { focalCategory } from "../shared/domain.mjs";
 import { randomUUID } from "node:crypto";
@@ -314,7 +315,7 @@ export function registerLibrary(
         id: randomUUID(),
         projectId: LIBRARY,
         name: String(req.body.name || "未命名作品集").slice(0, 120),
-        description: "",
+        ...collectionDetails(req.body),
         photoIds: [],
         lockedIds: [],
         createdAt: timestamp(),
@@ -334,10 +335,7 @@ export function registerLibrary(
     const value = {
       ...old,
       name: String(req.body.name ?? old.name).slice(0, 120),
-      description: String(req.body.description ?? old.description).slice(
-        0,
-        4000,
-      ),
+      ...collectionDetails(req.body, old),
       photoIds: ids,
       coverId: ids.includes(req.body.coverId)
         ? req.body.coverId

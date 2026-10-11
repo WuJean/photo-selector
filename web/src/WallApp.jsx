@@ -63,7 +63,7 @@ function Login({ onLogin }) {
         }}
       >
         <Camera size={32} />
-        <h1>我的照片墙</h1>
+        <h1>我的作品集</h1>
         <label className="field">
           管理员密码
           <input
@@ -223,7 +223,7 @@ function FirstPassword({ onChanged }) {
         </label>
         {error && <p role="alert">{error}</p>}
         <Button primary type="submit" disabled={busy}>
-          保存并进入照片墙
+          保存并进入作品集
         </Button>
       </form>
     </main>
@@ -599,7 +599,12 @@ function Workspace({ onLogout }) {
           photos={photos}
           collections={collections}
           navigate={setPage}
-          onOpen={setViewer}
+          onOpen={(id) => {
+            setCollectionId(id);
+            setFilters({});
+            setMode("photos");
+            setPage("collections");
+          }}
         />
         {viewer && (
           <Viewer
@@ -615,11 +620,11 @@ function Workspace({ onLogout }) {
       <header className="wall-header">
         <a className="wall-brand" href="/">
           <Camera size={22} />
-          我的照片墙
+          我的作品集
         </a>
         <nav>
           {[
-            ["wall", "照片墙"],
+            ["wall", "时间线"],
             ["collections", "作品集"],
             ["work", "导入与筛选"],
           ].map(([id, title]) => (

@@ -15,12 +15,23 @@ export function PortfolioTools({
   setMode,
 }) {
   const [description, setDescription] = useState(""),
+    [location, setLocation] = useState(""),
+    [date, setDate] = useState(""),
+    [poem, setPoem] = useState(""),
     [ratio, setRatio] = useState("3:4"),
     [busy, setBusy] = useState(false);
-  useEffect(
-    () => setDescription(collection?.description || ""),
-    [collection?.id, collection?.description],
-  );
+  useEffect(() => {
+    setDescription(collection?.description || "");
+    setLocation(collection?.location || "");
+    setDate(collection?.date || "");
+    setPoem(collection?.poem || "");
+  }, [
+    collection?.id,
+    collection?.description,
+    collection?.location,
+    collection?.date,
+    collection?.poem,
+  ]);
   const perform = async (fn) => {
     setBusy(true);
     try {
@@ -110,7 +121,7 @@ export function PortfolioTools({
                   perform(async () => {
                     await api(
                       `/projects/${projectId}/collections/${collection.id}`,
-                      json("PUT", { description }),
+                      json("PUT", { description, location, date, poem }),
                     );
                     await api(
                       `/projects/${projectId}/collections/${collection.id}/create`,
@@ -128,22 +139,62 @@ export function PortfolioTools({
         )}
       </div>
       {collection && (
-        <textarea
-          aria-label="作品集描述"
-          placeholder="作品集描述"
-          value={description}
-          maxLength={4000}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={() => {
-            if (description !== (collection.description || ""))
-              perform(() =>
-                api(
+        <details className="collection-details">
+          <summary>编辑作品集信息</summary>
+          <div className="collection-details-fields">
+            <label>
+              地点
+              <input
+                aria-label="作品集地点"
+                value={location}
+                maxLength={200}
+                onChange={(e) => setLocation(e.target.value)}
+              />
+            </label>
+            <label>
+              时间（留空使用照片时间）
+              <input
+                type="date"
+                aria-label="作品集时间"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </label>
+            <label className="wide">
+              一句诗
+              <input
+                aria-label="作品集一句诗"
+                value={poem}
+                maxLength={300}
+                onChange={(e) => setPoem(e.target.value)}
+              />
+            </label>
+            <label className="wide">
+              描述
+              <textarea
+                aria-label="作品集描述"
+                value={description}
+                maxLength={4000}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </label>
+          </div>
+          <button
+            className="button"
+            disabled={busy}
+            onClick={() =>
+              perform(async () => {
+                await api(
                   `/projects/${projectId}/collections/${collection.id}`,
-                  json("PUT", { description }),
-                ),
-              );
-          }}
-        />
+                  json("PUT", { description, location, date, poem }),
+                );
+                notify("作品集信息已保存");
+              })
+            }
+          >
+            保存作品集信息
+          </button>
+        </details>
       )}
     </section>
   );

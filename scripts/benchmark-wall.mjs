@@ -56,7 +56,7 @@ try {
   await page
     .getByLabel("确认新密码", { exact: true })
     .fill("benchmark-personal-password");
-  await page.getByRole("button", { name: "保存并进入照片墙" }).click();
+  await page.getByRole("button", { name: "保存并进入作品集" }).click();
   await page.locator(".wall-header").waitFor();
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
@@ -141,20 +141,42 @@ try {
   }, count);
   const start = performance.now();
   await page.reload();
-  await page.locator(".wall-card img").first().waitFor();
+  await page.locator(".timeline-cover img").first().waitFor();
+  await page.waitForFunction(() => {
+    const img = document.querySelector(".timeline-cover img");
+    return img?.complete && img.naturalWidth > 0;
+  });
   await page
-    .locator(".wall-card img")
+    .locator(".timeline-cover img")
     .first()
     .evaluate((img) => img.decode());
   result.refreshFirstImageMs = Math.round(performance.now() - start);
+  result.timelineCovers = await page.locator(".timeline-cover").count();
+  await page
+    .getByRole("link", { name: "查看作品集 3000 张性能作品集" })
+    .click();
+  await page.locator(".wall-card").first().waitFor();
   result.initialDOMCards = await page.locator(".wall-card").count();
   const scrollStart = performance.now();
   await page.mouse.wheel(0, 1800);
   await page.waitForTimeout(250);
-  if (count > 100) await page.getByRole("button", { name: /加载更多/ }).click();
+  if (count > 100) {
+    await page.getByRole("button", { name: "加载更多", exact: true }).click();
+    await page.waitForFunction(
+      () => document.querySelectorAll(".wall-card").length > 100,
+    );
+  }
   result.expandedDOMCards = await page.locator(".wall-card").count();
   result.scrollLoadMs = Math.round(performance.now() - scrollStart);
   await mkdir(".local/wall-benchmark", { recursive: true });
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll(".wall-card img")]
+      .filter((img) => {
+        const rect = img.getBoundingClientRect();
+        return rect.bottom > 72 && rect.top < innerHeight;
+      })
+      .every((img) => img.complete && img.naturalWidth > 0),
+  );
   await page.screenshot({
     path: `.local/wall-benchmark/${count}-wall.png`,
     fullPage: false,

@@ -1,3 +1,4 @@
+import { collectionDetails } from "../shared/collections.mjs";
 import { randomUUID } from "node:crypto";
 import {
   focalCategory,
@@ -202,7 +203,7 @@ export function registerCuration(app, store) {
       id: randomUUID(),
       projectId: req.params.id,
       name: String(req.body.name || "新的作品集").slice(0, 80),
-      description: String(req.body.description ?? "").slice(0, 4000),
+      ...collectionDetails(req.body),
       photoIds: [...new Set(ids)],
       lockedIds: [],
     };
@@ -225,10 +226,7 @@ export function registerCuration(app, store) {
     const value = {
       ...old,
       name: String(req.body.name || old.name).slice(0, 80),
-      description: String(req.body.description ?? old.description ?? "").slice(
-        0,
-        4000,
-      ),
+      ...collectionDetails(req.body, old),
       photoIds: [...new Set(ids)],
       lockedIds: [...new Set(locks)].filter((id) => ids.includes(id)),
     };

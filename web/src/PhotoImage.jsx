@@ -1,8 +1,14 @@
 import { resolveMedia } from "./local-media";
 import React, { useEffect, useRef, useState } from "react";
 
-export default function PhotoImage({ src, quiet = false, ...props }) {
+export default function PhotoImage({
+  src,
+  quiet = false,
+  unavailable = false,
+  ...props
+}) {
   const [attempt, setAttempt] = useState(0);
+  const [loadedURL, setLoadedURL] = useState("");
   const [resolved, setResolved] = useState("");
   useEffect(() => {
     if (!src?.startsWith("local-photo://")) return;
@@ -65,9 +71,22 @@ export default function PhotoImage({ src, quiet = false, ...props }) {
       <img
         {...props}
         src={url || undefined}
+        style={{
+          ...props.style,
+          visibility:
+            quiet && (!url || loadedURL !== url)
+              ? "hidden"
+              : props.style?.visibility,
+        }}
         onError={diagnose}
-        onLoad={() => setError("")}
+        onLoad={() => {
+          setError("");
+          setLoadedURL(url);
+        }}
       />
+      {error && quiet && unavailable && (
+        <span className="gallery-unavailable">照片暂不可用</span>
+      )}
       {error && !quiet && (
         <span
           className="image-error"

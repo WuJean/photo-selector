@@ -15,10 +15,10 @@ test("first login cannot bypass password change; chosen password restores access
   await page
     .getByLabel("确认新密码", { exact: true })
     .fill("mismatch-password-123");
-  await page.getByRole("button", { name: "保存并进入照片墙" }).click();
+  await page.getByRole("button", { name: "保存并进入作品集" }).click();
   await expect(page.getByRole("alert")).toHaveText("两次密码不一致");
   await page.getByLabel("确认新密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "保存并进入照片墙" }).click();
+  await page.getByRole("button", { name: "保存并进入作品集" }).click();
   await expect(page.locator(".wall-header")).toBeVisible();
   await page.reload();
   await expect(page.locator(".wall-header")).toBeVisible();

@@ -453,35 +453,111 @@
 .gallery-header nav {
   gap: 28px;
 }
-.gallery-body {
-  padding: 8px 3vw 40px;
-  max-width: 2100px;
+
+.album-timeline {
+  max-width: 1040px;
   margin: auto;
+  padding: 48px 32px 100px;
 }
-.gallery-masonry {
-  columns: 4;
-  column-gap: 10px;
+.timeline-entry {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 32px;
+  position: relative;
+  padding: 0 0 80px;
 }
-.gallery-photo {
-  display: block;
+.timeline-entry::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 10px;
+  bottom: -10px;
+  width: 1px;
+  background: #33332f;
+}
+.timeline-entry:last-of-type::before {
+  bottom: 80px;
+}
+.timeline-date {
+  display: flex;
+  align-items: center;
+  align-self: start;
+  gap: 18px;
+  color: #aaa69d;
+  font-size: 13px;
+  letter-spacing: 1px;
+  padding-top: 3px;
+}
+.timeline-dot {
+  width: 7px;
+  height: 7px;
+  background: #b9ac92;
+  border-radius: 50%;
+  margin-left: 6px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.timeline-album {
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+.timeline-cover {
   position: relative;
   width: 100%;
+  max-height: 480px;
+  min-height: 120px;
+  background: #191919;
+  overflow: hidden;
+}
+.timeline-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.timeline-empty-cover {
+  display: grid;
+  place-items: center;
+  height: 160px;
+  color: #696962;
+  font-size: 13px;
+}
+.timeline-caption {
+  padding-top: 24px;
+}
+.timeline-caption h2 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: 2px;
+}
+.timeline-location {
+  color: #a5a096;
+  font-size: 12px;
+  letter-spacing: 2px;
+}
+.timeline-caption blockquote {
+  margin: 22px 0 14px;
   padding: 0;
   border: 0;
-  border-radius: 0;
-  background: #191919;
-  margin: 0 0 10px;
-  break-inside: avoid;
-  overflow: hidden;
-  cursor: zoom-in;
+  font-family: "Songti SC", "Noto Serif CJK SC", serif;
+  color: #d8c9ae;
+  font-size: 21px;
+  line-height: 1.8;
+  white-space: pre-wrap;
 }
-.gallery-photo img {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  height: auto;
-  display: block;
-  object-fit: contain;
+.timeline-caption p {
+  color: #8e8c85;
+  font-size: 13px;
+  line-height: 1.9;
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.timeline-album:focus-visible {
+  outline: 1px solid #b9ac92;
+  outline-offset: 8px;
 }
 .gallery-unavailable {
   position: absolute;
@@ -490,10 +566,6 @@
   place-items: center;
   color: #777;
   font-size: 12px;
-}
-.gallery-photo:focus-visible {
-  outline: 2px solid #ccc;
-  outline-offset: 2px;
 }
 .gallery-empty {
   height: 60vh;
@@ -507,28 +579,70 @@
 .gallery-sentinel {
   height: 1px;
 }
-@media (max-width: 1200px) {
-  .gallery-masonry {
-    columns: 3;
-  }
+.collection-details {
+  width: 100%;
+}
+.collection-details summary {
+  cursor: pointer;
+  color: #bbb;
+  padding: 8px 0;
+}
+.collection-details-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 0;
+}
+.collection-details-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #aaa;
+  font-size: 12px;
+}
+.collection-details-fields input {
+  width: 100%;
+}
+.collection-details .wide {
+  grid-column: 1 / -1;
 }
 @media (max-width: 700px) {
-  .gallery-masonry {
-    columns: 2;
-    column-gap: 7px;
-  }
-  .gallery-photo {
-    margin-bottom: 7px;
-  }
-  .gallery-header nav {
-    gap: 14px;
-  }
   .gallery-header {
     padding: 0 16px;
     height: 64px;
   }
-  .gallery-body {
-    padding: 0 10px 24px;
+  .gallery-header nav {
+    gap: 16px;
+  }
+  .album-timeline {
+    padding: 28px 18px 60px;
+  }
+  .timeline-entry {
+    display: block;
+    padding: 0 0 52px 24px;
+  }
+  .timeline-entry::before {
+    left: 3px;
+  }
+  .timeline-entry:last-of-type::before {
+    bottom: 52px;
+  }
+  .timeline-date {
+    padding: 0 0 18px;
+    margin-left: -24px;
+    gap: 17px;
+  }
+  .timeline-dot {
+    margin-left: 0;
+  }
+  .timeline-caption {
+    padding-top: 18px;
+  }
+  .timeline-caption h2 {
+    font-size: 23px;
+  }
+  .timeline-caption blockquote {
+    font-size: 19px;
   }
 }
 
