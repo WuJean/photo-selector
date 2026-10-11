@@ -38,6 +38,7 @@ test("share a local portfolio to an independent visitor and revoke all access", 
   await other.getByRole("button", { name: "查看作品集", exact: true }).click();
   await expect(other.getByRole("heading", { name: "独立分享" })).toBeVisible();
   await other.locator(".wall-photo img").evaluate((el) => el.decode());
+  await other.screenshot({ path: "test-results/public-share.png" });
   const downloads = other.waitForEvent("download");
   await other.getByRole("link", { name: "下载整组" }).click();
   expect((await downloads).suggestedFilename()).toContain(".zip");

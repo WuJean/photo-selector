@@ -5,9 +5,7 @@ export async function login(page) {
   await page.goto("/");
   await page.getByLabel("管理员密码").fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "每一张，值得留下" }),
-  ).toBeVisible();
+  await expect(page.locator(".wall-header")).toBeVisible();
 }
 export async function jpeg(color = "#93a989") {
   return sharp({

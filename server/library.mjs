@@ -14,18 +14,29 @@ export function requireItem(store, kind, id) {
 export function entries(store, batchId) {
   return store.all("entry").filter((e) => e.batchId === batchId);
 }
-export function reconcile(store, id) {
-  const p = requireItem(store, "photo", id);
-  const list = store.all("entry").filter((e) => e.assetId === id && !e.cleaned);
-  const collected = store
-    .all("collection")
-    .some((c) => c.photoIds.includes(id));
-  const final = collected || p.direct || list.some(inFinal);
-  return store.put("photo", {
-    ...p,
-    status: final || list.some(inInitial) ? "keep" : "unseen",
-    finalStatus: final ? "keep" : "unseen",
+export function reconcileMany(store, ids) {
+  const decisions = new Map();
+  for (const e of store.all("entry")) {
+    if (e.cleaned) continue;
+    const value = decisions.get(e.assetId) || { initial: false, final: false };
+    value.initial ||= inInitial(e);
+    value.final ||= inFinal(e);
+    decisions.set(e.assetId, value);
+  }
+  const collected = new Set(store.all("collection").flatMap((c) => c.photoIds));
+  return [...new Set(ids)].map((id) => {
+    const p = requireItem(store, "photo", id),
+      choice = decisions.get(id),
+      final = collected.has(id) || p.direct || choice?.final;
+    return store.put("photo", {
+      ...p,
+      status: final || choice?.initial ? "keep" : "unseen",
+      finalStatus: final ? "keep" : "unseen",
+    });
   });
+}
+export function reconcile(store, id) {
+  return reconcileMany(store, [id])[0];
 }
 export function publicAsset(store, p) {
   return { ...store.publicPhoto(p), hash: p.hash };
@@ -246,9 +257,8 @@ export function registerLibrary(
       batch.state === "completed"
     )
       throw new Error("该阶段已完成，不能撤销已清理的照片");
-    const selected = [...new Set(ids)].map((id) =>
-      entries(store, batch.id).find((e) => e.assetId === id),
-    );
+    const own = new Map(entries(store, batch.id).map((e) => [e.assetId, e]));
+    const selected = [...new Set(ids)].map((id) => own.get(id));
     if (
       selected.some(
         (e) => !e || e.cleaned || (round === "final" && !inInitial(e)),
@@ -267,8 +277,11 @@ export function registerLibrary(
           ...e,
           [round === "final" ? "finalStatus" : "status"]: status,
         });
-        reconcile(store, e.assetId);
       }
+      reconcileMany(
+        store,
+        selected.map((e) => e.assetId),
+      );
     });
     res.json({ ok: true });
   });
@@ -283,8 +296,11 @@ export function registerLibrary(
     store.transaction(() => {
       for (const e of last.entries) {
         store.put("entry", e);
-        reconcile(store, e.assetId);
       }
+      reconcileMany(
+        store,
+        last.entries.map((e) => e.assetId),
+      );
       store.remove("batchUndo", last.id);
     });
     res.json({ ok: true, ids: last.entries.map((e) => e.assetId) });
@@ -329,7 +345,10 @@ export function registerLibrary(
           ? old.coverId
           : ids[0] || null,
     };
-    store.put("collection", value);
+    store.transaction(() => {
+      store.put("collection", value);
+      reconcileMany(store, [...old.photoIds, ...ids]);
+    });
     res.json(value);
   });
 }

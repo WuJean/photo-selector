@@ -353,3 +353,18 @@
 .creation-gallery img {
   max-width: 100%;
 }
+.collection-cover {
+  width: 48px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 5px;
+  vertical-align: middle;
+  margin-right: 10px;
+}
+.viewer-image {
+  touch-action: none;
+  cursor: grab;
+}
+.viewer-image:active {
+  cursor: grabbing;
+}

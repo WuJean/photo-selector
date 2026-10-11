@@ -85,7 +85,6 @@ export function registerShares(app, store, upload) {
   });
   app.post("/api/collections/:id/shares", (req, res) => {
     const c = requireItem(store, "collection", req.params.id);
-    if (!c.photoIds.length) throw new Error("作品集没有照片");
     const mode = req.body.download || "display";
     if (!["none", "display", "original"].includes(mode))
       throw new Error("下载权限无效");
@@ -108,6 +107,7 @@ export function registerShares(app, store, upload) {
         text: v.kind === "copy" ? v.text : "",
         file: v.file || null,
       }));
+    if (!photos.length && !creations.length) throw new Error("作品集为空");
     const s = {
       id: randomUUID(),
       token: randomBytes(32).toString("base64url"),
@@ -236,19 +236,17 @@ export function registerShares(app, store, upload) {
   app.get("/api/public/shares/:token", (req, res) => {
     const s = valid(req.params.token);
     authorize(req, s);
-    res
-      .set("Cache-Control", "no-store")
-      .json({
-        name: s.name,
-        description: s.description,
-        photos: s.photos,
-        creations: s.creations.map(({ file, ...c }) => ({
-          ...c,
-          hasImage: !!file,
-        })),
-        download: s.download,
-        expiresAt: s.expiresAt,
-      });
+    res.set("Cache-Control", "no-store").json({
+      name: s.name,
+      description: s.description,
+      photos: s.photos,
+      creations: s.creations.map(({ file, ...c }) => ({
+        ...c,
+        hasImage: !!file,
+      })),
+      download: s.download,
+      expiresAt: s.expiresAt,
+    });
   });
   app.get("/api/public/shares/:token/photos/:id/:variant", (req, res) => {
     const s = valid(req.params.token);

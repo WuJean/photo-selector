@@ -14,7 +14,7 @@ cd photo-selector
 
 仓库为私有，克隆需要有访问权限的 GitHub 账号。Windows 在 WSL 中执行脚本，或在项目目录执行 `docker compose up -d --build --wait`。
 
-成功后打开 **http://localhost:4173**，也支持 **http://127.0.0.1:4173**。创建项目、上传 JPEG，然后按粗筛 → 精筛 → 作品集使用。图片理解和图片生成在网页“设置”中分别配置，未配置 AI 也可选片、手动拼图和导出。
+成功后打开 **http://localhost:4173**，也支持 **http://127.0.0.1:4173**。先使用数据目录中的初始密码登录，再连接电脑文件夹或导入 JPEG。首页是照片墙，筛选在「导入与筛选」中进行。图片理解和图片生成在网页“设置”中分别配置，未配置 AI 也可选片、手动拼图和导出。
 
 脚本会检查 Docker、构建镜像、启动服务并等待健康检查。反复执行会更新当前部署，数据卷保留。没有发布公共镜像，构建使用当前检出的源码。
 
@@ -59,7 +59,7 @@ Compose 已配置该主机名，Linux 也会映射到主机网关。模型服务
 
 ## 部署到远程服务器
 
-应用没有登录系统，也没有多用户数据隔离。推荐在服务器保留默认回环监听，并通过 SSH 隧道使用：
+应用有单管理员登录；管理接口和私有图片均需会话。个人远程使用可保留默认回环监听，并通过 SSH 隧道访问：
 
 ```sh
 ssh -N -L 4173:127.0.0.1:4173 your-user@your-server
@@ -67,7 +67,7 @@ ssh -N -L 4173:127.0.0.1:4173 your-user@your-server
 
 然后在本机打开 http://localhost:4173。若本机端口不同，服务器的 `PHOTO_SELECTOR_PUBLIC_URL` 也应改为对应的本机访问地址。
 
-需要域名访问时，使用带登录验证的 HTTPS 反向代理，并设置：
+需要域名访问时，使用 HTTPS 反向代理，并设置：
 
 ```dotenv
 PHOTO_SELECTOR_PUBLIC_URL=https://photos.example.com
@@ -75,7 +75,7 @@ PHOTO_SELECTOR_PUBLIC_URL=https://photos.example.com
 
 主机上的反向代理转发至 `127.0.0.1:4173`，保留原始 `Host` 和 `Origin`；不要把浏览器地址改写成容器地址。上传请求最大一次 20 张、单张 100 MB，代理请求体上限和超时需容纳实际批次；文案和 AI 搭配请求应允许等待至少 3 分钟。容器部署的反向代理需另行配置共享网络。
 
-`PHOTO_SELECTOR_BIND=0.0.0.0` 可开放主机网卡，但不会自动添加登录保护。不要直接把未保护的应用端口暴露到公网。
+分享给他人时，需要可访问的 HTTPS 域名，并设置同一个 `PHOTO_SELECTOR_PUBLIC_URL`；文件夹 API 在普通远程 HTTP 下不可用。代理保留管理登录和分享页面各自的权限边界。默认仍只绑定回环地址。
 
 ## 日常管理
 
@@ -121,9 +121,32 @@ PHOTO_SELECTOR_VOLUME=photo-selector-restored docker compose run --rm --no-deps 
 
 把 `.env` 中 `PHOTO_SELECTOR_VOLUME` 改为 `photo-selector-restored`，再执行 `./deploy.sh`。原数据卷仍保留，可切回。备份恢复必须同时包含 `secrets/master.key` 和 `secrets/credentials.enc`；损坏或缺失时服务会报错，不会默默覆盖凭据。
 
-### 迁移原先 Node.js 运行的照片库
+### 本轮升级：显式清空旧业务数据
 
-先停止原来的服务并备份 `.local/`（或原先 `PHOTO_SELECTOR_DATA_DIR` 指定目录）。将该目录的**内容**打包，按上面的新卷恢复流程导入。照片路径由新的数据目录重新解析。Mac 钥匙串中的 API Key 不在备份中，迁移后需要在新网页重新填写；不要同时运行两个实例写同一个目录。
+本轮不迁移旧项目、照片或作品集。使用新版镜像后，仅对当前部署运行一次下列操作；它保留服务设置、管理员、会话、保存的模板及凭据，不删除电脑源文件，也不触碰微信数据。**这是不可撤销的清理，先确认当前数据卷就是要重置的部署。**
+
+```sh
+docker compose build web
+docker compose stop web
+docker compose run --rm --no-deps -T web node server/reset-library.mjs --confirm
+docker compose up -d --wait
+```
+
+本机 Node 运行时，先停止进程，再用其相同 `PHOTO_SELECTOR_DATA_DIR` 执行 `node server/reset-library.mjs --confirm`。脚本不会在每次启动时执行，不读取数据库中的外部源路径，不跟随照片目录符号链接。若进程中断留下 `.reset-in-progress`，确认没有重置进程后移除这个标记，再重试。
+
+### 登录和本地目录
+
+初次启动生成随机管理员密码，以 600 权限存放；数据库只存密码哈希。读取：
+
+```sh
+docker compose exec -T web cat /data/admin-initial-password
+```
+
+在网页设置修改密码后该初始文件会删除，旧会话全部失效。HTTPS 配置下 Cookie 为 Secure，所有会话为 HttpOnly、SameSite=Strict。
+
+电脑文件夹授权属于浏览器和访问地址。`localhost` 与 `127.0.0.1` 的 IndexedDB 不共享；更换地址后点「重新连接文件夹」。支持桌面 Chrome／Edge 的目录访问 API，服务端无法读取你的电脑路径。服务器备份包含照片资料、上传照片和分享副本，**不包含电脑文件夹原片与浏览器授权**；电脑照片请自行备份。
+
+普通上传会在服务器保留原片；网络导入先中转到服务器，保存电脑并校验通过后回收中转。分享在线副本保留到撤销或过期。清理不会删正在被引用的照片。
 
 ## 故障处理
 
@@ -132,6 +155,8 @@ PHOTO_SELECTOR_VOLUME=photo-selector-restored docker compose run --rm --no-deps 
 | Docker 未启动 | 启动 Docker Desktop 或 Linux Docker 服务，重试脚本 |
 | 端口占用 | 修改 `.env` 的 `PHOTO_SELECTOR_PORT`；无需更改容器内部端口 |
 | 403「访问地址未配置」／「不允许跨站请求」 | 确认 `PHOTO_SELECTOR_PUBLIC_URL` 与浏览器协议、域名、端口完全一致，重新部署；检查反向代理 Host |
+| 本地照片离线 | 使用同一浏览器和地址，点「重新连接文件夹」重新授权或定位，按摘要匹配 |
+| 忘记首次密码 | 查看 `/data/admin-initial-password`；已修改后使用自己保存的新密码 |
 | 初次下载失败 | 检查 Docker Hub、npm 和 Debian 软件源的网络访问，恢复后重跑脚本 |
 | 重启后出现空库 | 检查 `PHOTO_SELECTOR_VOLUME` 是否改名或切换了 Docker context，避免删除原卷 |
 | 不能连接本地 AI | 使用 `host.docker.internal`，检查本地服务监听与图片输入能力 |

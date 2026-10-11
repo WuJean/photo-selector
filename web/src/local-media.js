@@ -179,6 +179,13 @@ export async function importFolder(
     done++;
     onProgress(`已读取 ${done} 张${failed ? `，失败 ${failed} 张` : ""}`);
   }
+  if (direct && batch && done > failed) {
+    await api(
+      `/batches/${batch.id}/finish`,
+      json("POST", { round: "initial" }),
+    );
+    await api(`/batches/${batch.id}/finish`, json("POST", { round: "final" }));
+  }
   window.dispatchEvent(new Event("photo-files-reconnected"));
   return { batch, done, failed, matched };
 }

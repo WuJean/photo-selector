@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, writeFile, access } from "node:fs/promises";
+import { readFile, writeFile, access, rm, mkdir } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { fixture } from "./support/library.mjs";
@@ -73,7 +73,12 @@ test("cleanup rejects incomplete batches, preserves shared assets, deletes real 
 test("network transfer requires matching size and digest, then removes only server bytes while preserving asset and local binding identity", async () => {
   const f = await fixture(registerCleanup);
   try {
-    const { p } = await seed(f);
+    const { p, b } = await seed(f);
+    await f.json(`/batches/${b.id}/decisions`, "PATCH", {
+      round: "initial",
+      status: "keep",
+      ids: [p.id],
+    });
     const original = f.store.get("photo", p.id);
     f.store.put("photo", { ...original, network: true });
     assert.equal(
@@ -190,6 +195,35 @@ test("network queue bounds concurrency, resumes failed items without repeating s
       "cancelled",
     );
     assert.equal(f.store.photos("library").length, 7);
+  } finally {
+    await f.close();
+  }
+});
+
+test("cleanup survives an interrupted partial deletion without losing freed-byte counts", async () => {
+  const f = await fixture(registerCleanup);
+  try {
+    const { b, p } = await seed(f);
+    await f.json(`/batches/${b.id}/decisions`, "PATCH", {
+      round: "initial",
+      status: "reject",
+      ids: [p.id],
+    });
+    const blocked = path.join(f.root, "previews", p.id + ".jpg");
+    await rm(blocked);
+    await mkdir(blocked);
+    await f.json(`/batches/${b.id}/finish`, "POST", { round: "initial" });
+    while (f.app.locals.cleanupQueue.running)
+      await new Promise((r) => setTimeout(r, 5));
+    const failed = f.store.all("cleanup")[0];
+    assert.equal(failed.state, "error");
+    assert.ok(failed.bytes > 0);
+    await rm(blocked, { recursive: true });
+    await f.app.locals.cleanupQueue.drain();
+    const completed = f.store.get("cleanup", failed.id);
+    assert.equal(completed.state, "done");
+    assert.ok(completed.bytes >= failed.bytes);
+    assert.equal(f.store.get("batch", b.id).state, "completed");
   } finally {
     await f.close();
   }

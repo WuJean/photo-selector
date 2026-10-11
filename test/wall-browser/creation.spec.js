@@ -64,9 +64,26 @@ test("local collage exports without uploading originals, persists as creation, a
     if (r.url().endsWith("/analysis-preview")) uploads.push(r.url());
   });
   await page.evaluate(async (id) => {
+    const root = await navigator.storage.getDirectory(),
+      dir = await root.getDirectoryHandle("旅行");
+    await dir.removeEntry("creation-local.jpg");
     const { api, json } = await import("/src/api.js");
-    await api("/projects/library/analyze", json("POST", { ids: [id] }));
+    try {
+      await api("/projects/library/analyze", json("POST", { ids: [id] }));
+    } catch (e) {
+      if (!e.message.includes("重新连接")) throw e;
+    }
   }, values.photoId);
+  await expect(
+    page.getByText("等待连接电脑文件夹", { exact: false }),
+  ).toBeVisible();
+  await folderFixture(page, [
+    { name: "creation-local.jpg", bytes: [...(await jpeg("#556699"))] },
+  ]);
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("photo-files-reconnected")),
+  );
+  await expect.poll(() => uploads.length).toBe(1);
   expect(uploads).toHaveLength(1);
   expect(
     (await page.request.get(`/api/photos/${values.photoId}/original`)).status(),
@@ -77,4 +94,5 @@ test("local collage exports without uploading originals, persists as creation, a
     .click();
   await page.getByRole("tab", { name: "创作", exact: true }).click();
   await expect(page.locator(".creation-card")).toHaveCount(1);
+  await page.screenshot({ path: "test-results/creation.png" });
 });

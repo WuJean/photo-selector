@@ -86,10 +86,13 @@ function Login({ onLogin }) {
 }
 function Viewer({ photos, index: initial, onClose, onDownload }) {
   const [index, setIndex] = useState(initial),
-    [zoom, setZoom] = useState(1);
+    [zoom, setZoom] = useState(1),
+    [pan, setPan] = useState({ x: 0, y: 0 });
+  const drag = useRef();
   const move = (n) => {
     setIndex((i) => Math.max(0, Math.min(photos.length - 1, i + n)));
     setZoom(1);
+    setPan({ x: 0, y: 0 });
   };
   useEffect(() => {
     const key = (e) => {
@@ -120,6 +123,24 @@ function Viewer({ photos, index: initial, onClose, onDownload }) {
       </header>
       <div
         className="viewer-image"
+        onPointerDown={(e) => {
+          if (zoom <= 1) return;
+          drag.current = { x: e.clientX, y: e.clientY, pan };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (drag.current)
+            setPan({
+              x: drag.current.pan.x + e.clientX - drag.current.x,
+              y: drag.current.pan.y + e.clientY - drag.current.y,
+            });
+        }}
+        onPointerUp={() => {
+          drag.current = null;
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+        }}
         onWheel={(e) =>
           setZoom((z) =>
             Math.max(1, Math.min(4, z + (e.deltaY < 0 ? 0.2 : -0.2))),
@@ -128,7 +149,10 @@ function Viewer({ photos, index: initial, onClose, onDownload }) {
       >
         <PhotoImage
           src={photoURL(p.id, "original")}
-          style={{ transform: `scale(${zoom})` }}
+          draggable={false}
+          style={{
+            transform: `translate(${zoom === 1 ? 0 : pan.x}px,${zoom === 1 ? 0 : pan.y}px) scale(${zoom})`,
+          }}
           onDoubleClick={() => setZoom((z) => (z === 1 ? 2 : 1))}
         />
       </div>
@@ -310,7 +334,7 @@ function Workspace({ onLogout }) {
     grouped.get(id).push(p);
   }
   const visible =
-    page === "work" && fold
+    page === "work" && round === "initial" && fold
       ? [...grouped].flatMap(([id, list]) =>
           expanded.has(id) ? list : [list[0]],
         )
@@ -417,7 +441,12 @@ function Workspace({ onLogout }) {
   const uploadFiles = async (files) =>
     run(async () => {
       let id = batchId;
-      if (!batch || batch.state !== "initial" || direct) {
+      if (
+        !batch ||
+        batch.state !== "initial" ||
+        batch.source !== "upload" ||
+        direct
+      ) {
         const b = await api(
           "/batches",
           json("POST", {
@@ -443,6 +472,12 @@ function Workspace({ onLogout }) {
         if (failed.length) notify(failed[0].error);
       }
       setBatchPhotos(await api(`/batches/${id}/photos`));
+      if (direct) {
+        await api(`/batches/${id}/finish`, json("POST", { round: "initial" }));
+        await api(`/batches/${id}/finish`, json("POST", { round: "final" }));
+        setCollectionId("");
+        setPage("collections");
+      }
     });
   const download = async (list) => run(() => downloadPhotos(list, setBusy));
   const classify = () =>
@@ -559,7 +594,7 @@ function Workspace({ onLogout }) {
           <div>
             <h1>
               {page === "wall"
-                ? "每一张，值得留下"
+                ? "照片墙"
                 : page === "collections"
                   ? collection?.name || "作品集"
                   : batch?.name || "导入与筛选"}
@@ -731,6 +766,14 @@ function Workspace({ onLogout }) {
                 className={collectionId === c.id ? "active" : ""}
                 onClick={() => setCollectionId(c.id)}
               >
+                {(c.coverId || c.photoIds[0]) && (
+                  <PhotoImage
+                    quiet
+                    className="collection-cover"
+                    src={photoURL(c.coverId || c.photoIds[0])}
+                    alt=""
+                  />
+                )}
                 {c.name} <small>{c.photoIds.length}</small>
               </button>
             ))}
@@ -779,7 +822,7 @@ function Workspace({ onLogout }) {
               重新连接文件夹
             </Button>
           )}
-          {page === "work" && (
+          {page === "work" && round === "initial" && (
             <Button
               onClick={() => {
                 setFold((v) => !v);
@@ -855,6 +898,22 @@ function Workspace({ onLogout }) {
             <Button onClick={() => setSharing(true)}>分享作品集</Button>
             <Button
               onClick={() =>
+                setDialog({
+                  title: "作品集名称",
+                  submit: async (name) => {
+                    await api(
+                      `/collections/${collection.id}`,
+                      json("PUT", { name }),
+                    );
+                    await refresh();
+                  },
+                })
+              }
+            >
+              改名
+            </Button>
+            <Button
+              onClick={() =>
                 download(
                   collection.photoIds
                     .map((id) => photos.find((p) => p.id === id))
@@ -925,6 +984,27 @@ function Workspace({ onLogout }) {
                     run(() =>
                       api(
                         `/collections/${collection.id}`,
+                        json("PUT", {
+                          photoIds: [
+                            ...collection.photoIds.filter((id) =>
+                              selected.includes(id),
+                            ),
+                            ...collection.photoIds.filter(
+                              (id) => !selected.includes(id),
+                            ),
+                          ],
+                        }),
+                      ),
+                    )
+                  }
+                >
+                  置顶
+                </Button>
+                <Button
+                  onClick={() =>
+                    run(() =>
+                      api(
+                        `/collections/${collection.id}`,
                         json("PUT", { coverId: selected[0] }),
                       ),
                     )
@@ -951,6 +1031,27 @@ function Workspace({ onLogout }) {
               return (
                 <article
                   key={p.id}
+                  draggable={!!collection && page !== "work"}
+                  onDragStart={(e) =>
+                    e.dataTransfer.setData("application/x-photo-id", p.id)
+                  }
+                  onDragOver={(e) => {
+                    if (collection && page !== "work") e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const id = e.dataTransfer.getData("application/x-photo-id");
+                    if (!collection?.photoIds.includes(id) || id === p.id)
+                      return;
+                    const ids = collection.photoIds.filter((v) => v !== id);
+                    ids.splice(ids.indexOf(p.id), 0, id);
+                    void run(() =>
+                      api(
+                        `/collections/${collection.id}`,
+                        json("PUT", { photoIds: ids }),
+                      ),
+                    );
+                  }}
                   className={`wall-card ${cursor === p.id ? "focused" : ""} ${selected.includes(p.id) ? "selected" : ""}`}
                   onClick={() => setCursor(p.id)}
                   onDoubleClick={() =>
@@ -982,26 +1083,28 @@ function Workspace({ onLogout }) {
                         }
                       />
                     </label>
-                    {page === "work" && group.length > 1 && (
-                      <button
-                        className="group-toggle"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpanded((old) => {
-                            const n = new Set(old);
-                            n.has(p.similarId)
-                              ? n.delete(p.similarId)
-                              : n.add(p.similarId);
-                            return n;
-                          });
-                          setFold(true);
-                        }}
-                      >
-                        {expanded.has(p.similarId)
-                          ? "收起本组"
-                          : `${group.length} 张相似`}
-                      </button>
-                    )}
+                    {page === "work" &&
+                      round === "initial" &&
+                      group.length > 1 && (
+                        <button
+                          className="group-toggle"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpanded((old) => {
+                              const n = new Set(old);
+                              n.has(p.similarId)
+                                ? n.delete(p.similarId)
+                                : n.add(p.similarId);
+                              return n;
+                            });
+                            setFold(true);
+                          }}
+                        >
+                          {expanded.has(p.similarId)
+                            ? "收起本组"
+                            : `${group.length} 张相似`}
+                        </button>
+                      )}
                   </div>
                   <div className="wall-caption">
                     <span>{p.name}</span>

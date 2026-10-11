@@ -1,7 +1,7 @@
 import path from "node:path";
 import { unlink, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { entries, requireItem, reconcile, timestamp } from "./library.mjs";
+import { entries, requireItem, reconcileMany, timestamp } from "./library.mjs";
 import { inInitial } from "../shared/domain.mjs";
 export function activeReference(store, id) {
   const ai = store.get("job", "ai");
@@ -19,6 +19,7 @@ export function activeReference(store, id) {
 export function keptReference(store, id, exceptBatch) {
   return (
     store.all("collection").some((c) => c.photoIds.includes(id)) ||
+    store.all("creation").some((c) => (c.sourceIds || []).includes(id)) ||
     store
       .all("share")
       .some(
@@ -111,7 +112,7 @@ export class CleanupQueue {
           });
         } catch (e) {
           this.store.put("cleanup", {
-            ...task,
+            ...this.store.get("cleanup", task.id),
             state: "error",
             error: e.message,
           });
@@ -139,6 +140,8 @@ export function registerCleanup(app, store) {
       round = req.body.round,
       list = entries(store, b.id);
     if (!["initial", "final"].includes(round)) throw new Error("阶段无效");
+    if (round === "final" && b.state === "initial")
+      throw new Error("请先完成初筛和清理，再完成精筛");
     if (
       b.state === "completed" ||
       (round === "initial" && b.state !== "initial")
@@ -191,9 +194,15 @@ export function registerCleanup(app, store) {
         store.remove("batchUndo", h.id);
       store.put("batch", {
         ...b,
-        state: round === "initial" ? "refining" : "completed",
+        state:
+          round === "initial" && list.some(inInitial)
+            ? "refining"
+            : "completed",
       });
-      for (const e of relevant) reconcile(store, e.assetId);
+      reconcileMany(
+        store,
+        relevant.map((e) => e.assetId),
+      );
     });
     void queue.drain();
     res.json({ ok: true });
@@ -202,6 +211,8 @@ export function registerCleanup(app, store) {
     const p = requireItem(store, "photo", req.params.id);
     if (
       !p.network ||
+      !inInitial(p) ||
+      p.deleting ||
       p.deleted ||
       req.body.hash !== p.hash ||
       req.body.size !== p.size

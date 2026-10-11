@@ -91,7 +91,7 @@ export function createApp({
     if (!photo) return res.status(404).json({ error: "照片不存在" });
     if (req.params.variant === "original" && req.query.download === "1")
       res.attachment(photo.name);
-    res.set("Cache-Control", "private, max-age=86400");
+    res.set("Cache-Control", "private, no-store");
     res.sendFile(await imageFile(store, photo.id, req.params.variant), {
       dotfiles: "allow",
     });

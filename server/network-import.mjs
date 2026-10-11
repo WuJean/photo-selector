@@ -32,6 +32,7 @@ public6.addSubnet("2000::", 3, "ipv6");
 const blocked6 = new BlockList();
 blocked6.addSubnet("2001:db8::", 32, "ipv6");
 blocked6.addSubnet("2001::", 32, "ipv6");
+blocked6.addSubnet("2002::", 16, "ipv6");
 export function publicAddress(address) {
   const family = isIP(address);
   return family === 4

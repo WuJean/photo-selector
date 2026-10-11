@@ -1,11 +1,12 @@
 import { resolveMedia } from "./local-media";
 import React, { useEffect, useRef, useState } from "react";
 
-export default function PhotoImage({ src, ...props }) {
+export default function PhotoImage({ src, quiet = false, ...props }) {
   const [attempt, setAttempt] = useState(0);
   const [resolved, setResolved] = useState("");
   useEffect(() => {
     if (!src?.startsWith("local-photo://")) return;
+    setResolved("");
     let active = true,
       release = () => {};
     const load = () =>
@@ -67,7 +68,7 @@ export default function PhotoImage({ src, ...props }) {
         onError={diagnose}
         onLoad={() => setError("")}
       />
-      {error && (
+      {error && !quiet && (
         <span
           className="image-error"
           role="status"
