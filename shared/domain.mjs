@@ -53,17 +53,17 @@ export function uniqueName(name, existing) {
   return candidate;
 }
 export function tagsOf(p) {
-  return [
-    ...new Set(
-      [
-        ...(p.manualTags || []),
-        ...(p.ai?.tags || []),
-        p.ai?.scene,
-        p.ai?.shot,
-        p.ai?.style,
-      ].filter(Boolean),
-    ),
-  ];
+  const resolve = (value) => p.tagAliases?.[value] || value;
+  const manual = (p.manualTags || []).map(resolve);
+  const excluded = new Set((p.excludedTags || []).map(resolve));
+  const automatic = [
+    ...(p.ai?.tags || []),
+    ...(!p.ai?.vocabularyVersion ? [p.ai?.scene, p.ai?.shot, p.ai?.style] : []),
+  ]
+    .filter(Boolean)
+    .map(resolve)
+    .filter((t) => !excluded.has(t));
+  return [...new Set([...manual, ...automatic])];
 }
 export function filterPhotos(photos, filter = {}) {
   return photos.filter((p) => {
@@ -86,6 +86,15 @@ export function filterPhotos(photos, filter = {}) {
     if (filter.from && (p.takenAt || "").slice(0, 10) < filter.from)
       return false;
     if (filter.to && (p.takenAt || "").slice(0, 10) > filter.to) return false;
+    if (filter.tags?.length) {
+      const tags = new Set(tagsOf(p));
+      if (
+        filter.tagMode === "any"
+          ? !filter.tags.some((t) => tags.has(t))
+          : !filter.tags.every((t) => tags.has(t))
+      )
+        return false;
+    }
     if (filter.query) {
       const terms = filter.query.toLowerCase().split(/\s+/).filter(Boolean);
       const hay = [p.name, p.ai?.description, ...tagsOf(p)]

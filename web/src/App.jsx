@@ -34,6 +34,7 @@ import PhotoImage from "./PhotoImage";
 import Immersive from "./Immersive";
 import Studio from "./Studio";
 import Settings from "./Settings";
+import TagsPanel from "./TagsPanel";
 import {
   filterPhotos,
   FOCAL_LABELS,
@@ -65,6 +66,7 @@ export default function App() {
     [expanded, setExpanded] = useState(new Set()),
     [inspector, setInspector] = useState(false),
     [more, setMore] = useState(false);
+  const [tagPanel, setTagPanel] = useState(false);
   const [dialog, setDialog] = useState(null),
     [settings, setSettings] = useState(false),
     [immersive, setImmersive] = useState(null),
@@ -378,6 +380,7 @@ export default function App() {
         settings ||
         immersive ||
         studio ||
+        tagPanel ||
         e.repeat
       )
         return;
@@ -554,6 +557,16 @@ export default function App() {
               )}
             </div>
             <div className="toolbar-actions">
+              {portfolio && (
+                <Button
+                  onClick={() => {
+                    setTagPanel((v) => !v);
+                    setInspector(false);
+                  }}
+                >
+                  人工标签
+                </Button>
+              )}
               {portfolio ? (
                 <>
                   <Button
@@ -650,6 +663,52 @@ export default function App() {
               >
                 <MoreHorizontal size={20} />
               </button>
+            </div>
+          )}
+          {portfolio && (
+            <div className="tag-filter">
+              <div className="tag-chips">
+                {[
+                  ...new Set(
+                    (tab === "final" ? final : initial).flatMap(tagsOf),
+                  ),
+                ].map((tag) => (
+                  <button
+                    key={tag}
+                    className={filters.tags?.includes(tag) ? "active" : ""}
+                    onClick={() =>
+                      setFilters({
+                        ...filters,
+                        tags: filters.tags?.includes(tag)
+                          ? filters.tags.filter((t) => t !== tag)
+                          : [...(filters.tags || []), tag],
+                      })
+                    }
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+              {filters.tags?.length > 0 && (
+                <>
+                  <select
+                    aria-label="多标签匹配"
+                    value={filters.tagMode || "all"}
+                    onChange={(e) =>
+                      setFilters({ ...filters, tagMode: e.target.value })
+                    }
+                  >
+                    <option value="all">同时满足</option>
+                    <option value="any">满足任一</option>
+                  </select>
+                  <button
+                    className="text-button"
+                    onClick={() => setFilters({ ...filters, tags: [] })}
+                  >
+                    清除标签
+                  </button>
+                </>
+              )}
             </div>
           )}
           {showFilters && (
@@ -954,6 +1013,17 @@ export default function App() {
                 </div>
               )}
             </section>
+            {portfolio && tagPanel && (
+              <TagsPanel
+                key={projectId}
+                projectId={projectId}
+                photos={initial}
+                ids={selected}
+                onClose={() => setTagPanel(false)}
+                onChanged={refresh}
+                notify={notify}
+              />
+            )}
             {inspector && (
               <aside className="simple-inspector">
                 {active ? (

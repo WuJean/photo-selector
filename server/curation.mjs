@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { focalCategory, inInitial, decisionField } from "../shared/domain.mjs";
+import {
+  focalCategory,
+  inInitial,
+  decisionField,
+  tagsOf,
+} from "../shared/domain.mjs";
 const allowed = ["status", "favorite", "manualTags"];
 export class History {
   constructor(store) {
@@ -105,6 +110,8 @@ export function registerCuration(app, store) {
     if ("favorite" in patch && typeof patch.favorite !== "boolean")
       throw new Error("收藏状态无效");
     if ("manualTags" in patch) {
+      if (selected.some((p) => !inInitial(p)))
+        throw new Error("只能为初筛入选照片分类");
       if (!Array.isArray(patch.manualTags)) throw new Error("标签格式无效");
       patch.manualTags = [
         ...new Set(
@@ -116,11 +123,21 @@ export function registerCuration(app, store) {
     }
     history.apply(
       req.params.id,
-      selected.map((p) => ({
-        kind: "photo",
-        fields: Object.keys(patch),
-        value: { ...p, ...patch },
-      })),
+      selected.map((p) => {
+        const changes = { ...patch };
+        if ("manualTags" in patch)
+          changes.excludedTags = [
+            ...new Set([
+              ...(p.excludedTags || []),
+              ...tagsOf(p).filter((t) => !patch.manualTags.includes(t)),
+            ]),
+          ].filter((t) => !patch.manualTags.includes(t));
+        return {
+          kind: "photo",
+          fields: Object.keys(changes),
+          value: { ...p, ...changes },
+        };
+      }),
       `${round === "final" ? "精筛" : "初筛"}决定`,
     );
     res.json({ ok: true });

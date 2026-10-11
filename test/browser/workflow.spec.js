@@ -385,3 +385,64 @@ test("studio defaults to final maybe photos and exports an actual JPEG without A
   expect(bytes[1]).toBe(216);
   await page.screenshot({ path: "test-results/studio.png" });
 });
+
+test("manual tag chips classify initial photos, filter by multiple tags and persist exclusions", async ({
+  page,
+  request,
+}) => {
+  const p = await seed(request, 3, { group: false, initial: true });
+  await open(page, p);
+  await page.getByRole("button", { name: /^作品集/ }).click();
+  await page.getByRole("tab", { name: /初筛/ }).click();
+  await page.locator(".photo-card").first().click();
+  await page.getByRole("button", { name: "人工标签", exact: true }).click();
+  const panel = page.getByLabel("人工标签", { exact: true });
+  await panel.getByRole("button", { name: "人像", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "人像", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await panel.getByRole("button", { name: "雪山", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "雪山", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await panel.getByLabel("自定义标签").fill("登顶");
+  await panel.getByRole("button", { name: "创建标签", exact: true }).click();
+  await panel.getByRole("button", { name: "登顶", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "登顶", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".photo-card").nth(1).click();
+  await panel.getByRole("button", { name: "人像", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "人像", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await panel.getByRole("button", { name: "关闭标签" }).click();
+  await page
+    .locator(".tag-filter")
+    .getByRole("button", { name: "人像", exact: true })
+    .click();
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await page
+    .locator(".tag-filter")
+    .getByRole("button", { name: "雪山", exact: true })
+    .click();
+  await expect(page.locator(".photo-card")).toHaveCount(1);
+  await page.getByLabel("多标签匹配").selectOption("any");
+  await expect(page.locator(".photo-card")).toHaveCount(2);
+  await page.locator(".photo-card").first().click();
+  await page.getByRole("button", { name: "人工标签", exact: true }).click();
+  await panel.getByRole("button", { name: "雪山", exact: true }).click();
+  await expect
+    .poll(async () =>
+      ((await saved(request, p))[0].excludedTags || []).includes("雪山"),
+    )
+    .toBe(true);
+  await panel.getByRole("button", { name: "管理", exact: true }).click();
+  await panel.getByRole("button", { name: "登顶", exact: true }).click();
+  await panel.getByLabel("新标签名称").fill("登山");
+  await panel.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "登山", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: "test-results/manual-tags.png" });
+});

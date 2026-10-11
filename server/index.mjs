@@ -4,6 +4,7 @@ import { NativeBridge } from "./native.mjs";
 import { LocalQueue } from "./analysis.mjs";
 import { registerCuration } from "./curation.mjs";
 import { registerAI } from "./ai.mjs";
+import { registerTags } from "./tags.mjs";
 import { registerExports } from "./exports.mjs";
 const root = path.resolve(process.env.PHOTO_SELECTOR_DATA_DIR || ".local");
 const native = new NativeBridge();
@@ -15,6 +16,7 @@ const { app, store, upload } = createApp({
 local = new LocalQueue(store, native);
 void local.drain();
 registerCuration(app, store);
+registerTags(app, store);
 const aiQueue = registerAI(app, store, native);
 registerExports(app, store, upload);
 app.get("/api/jobs", (req, res) =>
