@@ -18,7 +18,9 @@ Page({
       return;
     }
     this.context = q;
-    this.photos = q.photos.slice();
+    const cached = new Map(q.photos.map((p) => [p.id, p]));
+    this.loadedIds = new Set(cached.keys());
+    this.photos = q.ids.map((id) => cached.get(id) || { id });
     this.history = [];
     this.setData({ stage: q.stage, total: q.total });
     this.show(
@@ -31,22 +33,48 @@ Page({
   async show(index) {
     const request = (this.request || 0) + 1;
     this.request = request;
-    if (index >= this.photos.length) {
-      await this.more();
-    }
+    this.setData({
+      loading: true,
+      imageLoading: true,
+      current: null,
+      neighbors: [],
+    });
     if (index < 0 || index >= this.photos.length) {
-      this.setData({ done: true, current: null, neighbors: [] });
+      if (this.request !== request) return;
+      this.setData({
+        done: true,
+        loading: false,
+        imageLoading: false,
+        current: null,
+        neighbors: [],
+      });
       return;
     }
     this.setData({ index, zoom: 1, done: false, imageFailed: false });
-    const p = this.photos[index];
     try {
+      const missing = this.photos
+        .slice(Math.max(0, index - 1), index + 2)
+        .filter((p) => !this.loadedIds.has(p.id))
+        .map((p) => p.id);
+      if (missing.length) {
+        const rows = await call("photos.get", {
+          projectId: this.context.projectId,
+          ids: missing,
+        });
+        for (const p of rows) {
+          this.photos[this.context.ids.indexOf(p.id)] = p;
+          this.loadedIds.add(p.id);
+        }
+      }
+      if (this.request !== request) return;
+      const p = this.photos[index];
       const rows = await hydrate(
         this.photos.slice(Math.max(0, index - 1), index + 2),
         "preview",
       );
       if (this.request !== request) return;
       this.setData({
+        loading: false,
         current: {
           ...p,
           url: rows.find((v) => v.id === p.id)?.url,
@@ -63,16 +91,14 @@ Page({
         })),
       });
     } catch (e) {
+      if (this.request === request)
+        this.setData({
+          loading: false,
+          imageLoading: false,
+          imageFailed: true,
+        });
       toast(e);
     }
-  },
-  async more() {
-    if (this.photos.length >= this.context.total) return;
-    const rows = await call("photos.get", {
-      projectId: this.context.projectId,
-      ids: this.context.ids.slice(this.photos.length, this.photos.length + 60),
-    });
-    this.photos.push(...rows);
   },
   next() {
     if (!this.data.saving) this.show(this.data.index + 1);
@@ -85,8 +111,12 @@ Page({
     const id = e.currentTarget.dataset.id;
     this.show(this.photos.findIndex((p) => p.id === id));
   },
+  imageLoaded(e) {
+    if (e.currentTarget.dataset.id === this.data.current?.id)
+      this.setData({ imageLoading: false });
+  },
   imageError() {
-    this.setData({ imageFailed: true });
+    this.setData({ imageFailed: true, imageLoading: false });
   },
   async retryImage() {
     this.setData({ imageFailed: false });
@@ -116,7 +146,14 @@ Page({
     if (Math.abs(delta) > 60) delta < 0 ? this.next() : this.prev();
   },
   async decide(e) {
-    if (this.data.saving) return;
+    if (
+      this.data.saving ||
+      this.data.loading ||
+      this.data.imageLoading ||
+      this.data.imageFailed ||
+      !this.data.current
+    )
+      return;
     const p = this.photos[this.data.index];
     this.setData({ saving: true });
     try {

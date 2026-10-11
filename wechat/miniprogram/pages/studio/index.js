@@ -128,14 +128,33 @@ Page({
       };
     });
     const wm = d.watermark;
+    const first = this.byId[d.slots[0]?.photoId];
+    const caption =
+      d.template === "single" && first
+        ? [
+            first.camera,
+            first.focal ? first.focal + "mm" : "",
+            first.aperture ? "f/" + first.aperture : "",
+            first.shutter
+              ? (first.shutter >= 1
+                  ? first.shutter
+                  : "1/" + Math.round(1 / first.shutter)) + "s"
+              : "",
+            first.iso ? "ISO " + first.iso : "",
+          ]
+            .filter(Boolean)
+            .join("  ·  ")
+        : d.title;
     this.setData({
       tiles,
+      caption,
+      captionStyle: `font-size:${size.width * 0.017}rpx;left:${size.width * 0.04}rpx;bottom:${size.height * 0.043}rpx;`,
       canvasStyle: `width:${size.width}rpx;height:${size.height}rpx;background:${d.background}`,
       slot: d.slots[this.data.active] || null,
       logoStyle: this.logoAsset
         ? `width:${Math.min(size.width * Math.min(0.3, wm.size * 5), (size.height * 0.15 * this.logoAsset.width) / this.logoAsset.height)}rpx;height:${Math.min(size.height * 0.15, (size.width * Math.min(0.3, wm.size * 5) * this.logoAsset.height) / this.logoAsset.width)}rpx;opacity:${wm.opacity};${wm.position.includes("r") ? "right" : "left"}:${Math.min(size.width, size.height) * wm.margin}rpx;${wm.position.startsWith("b") ? "bottom" : "top"}:${Math.min(size.width, size.height) * wm.margin}rpx;`
         : "",
-      watermarkStyle: `font-size:${Math.max(10, size.width * wm.size)}rpx;color:${wm.color};opacity:${wm.opacity};${wm.position.includes("r") ? "right" : "left"}:${size.width * wm.margin}rpx;${wm.position.startsWith("b") ? "bottom" : "top"}:${size.height * wm.margin}rpx;`,
+      watermarkStyle: `font-size:${Math.max(10, size.width * wm.size)}rpx;color:${wm.color};opacity:${wm.opacity};${wm.position.includes("r") ? "right" : "left"}:${Math.min(size.width, size.height) * wm.margin}rpx;${wm.position.startsWith("b") ? "bottom" : "top"}:${Math.min(size.width, size.height) * wm.margin}rpx;`,
     });
   },
   active(e) {

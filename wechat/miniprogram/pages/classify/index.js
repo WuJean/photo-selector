@@ -30,6 +30,7 @@ Page({
     this.gone = true;
   },
   async readJob() {
+    clearTimeout(this.timer);
     if (this.gone) return;
     try {
       const job = await call("jobs.get", { id: this.jobId });
@@ -49,6 +50,10 @@ Page({
     } catch (e) {
       toast(e);
     }
+  },
+  progress(e) {
+    const job = e.detail.jobs.find((j) => j.id === this.jobId);
+    if (job && job.state !== this.data.job?.state) this.readJob();
   },
   domains() {
     this.setData({
@@ -135,7 +140,8 @@ Page({
       });
       this.jobId = job.id;
       this.setData({ job });
-      this.readJob();
+      if (job.id) this.readJob();
+      else toast(job.message);
     } catch (e) {
       toast(e);
     } finally {

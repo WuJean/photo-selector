@@ -10,6 +10,9 @@ Page({
     creations: [],
     selected: [],
     total: 0,
+    pageOffset: 0,
+    pageNumber: 1,
+    pageCount: 1,
     filterOpen: false,
     filter: { tags: [], tagMode: "all" },
     domains: [],
@@ -24,7 +27,7 @@ Page({
     this.loadLibrary();
   },
   onShow() {
-    this.load(true);
+    this.load(true, this.data.pageOffset);
   },
   async loadLibrary() {
     try {
@@ -53,7 +56,7 @@ Page({
       })),
     });
   },
-  async load(reset) {
+  async load(reset, targetOffset) {
     if (this.data.busy) {
       if (reset) this.reloadPending = true;
       return;
@@ -72,22 +75,31 @@ Page({
         });
         if (!this.reloadPending) this.setData({ creations });
       } else {
-        const before = reset ? [] : this.data.photos;
+        const offset = Number.isFinite(targetOffset)
+          ? targetOffset
+          : reset
+            ? 0
+            : this.data.pageOffset + 60;
         const r = await call("collections.photos", {
           projectId: this.projectId,
           collectionId: this.data.collectionId || undefined,
           unassigned: this.data.unassigned,
           filter: this.data.filter,
-          offset: before.length,
+          offset,
         });
-        const photos = before.concat(
-          (await hydrate(r.photos)).map((p) => ({
-            ...p,
-            tags: tagsOf(p),
-            selected: this.data.selected.includes(p.id),
-          })),
-        );
-        if (!this.reloadPending) this.setData({ photos, total: r.total });
+        const photos = (await hydrate(r.photos)).map((p) => ({
+          ...p,
+          tags: tagsOf(p),
+          selected: this.data.selected.includes(p.id),
+        }));
+        if (!this.reloadPending)
+          this.setData({
+            photos,
+            total: r.total,
+            pageOffset: offset,
+            pageNumber: Math.floor(offset / 60) + 1,
+            pageCount: Math.max(1, Math.ceil(r.total / 60)),
+          });
       }
     } catch (e) {
       this.setData({ error: e.message });
@@ -99,9 +111,19 @@ Page({
   retry() {
     this.load(true);
   },
-  onReachBottom() {
-    if (this.data.tab === "photos" && this.data.photos.length < this.data.total)
-      this.load(false);
+  async nextPage() {
+    if (this.data.pageOffset + 60 < this.data.total && !this.data.busy) {
+      this.setData({ selected: [] });
+      await this.load(false);
+      wx.pageScrollTo({ scrollTop: 0, duration: 0 });
+    }
+  },
+  async prevPage() {
+    if (this.data.pageOffset && !this.data.busy) {
+      this.setData({ selected: [] });
+      await this.load(false, Math.max(0, this.data.pageOffset - 60));
+      wx.pageScrollTo({ scrollTop: 0, duration: 0 });
+    }
   },
   stage(e) {
     getApp().globalData.libraryStage = e.currentTarget.dataset.stage;

@@ -53,7 +53,7 @@ export async function curation(store, action, input) {
     ].flatMap((id) => filtered.filter((p) => (p.similarId || p.id) === id));
     const offset = Math.max(0, Number(input.offset) || 0);
     return {
-      ids: offset === 0 ? grouped.map((p) => p.id) : undefined,
+      ids: grouped.map((p) => p.id),
       photos: grouped.slice(offset, offset + 60),
       total: grouped.length,
       counts: {

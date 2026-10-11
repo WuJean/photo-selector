@@ -70,6 +70,7 @@ test("mobile immersion failure stays on the photo, success advances, undo restor
   });
   p.onLoad();
   await new Promise((r) => setImmediate(r));
+  p.imageLoaded({ currentTarget: { dataset: { id: "a" } } });
   await p.decide({ currentTarget: { dataset: { value: "keep" } } });
   assert.equal(p.data.index, 0);
   fail = false;
@@ -106,19 +107,106 @@ test("immutable review IDs fetch next page despite prior decisions leaving the q
 });
 test("changing stage during a pending grid load fetches latest scope and never paints stale photos", async () => {
   let release;
-  const calls = [], snapshots = [];
-  const p = await page("library", { call: async (action, input) => {
-    calls.push(input.stage);
-    if (input.stage === "rough") await new Promise(r => { release = r; });
-    return { photos: [{ id: input.stage }], ids: [input.stage], total: 1, counts: {} };
-  }});
+  const calls = [],
+    snapshots = [];
+  const p = await page("library", {
+    call: async (action, input) => {
+      calls.push(input.stage);
+      if (input.stage === "rough")
+        await new Promise((r) => {
+          release = r;
+        });
+      return {
+        photos: [{ id: input.stage }],
+        ids: [input.stage],
+        total: 1,
+        counts: {},
+      };
+    },
+  });
   p.projectId = "p";
   const setData = p.setData.bind(p);
-  p.setData = v => { if (v.photos) snapshots.push(v.photos.map(p=>p.id).join(',')); setData(v); };
+  p.setData = (v) => {
+    if (v.photos) snapshots.push(v.photos.map((p) => p.id).join(","));
+    setData(v);
+  };
   const initial = p.load(true);
-  p.stage({currentTarget:{dataset:{stage:"refine"}}});
-  release(); await initial;
-  while(p.data.loading) await new Promise(r=>setImmediate(r));
+  p.stage({ currentTarget: { dataset: { stage: "refine" } } });
+  release();
+  await initial;
+  while (p.data.loading) await new Promise((r) => setImmediate(r));
   assert.deepEqual(calls, ["rough", "refine"]);
   assert.deepEqual(snapshots, ["refine"]);
+});
+test("review does not decide an image before it has decoded or from a stale load event", async () => {
+  let calls = 0;
+  const p = await page("review", {
+    context: {
+      projectId: "p",
+      photos: [{ id: "a" }, { id: "b" }],
+      ids: ["a", "b"],
+      startId: "a",
+      stage: "rough",
+      total: 2,
+    },
+    call: async () => {
+      calls++;
+      return { photo: { id: "b" }, historyId: "h" };
+    },
+  });
+  p.onLoad();
+  await new Promise((r) => setImmediate(r));
+  await p.show(1);
+  p.imageLoaded({ currentTarget: { dataset: { id: "a" } } });
+  await p.decide({ currentTarget: { dataset: { value: "keep" } } });
+  assert.equal(calls, 0);
+  p.imageLoaded({ currentTarget: { dataset: { id: "b" } } });
+  await p.decide({ currentTarget: { dataset: { value: "keep" } } });
+  assert.equal(calls, 1);
+});
+test("3000-photo grid keeps only one page in rendered state and immersion retains global neighbors", async () => {
+  const photos = Array.from({ length: 3000 }, (_, i) => ({
+    id: String(i),
+    revision: 1,
+    ai: { tags: ["风景", "远景"] },
+  }));
+  const grid = await page("library", {
+    call: async (a, q) => ({
+      photos: photos.slice(q.offset, q.offset + 60),
+      total: 3000,
+      ids: photos.map((p) => p.id),
+      counts: {},
+    }),
+  });
+  grid.projectId = "p";
+  for (let offset = 0; offset < 3000; offset += 60) {
+    await grid.load(false, offset);
+    assert.equal(grid.data.photos.length, 60);
+    assert.equal(grid.data.cards.length, 60);
+    assert.equal(grid.data.pageCount, 50);
+    assert(JSON.stringify(grid.data).length < 50000);
+  }
+  const review = await page("review", {
+    context: {
+      projectId: "p",
+      ids: photos.map((p) => p.id),
+      photos: photos.slice(120, 180),
+      startId: "120",
+      stage: "refine",
+      total: 3000,
+    },
+    call: async (a, q) => q.ids.map((id) => photos[Number(id)]),
+  });
+  review.onLoad();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(review.data.index, 120);
+  assert.deepEqual(
+    [...review.data.neighbors.map((p) => p.id)],
+    ["119", "120", "121"],
+  );
+  await review.show(119);
+  assert.equal(review.data.current.id, "119");
+  await review.show(2999);
+  assert.equal(review.data.current.id, "2999");
+  assert(review.data.neighbors.length <= 3);
 });

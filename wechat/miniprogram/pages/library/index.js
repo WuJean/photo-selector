@@ -15,6 +15,9 @@ Page({
     processed: false,
     counts: {},
     total: 0,
+    pageOffset: 0,
+    pageNumber: 1,
+    pageCount: 1,
     error: "",
     loading: false,
     more: true,
@@ -43,10 +46,11 @@ Page({
       this.setData({
         stage: getApp().globalData.libraryStage,
         processed: false,
+        pageOffset: 0,
       });
       delete getApp().globalData.libraryStage;
     }
-    this.load(true);
+    this.load(true, this.data.pageOffset);
     call("tags.library", { projectId: this.projectId })
       .then((lib) => {
         this.libraryTags = lib.tags;
@@ -112,7 +116,7 @@ Page({
     }
     this.lastProgress = n;
   },
-  async load(reset = false) {
+  async load(reset = false, targetOffset) {
     if (this.data.loading) {
       if (reset) this.reloadPending = true;
       return;
@@ -120,26 +124,35 @@ Page({
     this.reloadPending = false;
     this.setData({ loading: true, error: "" });
     try {
-      const old = reset ? [] : this.data.photos;
+      const offset = Number.isFinite(targetOffset)
+        ? targetOffset
+        : reset
+          ? 0
+          : this.data.pageOffset + 60;
       const result = await call("photos.query", {
         projectId: this.projectId,
         stage: this.data.stage,
         processed: this.data.processed,
         filter: this.data.filter,
-        offset: old.length,
+        offset,
       });
       if (this.reloadPending) return;
-      if (reset) this.reviewIds = result.ids;
-      const photos = old.concat(
-        (await hydrate(result.photos)).map((p) => ({ ...p, tags: tagsOf(p) })),
-      );
+      if (result.ids) this.reviewIds = result.ids;
+      const photos = (await hydrate(result.photos)).map((p) => ({
+        ...p,
+        tags: tagsOf(p),
+      }));
       if (this.reloadPending) return;
       this.setData({
         photos,
         cards: visibleCards(photos, this.data.expanded),
         total: result.total,
         counts: result.counts,
-        more: photos.length < result.total,
+        pageOffset: offset,
+        pageNumber: Math.floor(offset / 60) + 1,
+        pageCount: Math.max(1, Math.ceil(result.total / 60)),
+        selected: [],
+        more: offset + photos.length < result.total,
       });
     } catch (e) {
       this.setData({ error: e.message });
@@ -148,8 +161,17 @@ Page({
       if (this.reloadPending) this.load(true);
     }
   },
-  onReachBottom() {
-    if (this.data.more) this.load();
+  async nextPage() {
+    if (this.data.more && !this.data.loading) {
+      await this.load(false);
+      wx.pageScrollTo({ scrollTop: 0, duration: 0 });
+    }
+  },
+  async prevPage() {
+    if (this.data.pageOffset && !this.data.loading) {
+      await this.load(false, Math.max(0, this.data.pageOffset - 60));
+      wx.pageScrollTo({ scrollTop: 0, duration: 0 });
+    }
   },
   retry() {
     this.load(true);
@@ -253,6 +275,72 @@ Page({
     };
     wx.navigateTo({ url: "/pages/review/index" });
   },
+  async details(e) {
+    const p = this.data.photos.find((p) => p.id === e.currentTarget.dataset.id);
+    if (!p) return;
+    const focal = p.focal
+      ? p.focal +
+        " mm" +
+        (p.focalEquivalent ? "（等效 " + p.focalEquivalent + " mm）" : "")
+      : "焦距未知";
+    wx.showModal({
+      title: p.name,
+      content: [
+        p.width + " × " + p.height,
+        p.takenAt || "拍摄时间未知",
+        p.camera,
+        p.lens,
+        focal,
+        p.aperture ? "f/" + p.aperture : "",
+        p.iso ? "ISO " + p.iso : "",
+        p.shutter ? p.shutter + " 秒" : "",
+        p.ai?.description || "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      showCancel: false,
+    });
+  },
+  date(e) {
+    this.setData({ ["filter." + e.currentTarget.dataset.key]: e.detail.value });
+  },
+  favorites() {
+    this.setData({ "filter.favorite": !this.data.filter.favorite });
+  },
+  async selectedActions() {
+    const ids = this.data.selected;
+    if (!ids.length) return;
+    try {
+      const choice = await wx.showActionSheet({
+        itemList: ["合并相似组", "拆开相似组", "标为喜欢", "取消喜欢"],
+      });
+      if (choice.tapIndex < 2) {
+        await call("photos.group", {
+          projectId: this.projectId,
+          ids,
+          split: choice.tapIndex === 1,
+        });
+      } else {
+        for (const id of ids) {
+          const p = this.data.photos.find((p) => p.id === id);
+          const r = await call("photos.favorite", {
+            projectId: this.projectId,
+            id,
+            revision: p.revision,
+            value: choice.tapIndex === 2,
+            operationId:
+              "op-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+          });
+          this.history.push(r.historyId);
+        }
+        wx.setStorageSync("undo:" + this.projectId, this.history.slice(-30));
+      }
+      this.setData({ selected: [], choosing: false });
+      await this.load(true);
+    } catch (e) {
+      if (!/cancel/.test(e.errMsg || "")) toast(e);
+    }
+  },
   async imageError(e) {
     const id = e.currentTarget.dataset.id;
     this.setData({
@@ -265,6 +353,7 @@ Page({
     try {
       const id = e.currentTarget.dataset.id,
         p = this.data.photos.find((p) => p.id === id);
+      await call("photos.repair", { projectId: this.projectId, id });
       const [next] = await hydrate([p]);
       this.setData({
         cards: this.data.cards.map((p) =>
@@ -329,7 +418,7 @@ Page({
       });
       this.history.push(r.historyId);
       wx.setStorageSync("undo:" + this.projectId, this.history.slice(-30));
-      await this.load(true);
+      await this.load(true, this.data.pageOffset);
     } catch (e) {
       toast(e);
     } finally {

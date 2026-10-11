@@ -1,6 +1,7 @@
 const call = async (action, data = {}) => {
   const { result } = await wx.cloud.callFunction({
     name: "photoApiV2",
+    config: { timeout: 60000 },
     data: { action, data },
   });
   if (!result?.ok) throw new Error(result?.error?.message || "服务暂不可用");

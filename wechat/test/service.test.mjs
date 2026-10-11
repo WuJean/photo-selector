@@ -155,3 +155,40 @@ test("multiple undo restores the decision chain on one photo without undoing AI 
   assert.equal(restored.photo.finalStatus, "unseen");
   assert.deepEqual(restored.photo.ai.tags, ["风景", "远景"]);
 });
+test("manual similar-group corrections and favorite undo preserve both review rounds", async () => {
+  const { store, api } = setup();
+  await store.put("project", { id: "p" });
+  for (const id of ["a", "b"])
+    await store.put("photo", {
+      id,
+      projectId: "p",
+      status: "maybe",
+      finalStatus: "keep",
+      revision: 1,
+      favorite: false,
+    });
+  await api("photos.group", { projectId: "p", ids: ["a", "b"] });
+  const a = await store.get("photo", "a"),
+    b = await store.get("photo", "b");
+  assert.equal(a.similarId, b.similarId);
+  assert.equal(a.groupManual, true);
+  await api("photos.regroup", { projectId: "p" });
+  assert.equal((await store.get("photo", "a")).similarId, a.similarId);
+  const liked = await api("photos.favorite", {
+    projectId: "p",
+    id: "a",
+    revision: 1,
+    value: true,
+    operationId: "favorite-test",
+  });
+  assert.equal(liked.photo.favorite, true);
+  assert.equal(liked.photo.status, "maybe");
+  assert.equal(liked.photo.finalStatus, "keep");
+  await api("photos.undo", { projectId: "p", historyId: liked.historyId });
+  assert.equal((await store.get("photo", "a")).favorite, false);
+  await api("photos.group", { projectId: "p", ids: ["a", "b"], split: true });
+  assert.notEqual(
+    (await store.get("photo", "a")).similarId,
+    (await store.get("photo", "b")).similarId,
+  );
+});
