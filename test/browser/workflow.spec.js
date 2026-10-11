@@ -278,6 +278,16 @@ test("failed save never advances, input shortcuts are inert, fullscreen and undo
   request,
 }) => {
   const p = await seed(request, 3, { group: false });
+  let rejectSave = true;
+  await page.route("**/api/projects/*/photos", (r) =>
+    rejectSave && r.request().method() === "PATCH"
+      ? r.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "保存失败测试" }),
+        })
+      : r.continue(),
+  );
   await open(page, p);
   await page.getByLabel("搜索照片").fill("zxc");
   expect((await saved(request, p)).every((p) => p.status === "unseen")).toBe(
@@ -286,21 +296,12 @@ test("failed save never advances, input shortcuts are inert, fullscreen and undo
   await page.getByLabel("搜索照片").fill("");
   await page.getByRole("button", { name: "开始粗筛", exact: true }).click();
   const modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
-  await page.route("**/api/projects/*/photos", (r) =>
-    r.request().method() === "PATCH"
-      ? r.fulfill({
-          status: 503,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "保存失败测试" }),
-        })
-      : r.continue(),
-  );
   await page.keyboard.press("x");
   await expect(page.getByRole("status")).toContainText("保存失败测试");
   expect(await modal.locator(".focused").getAttribute("data-photo-id")).toBe(
     p.ids[0],
   );
-  await page.unroute("**/api/projects/*/photos");
+  rejectSave = false;
   await page.keyboard.press("x");
   await expect
     .poll(() => modal.locator(".focused").getAttribute("data-photo-id"))
