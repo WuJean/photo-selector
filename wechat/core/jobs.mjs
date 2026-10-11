@@ -87,13 +87,19 @@ export async function jobActions(
       schemaVersion: 2,
     };
     await store.put("vocabulary", lib);
-    await store.put("job", { ...job, state: "done", confirmedAt: Date.now() });
-    return jobActions(
+    const classification = await jobActions(
       store,
       "jobs.create",
       { projectId: job.projectId, type: "classify", ids: job.scopeIds },
       { config, dispatch, perform },
     );
+    await store.put("job", {
+      ...job,
+      state: "done",
+      confirmedAt: Date.now(),
+      classificationId: classification.id || null,
+    });
+    return classification;
   }
   if (action === "jobs.control") {
     const job = await owned(store, "job", input.id);
@@ -330,12 +336,30 @@ export async function processJob(
     if (current.state === "queued")
       await tx.put("job", { ...current, state: "running" });
   });
-  if (!["classify", "sample"].includes(job.type))
-    await sourcePhotos(store, {
-      projectId: job.projectId,
-      collectionId: job.collectionId,
-      ids: job.scopeIds,
-    });
+  if (!["classify", "sample"].includes(job.type)) {
+    try {
+      await sourcePhotos(store, {
+        projectId: job.projectId,
+        collectionId: job.collectionId,
+        ids: job.scopeIds,
+      });
+    } catch (error) {
+      await store.transaction(async (tx) => {
+        const current = await owned(tx, "job", jobId);
+        if (
+          current.generation === job.generation &&
+          ["queued", "running"].includes(current.state)
+        )
+          await tx.put("job", {
+            ...current,
+            state: "failed",
+            processing: 0,
+            error: error.message,
+          });
+      });
+      return;
+    }
+  }
   const allItems = await store.all("jobItem", { jobId }),
     unfinished = allItems.filter((i) => !["done", "skipped"].includes(i.state));
   const phase = Math.min(...unfinished.map((i) => i.phase || 0));
@@ -457,7 +481,11 @@ export async function processJob(
               )
                 return;
               const retry =
-                v.step !== "cover" && !e.auth && !e.unknown && v.attempts < 3;
+                v.step !== "cover" &&
+                !e.auth &&
+                !e.unknown &&
+                e.retryable !== false &&
+                v.attempts < 3;
               await tx.put("jobItem", {
                 ...v,
                 state: retry ? "pending" : e.unknown ? "unknown" : "failed",

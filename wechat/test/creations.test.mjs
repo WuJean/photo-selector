@@ -222,3 +222,18 @@ test("cancelling final creation blocks late commit and cover unknown results nev
   assert.equal(calls, 1);
   assert.equal((await api("jobs.get", { id: c.id })).state, "failed");
 });
+test("removed collection source fails durably without dispatching creation", async () => {
+  const { store, api } = await setup();
+  const job = await api("jobs.create", {
+    projectId: "p",
+    collectionId: "c",
+    type: "copy",
+  });
+  await store.remove("member", "c-p0");
+  let invoked = false;
+  await processJob(store, job.id, async () => {
+    invoked = true;
+  });
+  assert.equal(invoked, false);
+  assert.equal((await store.get("job", job.id)).state, "failed");
+});

@@ -120,3 +120,65 @@ test("pause stops dispatch, in-flight success saves, auth pauses and restart res
   await processJob(store, job.id, analyze);
   assert.equal((await api("jobs.get", { id: job.id })).state, "done");
 });
+
+test("concurrency preferences do not invalidate image understanding cache", async () => {
+  const { store, api } = await setup(4);
+  const job = await api("jobs.create", { projectId: "p", type: "classify" });
+  await processJob(store, job.id, analyze);
+  await api("settings.save", {
+    sampleConcurrency: 16,
+    classifyConcurrency: 16,
+    serviceConcurrency: 4,
+  });
+  assert.equal((await api("settings.status")).serviceConcurrency, 4);
+  assert.equal(
+    (await api("jobs.create", { projectId: "p", type: "classify" })).total,
+    0,
+  );
+  const redo = await api("jobs.create", {
+    projectId: "p",
+    type: "classify",
+    force: true,
+  });
+  assert.equal(
+    (await store.get("job", redo.id)).config.classifyConcurrency,
+    16,
+  );
+});
+
+test("interrupted task creation recovers missing items without resubmitting completed items", async () => {
+  const { store, api } = await setup(3),
+    j = await api("jobs.create", { projectId: "p", type: "classify" });
+  await processJob(store, j.id, analyze, { maxItems: 1 });
+  const items = await store.all("jobItem", { jobId: j.id }),
+    pending = items.find((v) => v.state === "pending");
+  await store.remove("jobItem", pending.id);
+  await api("jobs.control", { id: j.id, action: "pause" });
+  await api("jobs.control", { id: j.id, action: "resume" });
+  let calls = 0;
+  await processJob(store, j.id, async () => {
+    calls++;
+    return analyze();
+  });
+  assert.equal(calls, 2);
+  assert.equal((await api("jobs.get", { id: j.id })).completed, 3);
+});
+test("failed classification creation leaves sample confirmation retryable", async () => {
+  const { store, api } = await setup(2);
+  const sample = await api("jobs.create", { projectId: "p", type: "sample" });
+  await processJob(store, sample.id, async () => ({ tags: [] }));
+  const quota = (await store.all("quota"))[0];
+  await store.put("quota", { ...quota, used: 100 });
+  await assert.rejects(
+    api("jobs.confirm", { id: sample.id, tags: [] }),
+    /额度/,
+  );
+  assert.equal((await store.get("job", sample.id)).state, "confirmation");
+  await store.put("quota", { ...quota, used: 0 });
+  const classified = await api("jobs.confirm", { id: sample.id, tags: [] });
+  assert.equal(classified.total, 2);
+  assert.equal(
+    (await store.get("job", sample.id)).classificationId,
+    classified.id,
+  );
+});

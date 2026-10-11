@@ -54,7 +54,11 @@ Page({
     });
   },
   async load(reset) {
-    if (this.data.busy) return;
+    if (this.data.busy) {
+      if (reset) this.reloadPending = true;
+      return;
+    }
+    this.reloadPending = false;
     this.setData({ busy: true, error: "" });
     try {
       const collections = await call("collections.list", {
@@ -66,7 +70,7 @@ Page({
           projectId: this.projectId,
           collectionId: this.data.collectionId,
         });
-        this.setData({ creations });
+        if (!this.reloadPending) this.setData({ creations });
       } else {
         const before = reset ? [] : this.data.photos;
         const r = await call("collections.photos", {
@@ -83,12 +87,13 @@ Page({
             selected: this.data.selected.includes(p.id),
           })),
         );
-        this.setData({ photos, total: r.total });
+        if (!this.reloadPending) this.setData({ photos, total: r.total });
       }
     } catch (e) {
       this.setData({ error: e.message });
     } finally {
       this.setData({ busy: false });
+      if (this.reloadPending) this.load(true);
     }
   },
   retry() {

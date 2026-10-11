@@ -65,6 +65,11 @@ Page({
     this.setData({
       domains: TAG_CATEGORIES.map((name) => ({
         name,
+        selected: this.data.filter.tags.filter((tag) =>
+          (this.libraryTags || DEFAULT_TAGS).some(
+            (t) => t.category === name && t.name === tag,
+          ),
+        ).length,
         options: (this.libraryTags || DEFAULT_TAGS)
           .filter((t) => t.category === name)
           .map((t) => ({
@@ -82,10 +87,15 @@ Page({
       !this.data.loading
     ) {
       try {
-        const rows = await call("photos.get", {
-          projectId: this.projectId,
-          ids: this.data.photos.slice(0, 60).map((p) => p.id),
-        });
+        const rows = [];
+        const ids = this.data.photos.map((p) => p.id);
+        for (let start = 0; start < ids.length; start += 60)
+          rows.push(
+            ...(await call("photos.get", {
+              projectId: this.projectId,
+              ids: ids.slice(start, start + 60),
+            })),
+          );
         const updated = new Map(rows.map((p) => [p.id, p]));
         const photos = this.data.photos.map((p) => ({
           ...p,
@@ -103,7 +113,11 @@ Page({
     this.lastProgress = n;
   },
   async load(reset = false) {
-    if (this.data.loading) return;
+    if (this.data.loading) {
+      if (reset) this.reloadPending = true;
+      return;
+    }
+    this.reloadPending = false;
     this.setData({ loading: true, error: "" });
     try {
       const old = reset ? [] : this.data.photos;
@@ -114,10 +128,12 @@ Page({
         filter: this.data.filter,
         offset: old.length,
       });
+      if (this.reloadPending) return;
       if (reset) this.reviewIds = result.ids;
       const photos = old.concat(
         (await hydrate(result.photos)).map((p) => ({ ...p, tags: tagsOf(p) })),
       );
+      if (this.reloadPending) return;
       this.setData({
         photos,
         cards: visibleCards(photos, this.data.expanded),
@@ -129,6 +145,7 @@ Page({
       this.setData({ error: e.message });
     } finally {
       this.setData({ loading: false });
+      if (this.reloadPending) this.load(true);
     }
   },
   onReachBottom() {

@@ -19,6 +19,7 @@ async function page(file, { call, context } = {}) {
       getApp: () => ({ globalData: { review: context } }),
       require: () => ({
         call,
+        visibleCards,
         toast() {},
         hydrate: async (p) => p,
         tagsOf: (p) => p.ai?.tags || [],
@@ -101,4 +102,22 @@ test("immutable review IDs fetch next page despite prior decisions leaving the q
   assert.deepEqual([...ids], ["60"]);
   assert.equal(p.data.current.id, "60");
   assert(p.data.neighbors.length <= 3);
+});
+test("changing stage during a pending grid load fetches latest scope and never paints stale photos", async () => {
+  let release;
+  const calls = [], snapshots = [];
+  const p = await page("library", { call: async (action, input) => {
+    calls.push(input.stage);
+    if (input.stage === "rough") await new Promise(r => { release = r; });
+    return { photos: [{ id: input.stage }], ids: [input.stage], total: 1, counts: {} };
+  }});
+  p.projectId = "p";
+  const setData = p.setData.bind(p);
+  p.setData = v => { if (v.photos) snapshots.push(v.photos.map(p=>p.id).join(',')); setData(v); };
+  const initial = p.load(true);
+  p.stage({currentTarget:{dataset:{stage:"refine"}}});
+  release(); await initial;
+  while(p.data.loading) await new Promise(r=>setImmediate(r));
+  assert.deepEqual(calls, ["rough", "refine"]);
+  assert.deepEqual(snapshots, ["refine"]);
 });
