@@ -1,3 +1,4 @@
+import { accessPolicy } from "./access.mjs";
 import express from "express";
 import multer from "multer";
 import path from "node:path";
@@ -8,25 +9,13 @@ import { importPhoto, imageFile } from "./images.mjs";
 export function createApp({
   root = path.resolve(".local"),
   onImport = () => {},
+  publicURL = "",
 } = {}) {
   const app = express();
   const store = new Store(root);
   app.locals.store = store;
   app.disable("x-powered-by");
-  app.use((req, res, next) => {
-    const host = (req.headers.host || "").split(":")[0];
-    if (!["127.0.0.1", "localhost", "["].includes(host))
-      return res.status(403).json({ error: "仅允许本机访问" });
-    if (
-      req.headers.origin &&
-      ![
-        "http://127.0.0.1:" + req.socket.localPort,
-        "http://localhost:" + req.socket.localPort,
-      ].includes(req.headers.origin)
-    )
-      return res.status(403).json({ error: "不允许跨站请求" });
-    next();
-  });
+  app.use(accessPolicy(publicURL));
   app.use(express.json({ limit: "2mb" }));
   const upload = multer({
     dest: path.join(root, "temp"),

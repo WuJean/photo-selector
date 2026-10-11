@@ -1,3 +1,5 @@
+import { Vault } from "./vault.mjs";
+export { Vault } from "./vault.mjs";
 import { visualCandidates } from "../shared/pairing.mjs";
 import { visualRecommendationMessages } from "./recommendation.mjs";
 import { sourcePhotos } from "./sources.mjs";
@@ -19,7 +21,12 @@ export function normalizeConfig(input = {}) {
   } catch {
     throw new Error("请填写有效的 API 地址，例如 https://服务地址/v1");
   }
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  const local = [
+    "localhost",
+    "127.0.0.1",
+    "[::1]",
+    "host.docker.internal",
+  ].includes(url.hostname);
   if (
     url.username ||
     url.password ||
@@ -55,42 +62,6 @@ export function signature(config, vocabulary) {
         JSON.stringify(vocabulary || null),
     )
     .digest("hex");
-}
-export class Vault {
-  constructor(native) {
-    this.native = native;
-    this.memory = new Map();
-  }
-  account(config) {
-    return createHash("sha256").update(config.baseURL).digest("hex");
-  }
-  async get(config) {
-    if (this.native.available)
-      return (
-        await this.native.request({
-          op: "key-get",
-          account: this.account(config),
-        })
-      ).key;
-    return this.memory.get(this.account(config)) || null;
-  }
-  async set(config, key) {
-    if (this.native.available)
-      await this.native.request({
-        op: "key-set",
-        account: this.account(config),
-        key,
-      });
-    else this.memory.set(this.account(config), key);
-  }
-  async remove(config) {
-    if (this.native.available)
-      await this.native.request({
-        op: "key-delete",
-        account: this.account(config),
-      });
-    this.memory.delete(this.account(config));
-  }
 }
 export function parseJSON(content) {
   if (typeof content !== "string") throw new Error("模型未返回文字 JSON");
@@ -498,7 +469,7 @@ export class AIQueue {
   }
 }
 export function registerAI(app, store, native) {
-  const vault = new Vault(native),
+  const vault = new Vault(native, { root: store.root }),
     queue = new AIQueue(store, vault);
   app.locals.aiQueue = queue;
   app.locals.aiVault = vault;
@@ -507,14 +478,14 @@ export function registerAI(app, store, native) {
       ? {
           ...config,
           hasKey: !!(await vault.get(config)),
-          keyStorage: native.available ? "macOS 钥匙串" : "仅当前服务内存",
+          keyStorage: vault.storage,
         }
       : {
           baseURL: "",
           model: "",
           jsonMode: true,
           hasKey: false,
-          keyStorage: native.available ? "macOS 钥匙串" : "仅当前服务内存",
+          keyStorage: vault.storage,
         };
   app.get("/api/settings", async (req, res) =>
     res.json(await publicConfig(store.get("settings", "ai"))),

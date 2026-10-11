@@ -15,6 +15,7 @@ const native = new NativeBridge();
 let local;
 const { app, store, upload } = createApp({
   root,
+  publicURL: process.env.PHOTO_SELECTOR_PUBLIC_URL || "",
   onImport: (photo) => local.enqueue(photo.id),
 });
 local = new LocalQueue(store, native);
@@ -68,6 +69,9 @@ if (process.env.NODE_ENV === "production") {
 }
 errors(app);
 const port = Number(process.env.PORT || 4173);
-app.listen(port, "127.0.0.1", () =>
-  console.log(`选片助手 http://127.0.0.1:${port}`),
+const host = process.env.HOST || "127.0.0.1";
+app.listen(port, host, () =>
+  console.log(
+    `选片助手 ${process.env.PHOTO_SELECTOR_PUBLIC_URL || `http://${host}:${port}`}`,
+  ),
 );
