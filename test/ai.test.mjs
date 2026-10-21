@@ -165,3 +165,30 @@ test("visual request timeout is reported without automatically resending the ima
   );
   assert.equal(calls, 1);
 });
+
+test("local Qwen profile uses bounded sequential defaults and sufficient JSON output without cloud fallback", async () => {
+  const local = normalizeConfig({
+    baseURL: "http://127.0.0.1:8765/v1",
+    model: "qwen3.6:35b",
+    profile: "local-qwen",
+  });
+  assert.equal(local.analysisConcurrency, 1);
+  assert.equal(local.serviceConcurrency, 1);
+  assert.throws(
+    () => normalizeConfig({ ...local, baseURL: "https://cloud.example/v1" }),
+    /本机/,
+  );
+  let body, address;
+  const client = new AIClient(local, "local-key", {
+    fetchImpl: async (url, options) => {
+      address = url;
+      body = JSON.parse(options.body);
+      return payload({ ok: true });
+    },
+  });
+  await client.complete([{ role: "user", content: "JSON" }], (v) => v);
+  assert.equal(address, "http://127.0.0.1:8765/v1/chat/completions");
+  assert.equal(body.max_tokens, 2048);
+  assert.equal(body.context_size, 16384);
+  assert.equal(body.think, false);
+});

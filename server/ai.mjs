@@ -38,14 +38,27 @@ export function normalizeConfig(input = {}) {
     throw new Error("云端地址需要 HTTPS；本机服务可以使用 HTTP");
   const model = String(input.model || "").trim();
   if (!model) throw new Error("请填写支持图片输入的模型名称");
+  const profile = input.profile === "local-qwen" ? "local-qwen" : "openai";
+  if (profile === "local-qwen" && !local)
+    throw new Error("本地 Qwen 配置只能连接本机地址");
   return {
     id: "ai",
     baseURL: base,
     model,
+    profile,
     jsonMode: input.jsonMode !== false,
-    sampleConcurrency: concurrency(input.sampleConcurrency, 4),
-    analysisConcurrency: concurrency(input.analysisConcurrency, 8),
-    serviceConcurrency: concurrency(input.serviceConcurrency, 8),
+    sampleConcurrency: concurrency(
+      input.sampleConcurrency,
+      profile === "local-qwen" ? 1 : 4,
+    ),
+    analysisConcurrency: concurrency(
+      input.analysisConcurrency,
+      profile === "local-qwen" ? 1 : 8,
+    ),
+    serviceConcurrency: concurrency(
+      input.serviceConcurrency,
+      profile === "local-qwen" ? 1 : 8,
+    ),
   };
 }
 export function endpoint(config) {
@@ -137,7 +150,9 @@ export class AIClient {
     this.sleep = sleep;
     this.usage = { prompt_tokens: 0, completion_tokens: 0 };
   }
-  async complete(messages, validate, { signal, timeoutMs = 60_000 } = {}) {
+  async complete(messages, validate, { signal, timeoutMs } = {}) {
+    const localQwen = this.config.profile === "local-qwen";
+    timeoutMs = timeoutMs ?? (localQwen ? 300_000 : 60_000);
     let last;
     for (let attempt = 0; attempt < 3; attempt++) {
       if (signal?.aborted) throw new Error("任务已取消");
@@ -156,6 +171,9 @@ export class AIClient {
               body: JSON.stringify({
                 model: this.config.model,
                 messages,
+                ...(localQwen
+                  ? { max_tokens: 2048, context_size: 16384, think: false }
+                  : {}),
                 ...(this.config.jsonMode
                   ? { response_format: { type: "json_object" } }
                   : {}),
@@ -584,6 +602,7 @@ export function registerAI(app, store, native) {
             }
           : null,
         ratio: req.body.ratio || "3:4",
+        maxImages: config.profile === "local-qwen" ? 4 : 12,
       }),
       (v) => {
         const result = validateRecommendation(v, candidates, locked);
@@ -596,7 +615,7 @@ export function registerAI(app, store, native) {
               throw new Error("模型改变了已锁定照片的位置");
         return result;
       },
-      { timeoutMs: 180_000 },
+      { timeoutMs: config.profile === "local-qwen" ? 300_000 : 180_000 },
     );
     res.json({
       ...result,

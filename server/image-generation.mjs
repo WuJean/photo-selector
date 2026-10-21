@@ -20,7 +20,8 @@ export function normalizeImageConfig(input = {}, ai = {}) {
     throw new Error("生图服务需要 HTTPS 或本机地址");
   const model = String(input.model || "wan2.7-image").trim();
   if (!model) throw new Error("请填写生图模型");
-  const inheritKey = input.inheritKey !== false;
+  // A local inference credential must never be forwarded to an image provider.
+  const inheritKey = input.inheritKey !== false && ai?.profile !== "local-qwen";
   return {
     id: "image-generation",
     endpoint,

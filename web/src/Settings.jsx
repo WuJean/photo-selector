@@ -80,12 +80,47 @@ export default function Settings({ onClose, notify }) {
         >
           图片生成
         </button>
-        <button role="tab" aria-selected={section === "tags"} onClick={()=>setSection("tags")}>分类标签</button>
+        <button
+          role="tab"
+          aria-selected={section === "tags"}
+          onClick={() => setSection("tags")}
+        >
+          分类标签
+        </button>
       </div>
-      {section === "tags" ? <ClassificationSettings notify={notify}/> : section === "image" ? (
+      {section === "tags" ? (
+        <ClassificationSettings notify={notify} />
+      ) : section === "image" ? (
         <ImageSettings notify={notify} />
       ) : (
         <>
+          <label className="field">
+            <span>服务类型</span>
+            <select
+              value={config.profile || "openai"}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  profile: e.target.value,
+                  ...(e.target.value === "local-qwen"
+                    ? {
+                        sampleConcurrency: 1,
+                        analysisConcurrency: 1,
+                        serviceConcurrency: 1,
+                      }
+                    : {}),
+                })
+              }
+            >
+              <option value="openai">Chat Completions 兼容服务</option>
+              <option value="local-qwen">本地 Qwen 网关</option>
+            </select>
+            {config.profile === "local-qwen" && (
+              <small>
+                图片在运行选片助手的电脑上分析；不会回退到云端。支持本机网关的长响应和四图限制。
+              </small>
+            )}
+          </label>
           <label className="field">
             <span>
               <Server size={13} /> API Base URL

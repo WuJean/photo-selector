@@ -135,6 +135,30 @@ test("multimodal pairing sends each candidate image with its ID, strips metadata
     const content = messages[1].content;
     assert.equal(content.filter((c) => c.type === "image_url").length, 3);
     assert.equal(JSON.parse(content[0].text).candidates.length, 3);
+    const twelve = Array.from({ length: 12 }, (_, i) => ({
+      ...candidates[i % 3],
+      id: candidates[i % 3].id,
+    }));
+    const packed = await visualRecommendationMessages(store, twelve, {
+      query: "搭配",
+      locked: [],
+      ratio: "3:4",
+      maxImages: 4,
+    });
+    const parts = packed[1].content;
+    assert.equal(parts.filter((p) => p.type === "image_url").length, 4);
+    assert.deepEqual(
+      JSON.parse(parts[0].text).candidates.map((p) => p.visualIndex),
+      Array.from({ length: 12 }, (_, i) => i + 1),
+    );
+    assert.match(parts.at(-2).text, /12=/);
+    for (const p of parts.filter((p) => p.type === "image_url")) {
+      const m = await sharp(
+        Buffer.from(p.image_url.url.split(",")[1], "base64"),
+      ).metadata();
+      assert.equal(m.exif, undefined);
+      assert.equal(m.width, 768);
+    }
     for (let i = 0; i < 3; i++) {
       assert(content[i * 2 + 1].text.includes(candidates[i].id));
       const buffer = Buffer.from(

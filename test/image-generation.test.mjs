@@ -13,6 +13,12 @@ test("image adapter uses native protocol with one image, reference bytes and con
   assert.equal(config.model, "wan2.7-image");
   assert.equal(normalizeImageConfig({}, null).keyBaseURL, undefined);
   assert.equal(config.keyBaseURL, "https://example.com/v1");
+  const local = normalizeImageConfig(
+    {},
+    { baseURL: "http://127.0.0.1:8765/v1", profile: "local-qwen" },
+  );
+  assert.equal(local.inheritKey, false);
+  assert.equal(local.keyBaseURL, local.endpoint);
   assert.throws(() =>
     normalizeImageConfig({ endpoint: "http://external.test" }),
   );
