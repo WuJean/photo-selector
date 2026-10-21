@@ -316,3 +316,26 @@ test("abstract creation uses all cached descriptions while local photos are offl
     await f.close();
   }
 });
+
+test("disabled image generation rejects new and resumed cover jobs before inference", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "disabled-creations-"));
+  const store = new Store(root);
+  try {
+    store.put("settings", { id: "image-generation", enabled: false });
+    const queue = new CreationQueue(store, {
+      get: async () => assert.fail("must not access credentials"),
+    });
+    assert.throws(() => queue.start("p", "c", "cover"), /已关闭/);
+    store.put("creationJob", {
+      id: "paused-cover",
+      kind: "cover",
+      pipelineVersion: 2,
+      state: "paused",
+    });
+    assert.throws(() => queue.action("paused-cover", "resume"), /已关闭/);
+    assert.equal(store.get("creationJob", "paused-cover").state, "paused");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

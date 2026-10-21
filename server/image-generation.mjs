@@ -24,6 +24,7 @@ export function normalizeImageConfig(input = {}, ai = {}) {
   const inheritKey = input.inheritKey !== false && ai?.profile !== "local-qwen";
   return {
     id: "image-generation",
+    enabled: input.enabled !== false,
     endpoint,
     model,
     inheritKey,
@@ -50,6 +51,7 @@ export async function generateImage(
     onOutput,
   } = {},
 ) {
+  if (config.enabled === false) throw new Error("生图服务已关闭");
   const sizes = {
     "1:1": "1536*1536",
     "3:4": "1536*2048",
@@ -170,6 +172,8 @@ export function registerImageGeneration(app, store) {
     res.json({ ok: true });
   });
   app.post("/api/settings/image-generation/test", async (req, res) => {
+    if (!imageConfig(store).enabled)
+      throw new Error("生图服务已关闭，请先在设置中启用并保存");
     const config = normalizeImageConfig(req.body, store.get("settings", "ai")),
       key =
         (!config.inheritKey && req.body.apiKey) ||
@@ -188,6 +192,7 @@ export function registerImageGeneration(app, store) {
     res.json({ ok: true, width: info.width, height: info.height });
   });
   return async (job, signal) => {
+    if (!imageConfig(store).enabled) throw new Error("生图服务已关闭");
     const config = job.imageConfig || imageConfig(store),
       key = await vault.get({ baseURL: config.keyBaseURL });
     // Portfolio creation uses persisted visual descriptions, never reference uploads.

@@ -93,10 +93,12 @@ export function PortfolioTools({
           <strong>拼图</strong>
           <span>模板排版 · 随机组合 · AI 搭配</span>
         </button>
-        <button aria-label="生成创意图" onClick={() => setModal("cover")}>
-          <strong>生成创意图</strong>
-          <span>用独立的抽象画面，表达这段旅程</span>
-        </button>
+        {jobs?.imageGenerationEnabled !== false && (
+          <button aria-label="生成创意图" onClick={() => setModal("cover")}>
+            <strong>生成创意图</strong>
+            <span>用独立的抽象画面，表达这段旅程</span>
+          </button>
+        )}
       </div>
       {modal === "edit" && (
         <Modal title="编辑作品集" onClose={close}>

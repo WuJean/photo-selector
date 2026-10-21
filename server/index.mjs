@@ -4,7 +4,7 @@ import { registerShares } from "./shares.mjs";
 import { registerNetwork } from "./network-import.mjs";
 import { registerCleanup } from "./cleanup.mjs";
 import { registerLibrary } from "./library.mjs";
-import { registerImageGeneration } from "./image-generation.mjs";
+import { registerImageGeneration, imageConfig } from "./image-generation.mjs";
 import { registerCreations } from "./creations.mjs";
 import path from "node:path";
 import { createApp, errors } from "./app.mjs";
@@ -36,7 +36,12 @@ registerMedia(app, store, upload);
 registerCuration(app, store);
 registerTags(app, store);
 const aiQueue = registerAI(app, store, native);
-const automaticAI=registerAutomaticAI(app,store,app.locals.aiVault,(config,key)=>new AIClient(config,key));
+const automaticAI = registerAutomaticAI(
+  app,
+  store,
+  app.locals.aiVault,
+  (config, key) => new AIClient(config, key),
+);
 registerVocabulary(app, store);
 registerExports(app, store, upload);
 registerPairingPresets(app, store);
@@ -44,6 +49,7 @@ const generate = registerImageGeneration(app, store);
 const creations = registerCreations(app, store, { generate });
 app.get("/api/jobs", (req, res) =>
   res.json({
+    imageGenerationEnabled: imageConfig(store).enabled,
     creations: store.all("creationJob").map((j) => creations.public(j)),
     local: local.state(),
     ai: aiQueue.state(),

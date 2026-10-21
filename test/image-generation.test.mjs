@@ -169,3 +169,16 @@ test("text-only creative image sends no reference bytes", async () => {
   });
   assert.deepEqual(content, [{ text: "一道蓝色回环象征山间同行" }]);
 });
+
+test("disabled image generation never dispatches a network request", async () => {
+  const config = normalizeImageConfig({ enabled: false });
+  assert.equal(config.enabled, false);
+  await assert.rejects(
+    () =>
+      generateImage(config, "secret", {
+        prompt: "test",
+        fetchImpl: () => assert.fail("disabled dispatched"),
+      }),
+    /已关闭/,
+  );
+});

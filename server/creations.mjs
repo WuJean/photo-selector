@@ -76,6 +76,8 @@ export class CreationQueue {
     return rest;
   }
   start(projectId, collectionId, kind, ratio = "3:4") {
+    if (kind === "cover" && !imageConfig(this.store).enabled)
+      throw new Error("生图服务已关闭");
     if (!["copy", "cover"].includes(kind)) throw new Error("创作类型无效");
     const collection = collectionFor(this.store, projectId, collectionId),
       photos = sourcePhotos(this.store, projectId, { collectionId });
@@ -129,6 +131,8 @@ export class CreationQueue {
     } else if (action === "pause") {
       j.state = "paused";
     } else if (["resume", "retry"].includes(action)) {
+      if (j.kind === "cover" && !imageConfig(this.store).enabled)
+        throw new Error("生图服务已关闭");
       if (this.running.has(id)) throw new Error("请等待当前请求结束");
       if (j.state === "done") throw new Error("已完成任务请新建创作");
       if (j.kind === "cover" && j.pipelineVersion !== 2 && !j.generatedURL) {

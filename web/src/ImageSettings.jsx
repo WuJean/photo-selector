@@ -44,6 +44,17 @@ export default function ImageSettings({ notify }) {
   if (!config) return <div>载入中…</div>;
   return (
     <section className="image-settings">
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={config.enabled !== false}
+          onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
+        />
+        启用生图服务
+      </label>
+      {config.enabled === false && (
+        <p>生图已关闭，拼图与本地图片理解仍可使用。配置和已有创作会保留。</p>
+      )}
       <label className="field">
         <span>生图 API 地址</span>
         <input
@@ -96,7 +107,7 @@ export default function ImageSettings({ notify }) {
         )}
         <button
           className="button"
-          disabled={busy}
+          disabled={busy || config.enabled === false}
           onClick={() => action("test")}
         >
           {busy ? "处理中…" : "测试生成一张"}

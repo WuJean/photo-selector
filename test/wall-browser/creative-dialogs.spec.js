@@ -76,4 +76,34 @@ test("mobile edit, generation and collage open separately, preserve drafts and k
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
+  await page.getByRole("button", { name: "返回照片库" }).click();
+  const imageConfig = await (
+    await page.request.get("/api/settings/image-generation")
+  ).json();
+  try {
+    await page.request.put("/api/settings/image-generation", {
+      data: { ...imageConfig, enabled: false },
+    });
+    await expect(
+      page.getByRole("button", { name: "生成创意图", exact: true }),
+    ).toHaveCount(0, { timeout: 10000 });
+    await expect(
+      page.getByRole("button", { name: "拼图", exact: true }),
+    ).toBeVisible();
+    const denied = await page.request.post(
+      `/api/projects/${b.id}/collections/${c.id}/create`,
+      { data: { kind: "cover" } },
+    );
+    expect(denied.status()).toBe(400);
+    expect((await denied.json()).error).toContain("生图服务已关闭");
+    const testDenied = await page.request.post(
+      "/api/settings/image-generation/test",
+      { data: { ...imageConfig, enabled: true } },
+    );
+    expect(testDenied.status()).toBe(400);
+  } finally {
+    await page.request.put("/api/settings/image-generation", {
+      data: imageConfig,
+    });
+  }
 });
