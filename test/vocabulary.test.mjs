@@ -203,7 +203,8 @@ test("sampling requires initial acceptance; confirmation gates full classificati
     mode = "auth";
     store.put("settings", originalConfig);
     await call(base + "/vocabulary", { ids });
-    await wait(() => q.get(p.id)?.state === "paused");
+    // Authentication pauses dispatch before other in-flight workers have settled.
+    await wait(() => q.get(p.id)?.state === "paused" && !q.running.has(p.id));
     assert.match(q.get(p.id).error, /认证/);
     const originalSample = q.get(p.id).sampleIds;
     mode = "normal";
