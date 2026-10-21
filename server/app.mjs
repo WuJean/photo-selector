@@ -1,3 +1,4 @@
+import { registerDisplay } from "./display.mjs";
 import { registerAuth } from "./auth.mjs";
 import { accessPolicy } from "./access.mjs";
 import express from "express";
@@ -27,6 +28,7 @@ export function createApp({
     dest: path.join(root, "temp"),
     limits: { fileSize: 100 * 1024 * 1024, files: 20 },
   });
+  registerDisplay(app, store, upload);
   app.get("/api/health", (req, res) =>
     res.json({ ok: true, service: "选片助手", version: "0.1.0" }),
   );

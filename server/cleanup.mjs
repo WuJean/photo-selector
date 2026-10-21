@@ -1,4 +1,5 @@
 import path from "node:path";
+import { displayPath, displaySizes, photoDisplay } from "./display.mjs";
 import { syncRetention } from "./retention.mjs";
 import { unlink, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -105,6 +106,12 @@ export class CleanupQueue {
             "thumbs",
             "analysis-previews",
           ].map((folder) => path.join(this.store.root, folder, p.id + ".jpg"));
+          if (task.kind === "discard")
+            files.push(
+              ...Object.keys(displaySizes).map((size) =>
+                displayPath(this.store, p.id, size),
+              ),
+            );
           if (p.originalExtension && p.originalExtension !== "jpg")
             files.push(
               path.join(
@@ -247,7 +254,7 @@ export function registerCleanup(app, store) {
     void queue.drain();
     res.json({ ok: true });
   });
-  app.post("/api/assets/:id/local-receipt", (req, res) => {
+  app.post("/api/assets/:id/local-receipt", async (req, res) => {
     const p = requireItem(store, "photo", req.params.id);
     if (
       !p.network ||
@@ -258,11 +265,14 @@ export function registerCleanup(app, store) {
       req.body.size !== p.size
     )
       throw new Error("本地文件校验未通过");
+    for (const size of Object.keys(displaySizes))
+      await photoDisplay(store, p.id, size);
     const { originalPath, ...rest } = p;
     store.put("photo", {
       ...rest,
       storage: "local",
       savedLocallyAt: timestamp(),
+      displayReady: true,
     });
     store.put("cleanup", {
       id: randomUUID(),

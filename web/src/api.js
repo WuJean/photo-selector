@@ -26,5 +26,17 @@ export const json = (method, body) => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
-export const photoURL = (id, variant = "thumb") =>
-  mediaAddress(id, variant) || `/api/photos/${id}/${variant}`;
+export const photoURL = (id, variant = "thumb") => {
+  const local = mediaAddress(id, variant);
+  if (local) return local;
+  if (variant === "thumb" || variant === "preview") {
+    const size =
+      variant === "thumb"
+        ? "tile"
+        : window.matchMedia("(max-width: 1024px)").matches
+          ? "mobile"
+          : "screen";
+    return `/api/photos/${id}/display/${size}`;
+  }
+  return `/api/photos/${id}/${variant}`;
+};

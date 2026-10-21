@@ -73,7 +73,10 @@ export function asset(id) {
 }
 export const isLocal = (id) => assets.get(id)?.storage === "local";
 export function mediaAddress(id, variant) {
-  return isLocal(id) ? `local-photo://${id}/${variant}` : null;
+  return isLocal(id) &&
+    !(assets.get(id)?.displayReady && ["thumb", "preview"].includes(variant))
+    ? `local-photo://${id}/${variant}`
+    : null;
 }
 async function fileAt(directory, relativePath) {
   const parts = relativePath.split("/");
@@ -172,6 +175,20 @@ export async function importFolder(
       });
       await storage("thumb:" + p.id, thumbnail);
       assets.set(p.id, p);
+      if (!p.displayReady) {
+        try {
+          const preview = await processPhoto(file, {
+            mode: "preview",
+            edge: 1600,
+          });
+          const body = new FormData();
+          body.append("photo", preview, "display.jpg");
+          await api(`/assets/${p.id}/display`, { method: "POST", body });
+          assets.set(p.id, { ...p, displayReady: true });
+        } catch {
+          onProgress("展示图同步失败，可重新连接文件夹重试；原片已保留在电脑");
+        }
+      }
     } catch (e) {
       failed++;
       onProgress(`跳过：${e.message}`);
@@ -244,7 +261,7 @@ export async function saveNetworkPhotos(
       `/assets/${p.id}/local-receipt`,
       json("POST", { hash: metadata.hash, size: file.size }),
     );
-    assets.set(p.id, { ...p, storage: "local" });
+    assets.set(p.id, { ...p, storage: "local", displayReady: true });
     onProgress(`已保存 ${++done}/${photos.length}`);
   }
   window.dispatchEvent(new Event("photo-files-reconnected"));
