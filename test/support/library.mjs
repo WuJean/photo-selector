@@ -58,6 +58,8 @@ export async function fixture(register = () => {}) {
     json,
     async close() {
       await new Promise((r) => server.close(r));
+      app.locals.r2?.close();
+      if (app.locals.r2) await Promise.all(app.locals.r2.pending.values());
       app.locals.automaticAI?.close();
       app.locals.cleanupQueue?.close();
       app.locals.closeShares?.();

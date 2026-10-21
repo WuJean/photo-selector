@@ -1,3 +1,4 @@
+import { compressedFile } from "./display.mjs";
 import { ensureDescription } from "./descriptions.mjs";
 import { imageConfig } from "./image-generation.mjs";
 import { randomUUID } from "node:crypto";
@@ -415,11 +416,32 @@ export function registerCreations(app, store, { generate } = {}) {
   app.post("/api/creation-jobs/:id/:action", (req, res) =>
     res.json(queue.action(req.params.id, req.params.action)),
   );
-  app.get("/api/creations/:id/image", (req, res) => {
+  app.get("/api/creations/:id/image", async (req, res) => {
     const item = store.get("creation", req.params.id);
     if (!item?.file) return res.status(404).json({ error: "图片不存在" });
     if (req.query.download)
       res.attachment(item.title + path.extname(item.file));
+    else {
+      const file = await compressedFile(
+        store,
+        `creation-${item.id}`,
+        "screen",
+        path.join(store.root, "creations", item.file),
+      );
+      if (
+        await app.locals.r2?.serve(
+          req,
+          res,
+          { kind: "creation", id: item.id, size: "screen" },
+          file,
+        )
+      )
+        return;
+      return res
+        .set("Cache-Control", "private, no-store")
+        .type("webp")
+        .sendFile(file, { dotfiles: "allow" });
+    }
     res.sendFile(path.join(store.root, "creations", item.file), {
       dotfiles: "allow",
     });

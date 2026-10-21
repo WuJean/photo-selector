@@ -110,7 +110,11 @@ export function registerAuth(
     res.json({ ok: true });
   });
   app.use("/api", (req, res, next) => {
-    if (req.path === "/health" || req.path.startsWith("/public/shares/"))
+    if (
+      req.path === "/health" ||
+      req.path === "/media-edge/authorize" ||
+      req.path.startsWith("/public/shares/")
+    )
       return next();
     if (!session(req)) return res.status(401).json({ error: "请先登录" });
     if (

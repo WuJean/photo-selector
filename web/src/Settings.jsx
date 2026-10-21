@@ -1,3 +1,4 @@
+import StorageSettings from "./StorageSettings";
 import React, { useEffect, useState } from "react";
 import {
   KeyRound,
@@ -87,8 +88,17 @@ export default function Settings({ onClose, notify }) {
         >
           分类标签
         </button>
+        <button
+          role="tab"
+          aria-selected={section === "storage"}
+          onClick={() => setSection("storage")}
+        >
+          图片存储
+        </button>
       </div>
-      {section === "tags" ? (
+      {section === "storage" ? (
+        <StorageSettings />
+      ) : section === "tags" ? (
         <ClassificationSettings notify={notify} />
       ) : section === "image" ? (
         <ImageSettings notify={notify} />

@@ -1,3 +1,4 @@
+import { localPreviewSource } from "./images.mjs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { access } from "node:fs/promises";
@@ -75,7 +76,7 @@ export class AutomaticAI {
     if (
       this.ready &&
       config &&
-      p.storage !== "local" &&
+      (p.storage !== "local" || p.displayReady) &&
       !this.ready.includes(p.id)
     )
       this.ready.push(p.id);
@@ -114,9 +115,7 @@ export class AutomaticAI {
         }
         if (p.storage === "local") {
           try {
-            await access(
-              path.join(this.store.root, "analysis-previews", p.id + ".jpg"),
-            );
+            await localPreviewSource(this.store, p.id);
           } catch {
             this.store.put("analysisTask", { ...task, state: "waiting-media" });
             continue;

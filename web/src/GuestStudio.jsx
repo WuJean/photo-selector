@@ -1,3 +1,4 @@
+import PhotoImage from "./PhotoImage";
 import CandidateSearch from "./CandidateSearch";
 import { candidatePhotos } from "../../shared/candidates.mjs";
 import React, { useEffect, useMemo, useState } from "react";
@@ -68,7 +69,7 @@ export default function GuestStudio({ share, base, onClose, onSaved }) {
       ...d,
       slots: d.slots.map((s, j) => (i === j ? { ...s, ...patch } : s)),
     }));
-  const imageURL = (id) => `${base}/photos/${id}/display`;
+  const imageURL = (id) => `${base}/photos/${id}/display?view=screen`;
   const count = TEMPLATES[draft.template].count,
     slot = draft.slots[active];
   const shuffle = () => {
@@ -324,7 +325,11 @@ export default function GuestStudio({ share, base, onClose, onSaved }) {
                   }))
                 }
               >
-                <img src={imageURL(p.id)} loading="lazy" alt={p.name} />
+                <PhotoImage
+                  src={`${base}/photos/${p.id}/display?view=tile`}
+                  loading="lazy"
+                  alt={p.name}
+                />
                 <span>{p.tags.join(" · ") || p.name}</span>
               </button>
             ))}

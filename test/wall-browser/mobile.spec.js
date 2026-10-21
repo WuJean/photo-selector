@@ -9,6 +9,11 @@ test("mobile browsing is separate, paged, and touch selection has large decision
     isMobile: true,
   });
   const page = await context.newPage();
+  const imageRequests = [];
+  page.on("request", (request) => {
+    if (/\/api\/photos\//.test(request.url()))
+      imageRequests.push(request.url());
+  });
   await login(page);
   await page.locator("input[type=file]").setInputFiles(
     await Promise.all(
@@ -23,6 +28,14 @@ test("mobile browsing is separate, paged, and touch selection has large decision
   await page.locator(".wall-card img").first().tap();
   const modal = page.getByRole("dialog", { name: "沉浸选片", exact: true });
   await expect(modal).toBeVisible();
+  await expect(modal.locator(".immersive-frame.focused img")).toHaveAttribute(
+    "src",
+    /\/display\/mobile/,
+  );
+  expect(imageRequests.some((url) => /\/display\/tile/.test(url))).toBeTruthy();
+  expect(
+    imageRequests.some((url) => /\/(original|render)(\?|$)/.test(url)),
+  ).toBeFalsy();
   expect(
     (await modal.locator(".decision").first().boundingBox()).height,
   ).toBeGreaterThanOrEqual(56);

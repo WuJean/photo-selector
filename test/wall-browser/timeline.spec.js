@@ -68,4 +68,22 @@ test("timeline shows one cover per collection in ascending order and opens indep
   await page.screenshot({
     path: "test-results/collection-timeline-mobile.png",
   });
+  await late.click();
+  await page.locator(".album-photo").click();
+  const viewer = page.getByRole("dialog", { name: "查看照片" });
+  await expect(viewer.locator(".viewer-image img")).toHaveAttribute(
+    "src",
+    /\/display\/mobile/,
+  );
+  await viewer.locator(".viewer-image img").evaluate((img) => img.decode());
+  await viewer.getByRole("button", { name: "查看原图", exact: true }).click();
+  await expect(viewer.locator(".viewer-image img")).toHaveAttribute(
+    "src",
+    /\/original$/,
+  );
+  await viewer.getByRole("button", { name: "压缩预览", exact: true }).click();
+  await expect(viewer.locator(".viewer-image img")).toHaveAttribute(
+    "src",
+    /\/display\/mobile/,
+  );
 });

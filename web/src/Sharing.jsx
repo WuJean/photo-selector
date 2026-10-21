@@ -1,3 +1,4 @@
+import PhotoImage from "./PhotoImage";
 import React, { useEffect, useState } from "react";
 import { api, json } from "./api";
 import { photoBlob, processPhoto } from "./local-media";
@@ -314,7 +315,11 @@ export function PublicShare({ token }) {
                   setZoom(1);
                 }}
               >
-                <img src={url(p.id)} loading="lazy" alt={p.name} />
+                <PhotoImage
+                  src={url(p.id) + "?view=tile"}
+                  loading="lazy"
+                  alt={p.name}
+                />
               </div>
               <div className="wall-caption">
                 <span>{p.name}</span>
@@ -354,7 +359,11 @@ export function PublicShare({ token }) {
                   </span>
                 </header>
                 {c.hasImage ? (
-                  <img src={url(c.id)} loading="lazy" alt={c.title} />
+                  <PhotoImage
+                    src={url(c.id) + "?view=screen"}
+                    loading="lazy"
+                    alt={c.title}
+                  />
                 ) : (
                   <p>{c.text}</p>
                 )}
@@ -387,8 +396,14 @@ export function PublicShare({ token }) {
                 )
               }
             >
-              <img
-                src={url(photos[active].id)}
+              <PhotoImage
+                src={
+                  url(photos[active].id) +
+                  "?view=" +
+                  (window.matchMedia("(max-width: 1024px)").matches
+                    ? "mobile"
+                    : "screen")
+                }
                 style={{ transform: `scale(${zoom})` }}
                 onDoubleClick={() => setZoom((z) => (z === 1 ? 2 : 1))}
               />

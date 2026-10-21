@@ -1,3 +1,4 @@
+import { localPreviewSource } from "./images.mjs";
 import { descriptionRecord } from "./descriptions.mjs";
 import path from "node:path";
 import { mkdir, unlink, access, rename } from "node:fs/promises";
@@ -75,7 +76,7 @@ export function registerMedia(app, store, upload) {
     const missing = [];
     for (const id of ids) {
       try {
-        await access(path.join(dir, id + ".jpg"));
+        await localPreviewSource(store, id);
       } catch {
         missing.push(id);
       }

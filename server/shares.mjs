@@ -1,3 +1,4 @@
+import { compressedFile, displaySizes, displayPath } from "./display.mjs";
 import { tagCategory } from "../shared/tags.mjs";
 import path from "node:path";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
@@ -239,6 +240,7 @@ export function registerShares(app, store, upload) {
     for (const session of store.all("shareSession"))
       if (session.shareId === s.id) store.remove("shareSession", session.id);
     await rm(directory(store, s), { recursive: true, force: true });
+    await clearDisplay(s);
     res.json({ ok: true });
   });
   app.post("/api/public/shares/:token/unlock", (req, res) => {
@@ -284,7 +286,7 @@ export function registerShares(app, store, upload) {
       expiresAt: s.expiresAt,
     });
   });
-  app.get("/api/public/shares/:token/photos/:id/:variant", (req, res) => {
+  app.get("/api/public/shares/:token/photos/:id/:variant", async (req, res) => {
     const s = valid(req.params.token);
     authorize(req, s);
     const { id, variant } = req.params;
@@ -298,6 +300,30 @@ export function registerShares(app, store, upload) {
       return res.status(404).json({ error: "照片不存在" });
     if (req.query.download && s.download === "none")
       return res.status(403).json({ error: "此作品集不开放下载" });
+    if (variant === "display" && !req.query.download && req.query.view) {
+      const size = Object.hasOwn(displaySizes, req.query.view)
+        ? req.query.view
+        : "mobile";
+      const file = await compressedFile(
+        store,
+        `share-${s.id}-${id}`,
+        size,
+        filename(store, s, id, "display"),
+      );
+      if (
+        await app.locals.r2?.serve(
+          req,
+          res,
+          { kind: "share", shareId: s.id, id, size },
+          file,
+        )
+      )
+        return;
+      return res
+        .set("Cache-Control", "private, no-store")
+        .type("webp")
+        .sendFile(file, { dotfiles: "allow" });
+    }
     res.set("Cache-Control", "private, no-store");
     if (req.query.download)
       res.attachment(
@@ -460,6 +486,13 @@ export function registerShares(app, store, upload) {
       });
     await zip.finalize();
   });
+  async function clearDisplay(s) {
+    for (const item of [...(s.photos || []), ...(s.creations || [])])
+      for (const size of Object.keys(displaySizes))
+        await rm(displayPath(store, `share-${s.id}-${item.id}`, size), {
+          force: true,
+        }).catch(() => {});
+  }
   const sweep = async () => {
     for (const s of store.all("share"))
       if (s.state === "revoked" || expired(s)) {
@@ -468,6 +501,7 @@ export function registerShares(app, store, upload) {
         await rm(directory(store, s), { recursive: true, force: true }).catch(
           () => {},
         );
+        await clearDisplay(s);
       }
     for (const session of store.all("shareSession"))
       if (session.expiresAt < Date.now())

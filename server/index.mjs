@@ -1,3 +1,4 @@
+import { registerR2 } from "./r2.mjs";
 import { registerAutomaticAI } from "./automatic-ai.mjs";
 import { registerMedia } from "./media.mjs";
 import { registerShares } from "./shares.mjs";
@@ -28,6 +29,7 @@ const { app, store, upload } = createApp({
 });
 local = new LocalQueue(store, native);
 void local.drain();
+registerR2(app, store);
 registerLibrary(app, store, upload, { onImport: (p) => local.enqueue(p.id) });
 registerNetwork(app, store, (p) => local.enqueue(p.id));
 registerCleanup(app, store);

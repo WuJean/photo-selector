@@ -7,6 +7,7 @@ export default function PhotoImage({
   unavailable = false,
   ...props
 }) {
+  const [fallback, setFallback] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [loadedURL, setLoadedURL] = useState("");
   const [resolved, setResolved] = useState("");
@@ -40,17 +41,26 @@ export default function PhotoImage({
     generation.current++;
     setError("");
     setAttempt(0);
+    setFallback(false);
     return () => {
       generation.current++;
     };
   }, [src]);
+  const baseURL =
+    fallback && src?.startsWith("/api/")
+      ? `${src}${src.includes("?") ? "&" : "?"}local=1`
+      : src;
   const url = src?.startsWith("local-photo://")
     ? resolved
     : attempt
-      ? `${src}${src.includes("?") ? "&" : "?"}retry=${attempt}`
-      : src;
+      ? `${baseURL}${baseURL.includes("?") ? "&" : "?"}retry=${attempt}`
+      : baseURL;
   async function diagnose() {
     if (src?.startsWith("local-photo://")) return;
+    if (!fallback && src?.startsWith("/api/")) {
+      setFallback(true);
+      return;
+    }
     const token = generation.current;
     let message = "图片加载失败";
     try {

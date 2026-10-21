@@ -4,7 +4,7 @@ import sharp from "sharp";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fixture } from "./support/library.mjs";
-import { digest } from "../server/images.mjs";
+import { digest, previewData } from "../server/images.mjs";
 
 test("remote culling uses bounded, EXIF-free WebP without altering originals; local folders sync only previews", async () => {
   const f = await fixture();
@@ -71,6 +71,10 @@ test("remote culling uses bounded, EXIF-free WebP without altering originals; lo
     );
     await f.json(`/assets/${p.id}/display`, "POST", body);
     assert.equal(f.store.get("photo", p.id).displayReady, true);
+    const aiPreview = await previewData(f.store, p.id);
+    const aiMetadata = await sharp(aiPreview).metadata();
+    assert.equal(Math.max(aiMetadata.width, aiMetadata.height), 1536);
+    assert.equal(aiMetadata.exif, undefined);
     assert.equal(
       (await f.request(`/photos/${p.id}/display/mobile`)).status,
       200,

@@ -108,16 +108,25 @@ export function originalPath(store, id) {
   return p.originalExtension && p.originalExtension !== "jpg" ? path.join(store.root,"source-files",id+"."+p.originalExtension) : path.join(store.root, "originals", id + ".jpg");
 }
 export function renderPath(store,id) { return path.join(store.root,"originals",id+".jpg"); }
+export async function localPreviewSource(store, id) {
+  const photo = store.get("photo", id);
+  if (!photo || photo.deleted || photo.deleting) throw new Error("照片不可用");
+  const candidates = [path.join(store.root, "analysis-previews", id + ".jpg")];
+  if (photo.displayReady)
+    candidates.push(path.join(store.root, "display", id + "-screen.webp"));
+  for (const file of candidates) {
+    try {
+      await access(file);
+      return file;
+    } catch {}
+  }
+  throw new Error("等待连接电脑文件夹并准备 AI 预览");
+}
 export async function previewData(store, id, maxEdge = 1536) {
   const photo = store.get("photo", id);
   let source = renderPath(store, id);
   if (photo?.storage === "local") {
-    source = path.join(store.root, "analysis-previews", id + ".jpg");
-    try {
-      await access(source);
-    } catch {
-      throw new Error("等待连接电脑文件夹并准备 AI 预览");
-    }
+    source = await localPreviewSource(store, id);
   }
   const buffer = await sharp(source)
     .rotate()

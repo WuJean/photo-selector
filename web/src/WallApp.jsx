@@ -95,6 +95,7 @@ function Login({ onLogin }) {
 }
 export function Viewer({ photos, index: initial, onClose, onDownload }) {
   const [index, setIndex] = useState(initial),
+    [original, setOriginal] = useState(false),
     [zoom, setZoom] = useState(1),
     [pan, setPan] = useState({ x: 0, y: 0 });
   useEffect(() => {
@@ -107,6 +108,7 @@ export function Viewer({ photos, index: initial, onClose, onDownload }) {
   const drag = useRef();
   const move = (n) => {
     setIndex((i) => Math.max(0, Math.min(photos.length - 1, i + n)));
+    setOriginal(false);
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
@@ -157,9 +159,11 @@ export function Viewer({ photos, index: initial, onClose, onDownload }) {
         <PhotoImage
           src={photoURL(
             p.id,
-            p.originalExtension && p.originalExtension !== "jpg"
-              ? "render"
-              : "original",
+            original
+              ? p.originalExtension && p.originalExtension !== "jpg"
+                ? "render"
+                : "original"
+              : "preview",
           )}
           draggable={false}
           style={{
@@ -173,6 +177,9 @@ export function Viewer({ photos, index: initial, onClose, onDownload }) {
           上一张
         </Button>
         <Button onClick={() => setZoom(1)}>适应画面</Button>
+        <Button onClick={() => setOriginal((value) => !value)}>
+          {original ? "压缩预览" : "查看原图"}
+        </Button>
         <Button
           onClick={() => move(1)}
           disabled={index === photos.length - 1}

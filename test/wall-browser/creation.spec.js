@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { login, jpeg, folderFixture } from "./helpers";
-test("local collage exports without uploading originals, persists as creation, and AI prepares stripped previews only", async ({
+test("local collage exports without uploading originals, persists as creation, and AI reuses compressed previews while the folder is offline", async ({
   page,
 }) => {
   await login(page);
@@ -93,23 +93,31 @@ test("local collage exports without uploading originals, persists as creation, a
       dir = await root.getDirectoryHandle("旅行");
     await dir.removeEntry("creation-local.jpg");
     const { api, json } = await import("/src/api.js");
-    try {
-      await api("/projects/library/analyze", json("POST", { ids: [id] }));
-    } catch (e) {
-      if (!e.message.includes("重新连接")) throw e;
-    }
+    const result = await api(
+      "/projects/library/analyze",
+      json("POST", { ids: [id] }),
+    );
+    if (result.state !== "done")
+      throw new Error("AI request was not dispatched");
   }, values.photoId);
   await expect(
     page.getByText("等待连接电脑文件夹", { exact: false }),
-  ).toBeVisible();
-  await folderFixture(page, [
-    { name: "creation-local.jpg", bytes: [...(await jpeg("#556699"))] },
-  ]);
-  await page.evaluate(() =>
-    window.dispatchEvent(new Event("photo-files-reconnected")),
-  );
-  await expect.poll(() => uploads.length).toBe(1);
-  expect(uploads).toHaveLength(1);
+  ).toHaveCount(0);
+  expect(uploads).toHaveLength(0);
+  const requirements = await (
+    await page.request.post("/api/media/requirements", {
+      data: {
+        url: "/projects/library/analyze",
+        body: { ids: [values.photoId] },
+      },
+    })
+  ).json();
+  expect(requirements.ids).toEqual([]);
+  expect(
+    (
+      await page.request.get(`/api/photos/${values.photoId}/display/mobile`)
+    ).status(),
+  ).toBe(200);
   expect(
     (await page.request.get(`/api/photos/${values.photoId}/original`)).status(),
   ).toBe(404);
