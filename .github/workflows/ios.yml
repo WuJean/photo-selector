@@ -1,0 +1,34 @@
+name: iOS checks
+on:
+  push:
+    paths: ['ios/**', 'Sources/PhotoCore/**', 'Sources/CSQLite/**', 'Tests/PhotoCoreTests/**', 'Package.swift', 'scripts/*ios*', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', 'Sources/PhotoCore/**', 'Sources/CSQLite/**', 'Tests/PhotoCoreTests/**', 'Package.swift', 'scripts/*ios*', '.github/workflows/ios.yml']
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test local selection and persistence
+        run: swift run PhotoCoreTests
+      - name: Verify generated project
+        run: |
+          python3 scripts/generate-ios-project.py
+          git diff --exit-code ios/PhotoSelector.xcodeproj
+      - name: Select available iPhone simulator
+        run: |
+          xcrun simctl list devices available -j > /tmp/photo-selector-devices.json
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          devices = json.load(open('/tmp/photo-selector-devices.json'))['devices']
+          phone = next(d for group in devices.values() for d in group if d['name'].startswith('iPhone'))
+          print('IOS_TEST_DEVICE=' + phone['udid'])
+          PY
+      - name: Build and run native tests
+        run: xcodebuild -project ios/PhotoSelector.xcodeproj -scheme PhotoSelector -destination "platform=iOS Simulator,id=$IOS_TEST_DEVICE" -resultBundlePath test-results/ios.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:PhotoSelectorTests test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-test-results
+          path: test-results/ios.xcresult

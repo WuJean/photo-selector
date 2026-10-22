@@ -25,3 +25,8 @@ backups/
 # Deliberately public documentation artwork; keep private photos ignored.
 !docs/assets/*.png
 wechat/config.local.json
+# Generated iOS development state and signing artifacts
+**/xcuserdata/
+*.xcarchive/
+*.ipa
+!ios/PhotoSelector/Assets.xcassets/AppIcon.appiconset/AppIcon.png
