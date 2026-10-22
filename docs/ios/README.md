@@ -52,14 +52,18 @@ IOS_NATIVE_ONLY=1 IOS_TEST_DEVICE=<simulator-uuid> ./scripts/test-ios.sh
 
 Duo 使用系统 ArrangementView 安排照片和控制区域，支持折叠、展开及旋转；普通设备使用紧凑／宽屏布局。实机读卡器、有限相册授权、iCloud、端侧 AI 和热状态行为需要额外真机验证。
 
-## TestFlight
+## 免费本地真机调试
 
-默认 Bundle ID 为 `com.wujean.photoselector`。需要开发者会员、开发团队及 App Store Connect 权限：
+当前交付方式为 Xcode 本地开发测试，不要求购买 Apple Developer 会员，不执行 TestFlight 上传。
 
-```bash
-APPLE_TEAM_ID=<your-team-id> ./scripts/archive-ios.sh
-```
+1. 在 Xcode → Settings → Apple Accounts 登录自己的 Apple Account。使用免费的 **Personal Team**。
+2. 用数据线将 iPhone 连接到 Mac，解锁手机并完成“信任此电脑”。按 Xcode 提示，在手机“设置 → 隐私与安全性 → 开发者模式”开启并重启确认。
+3. 打开 `ios/PhotoSelector.xcodeproj`，选择 `PhotoSelectorIOS` target → Signing & Capabilities，保持 Automatically manage signing，Team 选择自己的 Personal Team。
+4. Scheme 选择 `PhotoSelector`，运行目标选择连接的真实 iPhone，点击 Run（Command-R）。若默认 Bundle ID 被其他团队占用，改成自己的唯一标识；重新生成工程后需要重新选择个人签名配置。
+5. 首次安装若提示不受信任，在手机设置中按系统提示信任对应开发者，再打开应用。不要删除应用来刷新签名，以免丢失私有照片库。
 
-在 Xcode Organizer 中验证 Archive 后上传，选择内部 TestFlight 测试组。版本更新递增 Build Number。开发者注册、实名、付款和法律协议确认由账号持有人完成；没有有效开发团队时无法上传 TestFlight。
+免费签名的描述文件有效期为 7 天，到期通过同一团队、同一 Bundle ID 在 Xcode 重新构建安装。Apple 同时限制免费账号的设备和应用数量，详见 [Apple Personal Team 说明](https://developer.apple.com/help/account/basics/about-your-developer-account)。应用安装后可独立处理手机照片，日常使用不需要连接电脑；更新开发构建或刷新签名时需连接 Xcode。
 
-详见 [验收记录](VALIDATION.md)。未完成的实机／发布项目不会记为已通过。
+已有 `scripts/archive-ios.sh` 只供未来明确选择付费分发时手动使用，本地测试不运行此脚本，也不需要 App Store Connect。
+
+详见 [验收记录](VALIDATION.md)。未完成的实机项目不会记为已通过。
