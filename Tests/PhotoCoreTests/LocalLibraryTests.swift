@@ -64,4 +64,23 @@ enum LocalLibraryTests {
         var locked = CollageCell("not-in-scope"); locked.locked = true
         try throwsError { _ = try PhotoSearch.randomCombination(candidates: assets, requirements: [.init()], cells: [locked]) }
     }
+    static func collageGeometryAndLargeLibrary() throws {
+        for layout in ["rows", "columns", "hero", "grid"] {
+            let frames = CollageLayout.frames(layout: layout, width: 2250, height: 3000, gap: 24, frame: 60)
+            try equal(frames.count, layout == "grid" ? 4 : 3)
+            for rect in frames { try expect(rect.width > 0 && rect.height > 0 && rect.x >= 60 && rect.y >= 60 && rect.x + rect.width <= 2190.001 && rect.y + rect.height <= 2940.001) }
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let lib = try LocalLibrary(url: url); let start = Date()
+        try lib.transaction { s in
+            var batch = ImportBatch(name: "3000 synthetic records")
+            for i in 0..<3000 { var a = LocalAsset(source: .photos, sourceID: "synthetic-\(i)", name: "\(i).jpg"); a.width = 4000; a.height = 3000; a.feature = Data(repeating: 1, count: 512); s.assets.append(a); batch.photos.append(BatchPhoto(a.id)) }; s.batches = [batch]
+        }
+        let batch = lib.state.batches[0], ids = Array(batch.photos.prefix(100).map(\.assetID))
+        try lib.transaction { try $0.decide(batchID: batch.id, ids: ids, round: .coarse, decision: .keep, focusID: ids.first) }
+        let reopened = try LocalLibrary(url: url); try equal(reopened.state.assets.count, 3000); try equal(reopened.state.tasks.count, 100)
+        print("3000-record SQLite creation + 100 decisions + reopen: \(String(format: "%.3f", Date().timeIntervalSince(start)))s")
+    }
+
 }
