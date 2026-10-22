@@ -41,6 +41,16 @@ enum LocalLibraryTests {
         s.tasks[0].status = .running; let generation = s.tasks[0].generation
         try s.decide(batchID: batch, ids: [id], round: .coarse, decision: .reject, focusID: id)
         try s.finishAnalysis(valid, assetID: id, generation: generation); try expect(s.assets[0].analysis == nil)
+        _ = try s.undoDecision()
+        try equal(s.tasks[0].status, .waiting)
+        try expect(s.tasks[0].generation != generation)
+        try s.finishAnalysis(valid, assetID: id, generation: generation); try expect(s.assets[0].analysis == nil)
+        for status in [TaskStatus.paused, .cancelled] {
+            s.tasks[0].status = status
+            try s.decide(batchID: batch, ids: [id], round: .coarse, decision: .reject, focusID: id)
+            _ = try s.undoDecision()
+            try equal(s.tasks[0].status, status)
+        }
     }
     static func transaction() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

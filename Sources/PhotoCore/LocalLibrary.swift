@@ -97,6 +97,7 @@ public struct AnalysisTask: Codable, Identifiable, Equatable, Sendable {
     public var tags: [LibraryTag]
     public var model: String?
     public var generation = UUID().uuidString
+    public var statusBeforeRemoval: TaskStatus?
     public init(_ assetID: String, tags: [LibraryTag]) { self.assetID = assetID; self.tags = tags }
 }
 public struct DecisionUndo: Codable, Sendable {
@@ -173,8 +174,14 @@ public struct LocalLibraryState: Codable, Sendable {
     public mutating func reconcileTasks() {
         for asset in assets where isAdmitted(asset.id) && asset.analysis == nil {
             if !tasks.contains(where: { $0.assetID == asset.id }) { tasks.append(AnalysisTask(asset.id, tags: tags)) }
+            else if let i = tasks.firstIndex(where: { $0.assetID == asset.id }), let previous = tasks[i].statusBeforeRemoval {
+                tasks[i].status = previous == .running ? .waiting : previous
+                tasks[i].statusBeforeRemoval = nil
+                tasks[i].generation = UUID().uuidString
+            }
         }
-        for i in tasks.indices where !isAdmitted(tasks[i].assetID) && tasks[i].status != .complete {
+        for i in tasks.indices where !isAdmitted(tasks[i].assetID) && tasks[i].status != .complete && tasks[i].status != .cancelled {
+            tasks[i].statusBeforeRemoval = tasks[i].status
             tasks[i].status = .cancelled; tasks[i].generation = UUID().uuidString
         }
     }
