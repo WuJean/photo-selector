@@ -57,7 +57,15 @@ struct CollageEditor: View {
             ScrollView { controls }
         }.navigationTitle("拼图")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { persist(); dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { Task { await save() } }.disabled(saving || draft.cells.contains { $0.assetID == nil }) } }
-            .onAppear { if let existing = model.state.drafts.first(where: { $0.collectionID == collectionID }) { draft = existing }; requirements = Array(repeating: CollageSlot(), count: draft.cells.count) }
+            .onAppear {
+                if let existing = model.state.drafts.first(where: { $0.collectionID == collectionID }) { draft = existing }
+                requirements = draft.requirements ?? Array(repeating: CollageSlot(), count: draft.cells.count)
+                draft.requirements = requirements
+            }
+            .onChange(of: requirements) { _, value in
+                draft.requirements = value
+                persist()
+            }
             .task(id: fingerprint) { do { try await Task.sleep(for: .milliseconds(180)); let image = try await renderer.render(draft: draft, assets: source, media: model.media, longEdge: 900, originals: false); try Task.checkCancellation(); preview = image; persist() } catch is CancellationError {} catch { status = error.localizedDescription } }
             .sheet(isPresented: $showTags) { NavigationStack { TagFilterView(selected: Binding(get: { Set(draft.tagNames) }, set: { draft.tagNames = Array($0) }), any: $draft.matchAny) } }
     }
@@ -101,7 +109,10 @@ struct CollageEditor: View {
             }
         }.padding()
     }
-    func persist() { model.perform { try model.change { s in s.drafts.removeAll { $0.collectionID == collectionID }; s.drafts.append(draft) } } }
+    func persist() {
+        draft.requirements = requirements
+        model.perform { try model.change { s in s.drafts.removeAll { $0.collectionID == collectionID }; s.drafts.append(draft) } }
+    }
     func save() async {
         saving = true; defer { saving = false }
         do {

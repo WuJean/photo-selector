@@ -19,6 +19,8 @@ func throwsError(_ action: () throws -> Void) throws {
             ("跨批次与作品集引用保护", { try LocalLibraryTests.references() }),
             ("AI 校验与迟到结果", { try LocalLibraryTests.analysis() }),
             ("本地事务回滚与恢复", { try LocalLibraryTests.transaction() }),
+            ("拼图草稿新旧格式持久化", { try LocalLibraryTests.collageDraftPersistence() }),
+            ("备份合并模板与缺失分析任务", { try LocalLibraryTests.restoredMerge() }),
             ("拼图几何与3000记录持久化", { try LocalLibraryTests.collageGeometryAndLargeLibrary() }),
             ("全量检索与约束模板", { try LocalLibraryTests.searchAndTemplates() }),
             ("SQLite 持久化、更新、项目隔离", { try StoreTests.testPersistsAndReplacesDocumentsAcrossConnections() })

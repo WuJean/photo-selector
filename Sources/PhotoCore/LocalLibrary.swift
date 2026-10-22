@@ -139,6 +139,8 @@ public struct CollageDraft: Codable, Sendable {
     public var tagNames: [String] = []
     public var matchAny = false
     public var cells: [CollageCell] = [.init(), .init(), .init()]
+    // Optional so drafts written before slot constraints were persisted still decode.
+    public var requirements: [CollageSlot]?
     public init(collectionID: String) { self.collectionID = collectionID }
 }
 public struct Creation: Codable, Identifiable, Sendable {
@@ -184,6 +186,26 @@ public struct LocalLibraryState: Codable, Sendable {
             tasks[i].statusBeforeRemoval = tasks[i].status
             tasks[i].status = .cancelled; tasks[i].generation = UUID().uuidString
         }
+    }
+    /// Merges a validated backup snapshot while keeping local task decisions intact.
+    /// Analysis tasks are transient in backups, so recreate only those required by
+    /// restored admitted assets that still have no analysis.
+    public mutating func mergeRestoredBackup(_ restored: LocalLibraryState) {
+        assets.append(contentsOf: restored.assets)
+        batches.append(contentsOf: restored.batches)
+        portfolios.append(contentsOf: restored.portfolios)
+        creations.append(contentsOf: restored.creations)
+
+        var tagIDs = Set(tags.map(\.id))
+        for tag in restored.tags where tagIDs.insert(tag.id).inserted { tags.append(tag) }
+
+        for template in restored.templates where !templates.contains(where: {
+            $0.name == template.name && $0.layout == template.layout && $0.slots == template.slots
+        }) {
+            templates.append(template)
+        }
+
+        reconcileTasks()
     }
     public mutating func decide(batchID: String, ids: [String], round: SelectionRound, decision: Decision, focusID: String?, now: Date = Date()) throws {
         guard let index = batches.firstIndex(where: { $0.id == batchID }), !ids.isEmpty,

@@ -73,7 +73,7 @@ struct SettingsView: View {
                         let service = BackupService()
                         if restoring {
                             let restored = try await service.restore(folder: folder, media: model.media)
-                            try model.change { s in s.assets += restored.assets; s.batches += restored.batches; s.portfolios += restored.portfolios; s.creations += restored.creations; for tag in restored.tags where !s.tags.contains(where: { $0.id == tag.id }) { s.tags.append(tag) } }
+                            try model.change { $0.mergeRestoredBackup(restored) }
                             model.startMediaPreparation(); backupStatus = "已恢复为新的批次和作品集"
                         } else { let path = try await service.export(state: model.state, media: model.media, destination: folder, allowNetwork: model.allowCloudDownload); backupStatus = "备份完成：\(path.lastPathComponent)" }
                     } catch { backupStatus = "未完成：\(error.localizedDescription)" }

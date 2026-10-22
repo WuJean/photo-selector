@@ -64,6 +64,63 @@ enum LocalLibraryTests {
         try throwsError { try lib.transaction { try $0.decide(batchID: batch, ids: [id, "missing"], round: .coarse, decision: .reject, focusID: id) } }
         try expect(lib.state.isAdmitted(id))
     }
+    static func collageDraftPersistence() throws {
+        var draft = CollageDraft(collectionID: "portfolio")
+        draft.layout = "grid"
+        draft.cells = [.init("a"), .init("b"), .init("c"), .init("d")]
+        draft.requirements = [
+            .init(subject: "人像", distance: "近景"),
+            .init(subject: "风景", distance: "远景"),
+            .init(),
+            .init(subject: "建筑")
+        ]
+
+        let currentData = try JSONEncoder().encode(draft)
+        let currentRoundTrip = try JSONDecoder().decode(CollageDraft.self, from: currentData)
+        try equal(currentRoundTrip.requirements, draft.requirements)
+
+        var legacyObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(CollageDraft(collectionID: "legacy"))) as! [String: Any]
+        legacyObject.removeValue(forKey: "requirements")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let legacyDraft = try JSONDecoder().decode(CollageDraft.self, from: legacyData)
+        try expect(legacyDraft.requirements == nil, "旧草稿应能解码并标记为没有已保存约束")
+    }
+    static func restoredMerge() throws {
+        var current = LocalLibraryState()
+        let pausedAsset = LocalAsset(source: .owned, sourceID: "paused", name: "paused.jpg")
+        let cancelledAsset = LocalAsset(source: .owned, sourceID: "cancelled", name: "cancelled.jpg")
+        var currentBatch = ImportBatch(name: "本机批次")
+        currentBatch.photos = [BatchPhoto(pausedAsset.id), BatchPhoto(cancelledAsset.id)]
+        current.assets = [pausedAsset, cancelledAsset]
+        current.batches = [currentBatch]
+        try current.decide(batchID: currentBatch.id, ids: [pausedAsset.id, cancelledAsset.id], round: .coarse, decision: .keep, focusID: nil)
+        for i in current.tasks.indices {
+            current.tasks[i].status = current.tasks[i].assetID == pausedAsset.id ? .paused : .cancelled
+        }
+
+        var restored = LocalLibraryState()
+        let restoredAsset = LocalAsset(source: .owned, sourceID: "restored", name: "restored.jpg")
+        var restoredBatch = ImportBatch(name: "备份批次")
+        restoredBatch.photos = [BatchPhoto(restoredAsset.id)]
+        restoredBatch.photos[0].coarse = .pending
+        restored.assets = [restoredAsset]
+        restored.batches = [restoredBatch]
+        let existingDefinition = current.templates[0]
+        restored.templates = [
+            QuickTemplate(name: existingDefinition.name, layout: existingDefinition.layout, slots: existingDefinition.slots),
+            QuickTemplate(name: "夜景双拼", layout: "rows", slots: [.init(subject: "风景"), .init(subject: "建筑")])
+        ]
+
+        let templateCount = current.templates.count
+        current.mergeRestoredBackup(restored)
+
+        try equal(current.assets.count, 3)
+        try equal(current.tasks.first(where: { $0.assetID == restoredAsset.id })?.status, .waiting)
+        try equal(current.tasks.first(where: { $0.assetID == pausedAsset.id })?.status, .paused)
+        try equal(current.tasks.first(where: { $0.assetID == cancelledAsset.id })?.status, .cancelled)
+        try equal(current.templates.count, templateCount + 1)
+        try expect(current.templates.contains(where: { $0.name == "夜景双拼" && $0.slots.count == 2 }))
+    }
     static func searchAndTemplates() throws {
         var assets = (0..<350).map { LocalAsset(source: .photos, sourceID: "\($0)", name: "\($0).jpg") }
         assets[349].analysis = PhotoAnalysis(subject: "风景", distance: "远景", extras: ["雪山"], description: "清晨雪山", model: "mock")
