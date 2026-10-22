@@ -8,7 +8,10 @@ import PhotoCore
     typealias ImageAnalyzer = @MainActor (UIImage, [LibraryTag], AIConfiguration, String) async throws -> PhotoAnalysis
 
     @Published private(set) var state: LocalLibraryState
-    @Published var error: String?
+    @Published var error: String? {
+        didSet { if oldValue != error { alertTitle = "提示" } }
+    }
+    @Published var alertTitle = "提示"
     @Published var progress = ""
     @Published var busy = false
     @Published var focusedID: String?
@@ -43,6 +46,8 @@ import PhotoCore
         try library.transaction(action); state = library.state
     }
     func perform(_ action: () throws -> Void) { do { try action() } catch { self.error = error.localizedDescription } }
+    /// Reports an outcome the user should read but that must not look like a failure.
+    func notify(_ message: String, title: String = "提示") { error = message; alertTitle = title }
     func createBatch(_ name: String) throws -> String {
         let batch = ImportBatch(name: name.isEmpty ? "新导入" : name); try change { $0.batches.append(batch) }; return batch.id
     }
@@ -60,26 +65,45 @@ import PhotoCore
             if let albumID, let album = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumID], options: nil).firstObject { fetch = PHAsset.fetchAssets(in: album, options: options) }
             else { fetch = PHAsset.fetchAssets(with: options) }
             var chunk: [LocalAsset] = []
+            var imported = 0, skipped = 0
             for i in 0..<fetch.count {
-                try Task.checkCancellation(); progress = "读取相册 \(i + 1)/\(fetch.count)"
+                try Task.checkCancellation()
                 let photo = fetch.object(at: i)
                 if let selectedIDs, !selectedIDs.contains(photo.localIdentifier) { continue }
+                // One import stays inside the documented cap; the remaining
+                // photos stay in the system library for the next batch.
+                guard imported < ImportPolicy.maxPhotosPerImport else { skipped += 1; continue }
+                progress = "读取相册 \(imported + 1)/\(min(fetch.count, ImportPolicy.maxPhotosPerImport))"
                 var asset = LocalAsset(source: .photos, sourceID: photo.localIdentifier, name: PHAssetResource.assetResources(for: photo).first?.originalFilename ?? "照片.heic")
                 asset.takenAt = photo.creationDate; asset.width = photo.pixelWidth; asset.height = photo.pixelHeight
-                chunk.append(asset)
-                if chunk.count == 40 { try register(chunk, batchID: batchID); chunk = []; await Task.yield() }
+                chunk.append(asset); imported += 1
+                if chunk.count == 50 { try register(chunk, batchID: batchID); chunk = []; await Task.yield() }
             }
             if !chunk.isEmpty { try register(chunk, batchID: batchID) }
+            if imported == 0 { throw PhotoError.message("这个范围内没有可导入的照片") }
+            if skipped > 0 { notify("已导入 \(imported) 张，另有 \(skipped) 张超出本次上限，可以再导入一次。", title: "已按上限导入") }
             startMediaPreparation()
         } catch { self.error = error.localizedDescription }
     }
     func importFiles(_ urls: [URL], batchID: String) async {
         busy = true; defer { busy = false; progress = "" }
         do {
+            var imported = 0, skipped = 0
             for url in urls {
                 let assets = try await media.externalAssets(url)
-                for offset in stride(from: 0, to: assets.count, by: 40) { progress = "登记文件 \(min(offset + 40, assets.count))/\(assets.count)"; try register(Array(assets[offset..<min(offset + 40, assets.count)]), batchID: batchID); await Task.yield() }
+                for offset in stride(from: 0, to: assets.count, by: 50) {
+                    let slice = Array(assets[offset..<min(offset + 50, assets.count)])
+                    let room = ImportPolicy.maxPhotosPerImport - imported
+                    guard room > 0 else { skipped += slice.count; continue }
+                    let take = Array(slice.prefix(room))
+                    skipped += slice.count - take.count
+                    imported += take.count
+                    progress = "登记文件 \(imported)/\(imported + skipped)"
+                    try register(take, batchID: batchID); await Task.yield()
+                }
             }
+            if imported == 0 { throw PhotoError.message("没有找到可导入的照片") }
+            if skipped > 0 { notify("已导入 \(imported) 张，另有 \(skipped) 张超出本次上限，可以再导入一次。", title: "已按上限导入") }
             startMediaPreparation()
         } catch { self.error = error.localizedDescription }
     }
@@ -115,30 +139,81 @@ import PhotoCore
         mediaRunner = Task { [weak self] in
             guard let self else { return }; defer { self.mediaRunner = nil; self.progress = "" }
             var attempted = Set<String>()
+            var pending: [String: LocalAsset] = [:]
+            // Recomputing the expired set walks the whole library. It only
+            // changes when the library changes, so it is refreshed on demand
+            // instead of once per photo.
+            var expired = Set(self.state.cleanupCandidates(now: Date()))
+            var knownAssetCount = self.state.assets.count
             while !Task.isCancelled {
-                let expired = Set(self.state.cleanupCandidates(now: Date()))
-                guard let asset = self.state.assets.first(where: { $0.previewPath == nil && !expired.contains($0.id) && !attempted.contains($0.id) }) else {
+                if self.state.assets.count != knownAssetCount {
+                    expired = Set(self.state.cleanupCandidates(now: Date()))
+                    knownAssetCount = self.state.assets.count
+                }
+                let candidates = self.state.assets.filter { $0.previewPath == nil && !expired.contains($0.id) && !attempted.contains($0.id) }
+                guard !candidates.isEmpty else {
+                    pending = self.flushPrepared(pending)
                     self.groups = await self.media.groups(self.state.assets)
                     if Task.isCancelled { break }
                     // Imports can arrive while grouping is suspended. Re-scan before
                     // exiting so the importing caller cannot miss this runner.
-                    let expiredAfterGrouping = Set(self.state.cleanupCandidates(now: Date()))
-                    if self.state.assets.contains(where: { $0.previewPath == nil && !expiredAfterGrouping.contains($0.id) && !attempted.contains($0.id) }) { continue }
+                    if self.state.assets.count != knownAssetCount {
+                        expired = Set(self.state.cleanupCandidates(now: Date()))
+                        knownAssetCount = self.state.assets.count
+                    }
+                    if self.state.assets.contains(where: { $0.previewPath == nil && !expired.contains($0.id) && !attempted.contains($0.id) }) { continue }
                     break
                 }
-                attempted.insert(asset.id)
+                let window = Array(candidates.prefix(ImportPolicy.previewConcurrency))
+                for asset in window { attempted.insert(asset.id) }
                 self.progress = "生成预览 \(attempted.count)"
-                do {
-                    try Task.checkCancellation()
-                    let prepared = try await self.prepareAsset(asset, self.allowCloudDownload)
-                    try Task.checkCancellation()
-                    try self.change { s in if let i = s.assets.firstIndex(where: { $0.id == asset.id }) { s.assets[i].previewPath = prepared.previewPath; s.assets[i].feature = prepared.feature; s.assets[i].perceptualHash = prepared.perceptualHash; s.assets[i].digest = prepared.digest; s.assets[i].focalLength = prepared.focalLength; s.assets[i].equivalentFocalLength = prepared.equivalentFocalLength; s.assets[i].camera = prepared.camera } }
-                } catch is CancellationError {
-                    break
-                } catch { self.error = "\(asset.name)：\(error.localizedDescription)" }
+                await withTaskGroup(of: (LocalAsset?, String?).self) { group in
+                    for asset in window {
+                        group.addTask { [weak self] in
+                            guard let self else { return (nil, nil) }
+                            do {
+                                let prepared = try await self.prepareAsset(asset, self.allowCloudDownload)
+                                return (prepared, nil)
+                            } catch is CancellationError {
+                                return (nil, nil)
+                            } catch {
+                                return (nil, "\(asset.name)：\(error.localizedDescription)")
+                            }
+                        }
+                    }
+                    for await (prepared, failure) in group {
+                        if let prepared { pending[prepared.id] = prepared }
+                        if let failure { self.error = failure }
+                    }
+                }
+                if pending.count >= ImportPolicy.previewWriteBatch { pending = self.flushPrepared(pending) }
             }
+            pending = self.flushPrepared(pending)
             if !Task.isCancelled { self.runAnalysis() }
         }
+    }
+    /// Writes prepared previews back to the library.
+    ///
+    /// The library is one encoded document, so writing after every photo
+    /// rewrites the whole library again and again. Prepared photos are
+    /// collected and flushed in batches instead.
+    private func flushPrepared(_ pending: [String: LocalAsset]) -> [String: LocalAsset] {
+        guard !pending.isEmpty else { return pending }
+        try? change { s in
+            for (id, prepared) in pending {
+                guard let i = s.assets.firstIndex(where: { $0.id == id }) else { continue }
+                s.assets[i].previewPath = prepared.previewPath
+                s.assets[i].feature = prepared.feature
+                s.assets[i].perceptualHash = prepared.perceptualHash
+                s.assets[i].digest = prepared.digest
+                s.assets[i].focalLength = prepared.focalLength
+                s.assets[i].equivalentFocalLength = prepared.equivalentFocalLength
+                s.assets[i].camera = prepared.camera
+                s.assets[i].width = prepared.width
+                s.assets[i].height = prepared.height
+            }
+        }
+        return [:]
     }
     func decide(batchID: String, ids: [String], round: SelectionRound, decision: Decision, next: String?) -> Bool {
         do {

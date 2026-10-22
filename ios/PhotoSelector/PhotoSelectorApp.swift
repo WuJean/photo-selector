@@ -57,7 +57,7 @@ struct RootView: View {
         }
         .tint(PhotoPalette.accent)
         .sheet(isPresented: $settings) { NavigationStack { SettingsView() } }
-        .alert("提示", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("知道了") { model.error = nil } } message: { Text(model.error ?? "") }
+        .alert(model.alertTitle, isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("知道了") { model.error = nil } } message: { Text(model.error ?? "") }
         .onChange(of: phase) { _, value in if value == .active { model.resumed(); if lockEnabled && !unlocked { unlock() } } else if value == .background { unlocked = false } }
         .task { model.resumed(); if lockEnabled { unlock() }; while !Task.isCancelled { do { try await Task.sleep(for: .seconds(60)); await model.cleanupExpired() } catch { break } } }
     }
@@ -156,6 +156,9 @@ struct AssetImage: View {
     var size = 480
     var original = false
     var fill = false
+    /// Reserves the room the photo needs so grids keep their shape while the
+    /// preview is still loading.
+    var aspect: CGFloat? = nil
     @State private var image: UIImage?
     @State private var failed = false
     @State private var retry = 0
@@ -164,7 +167,8 @@ struct AssetImage: View {
             if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: fill ? .fill : .fit) }
             else if failed { Button { retry += 1 } label: { Label("离线 · 重试", systemImage: "arrow.clockwise") }.font(.caption).frame(maxWidth: .infinity, minHeight: 100) }
             else { ProgressView().frame(maxWidth: .infinity, minHeight: 100) }
-        }.task(id: "\(asset.id)-\(asset.previewPath ?? "")-\(original)-\(retry)") {
+        }.photoAspect(aspect)
+        .task(id: "\(asset.id)-\(asset.previewPath ?? "")-\(original)-\(retry)") {
             image = nil; failed = false
             do { image = try await model.media.image(asset, maxSize: size, original: original, allowNetwork: model.allowCloudDownload) } catch { failed = true }
         }
@@ -890,10 +894,9 @@ struct GalleryView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 8)], spacing: 8) {
+            WaterfallLayout(minimumColumnWidth: 150, spacing: 8) {
                 ForEach(Array(photos.prefix(limit))) { asset in
-                    AssetImage(asset: asset)
-                        .frame(maxWidth: .infinity, minHeight: 150)
+                    AssetImage(asset: asset, size: 640, aspect: assetAspect(asset))
                         .background(Color.primary.opacity(0.045))
                         .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                         .contentShape(Rectangle())

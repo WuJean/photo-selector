@@ -73,16 +73,28 @@ actor MediaStore {
         if asset.source == .external && asset.ownedPath == nil { asset.digest = try withExternal(asset) { try Self.digest($0) } }
         if asset.source == .photos, let data = try? await photoData(asset.sourceID, allowNetwork: false), let source = CGImageSourceCreateWithData(data as CFData, nil) { Self.metadata(source, asset: &asset) }
         let image = try await image(asset, maxSize: 1600, allowNetwork: allowNetwork)
-        guard let cg = image.cgImage, let jpeg = image.jpegData(compressionQuality: 0.83) else { throw PhotoError.message("无法生成预览") }
-        let relative = "previews/\(asset.id).jpg"
-        try jpeg.write(to: url(relative), options: .atomic); asset.previewPath = relative
-        #if !targetEnvironment(simulator)
-        let request = VNGenerateImageFeaturePrintRequest(); let handler = VNImageRequestHandler(cgImage: cg)
-        // A feature-model failure must never make the photo unbrowseable.
-        if (try? handler.perform([request])) != nil, let result = request.results?.first { asset.feature = try? NSKeyedArchiver.archivedData(withRootObject: result, requiringSecureCoding: true) }
-        #endif
-        asset.perceptualHash = Self.hash(cg)
-        return asset
+        guard let cg = image.cgImage else { throw PhotoError.message("无法生成预览") }
+        // JPEG encoding, the Vision feature print and the perceptual hash are
+        // CPU bound. Running them off the actor lets several photos be
+        // compressed at the same time instead of one after another.
+        return try await Self.renderPreview(cg, asset: asset, destination: url("previews/\(asset.id).jpg"))
+    }
+    /// Encodes the preview, computes the similarity fingerprint and writes the
+    /// thumbnail. Runs on a background executor so the actor stays responsive.
+    nonisolated private static func renderPreview(_ cg: CGImage, asset: LocalAsset, destination: URL) async throws -> LocalAsset {
+        try await Task.detached(priority: .userInitiated) {
+            var asset = asset
+            guard let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.83) else { throw PhotoError.message("无法生成预览") }
+            try jpeg.write(to: destination, options: .atomic)
+            asset.previewPath = "previews/\(asset.id).jpg"
+            #if !targetEnvironment(simulator)
+            let request = VNGenerateImageFeaturePrintRequest(); let handler = VNImageRequestHandler(cgImage: cg)
+            // A feature-model failure must never make the photo unbrowseable.
+            if (try? handler.perform([request])) != nil, let result = request.results?.first { asset.feature = try? NSKeyedArchiver.archivedData(withRootObject: result, requiringSecureCoding: true) }
+            #endif
+            asset.perceptualHash = Self.hash(cg)
+            return asset
+        }.value
     }
     func externalAssets(_ selected: URL) throws -> [LocalAsset] {
         let scoped = selected.startAccessingSecurityScopedResource(); defer { if scoped { selected.stopAccessingSecurityScopedResource() } }
@@ -225,20 +237,33 @@ actor MediaStore {
         return pixels.enumerated().reduce(UInt64(0)) { $0 | (Int($1.element) >= mean ? UInt64(1) << $1.offset : 0) }
     }
     func groups(_ assets: [LocalAsset]) -> [[String]] {
-        var groups: [[LocalAsset]] = []
-        for asset in assets {
+        // Unarchiving a feature print is expensive. Comparing every candidate
+        // against every group used to unarchive the same observations again
+        // and again, which grew quadratically with the number of photos.
+        struct Candidate {
+            let asset: LocalAsset
+            let observation: VNFeaturePrintObservation?
+            let hasFeatureData: Bool
+        }
+        let candidates = assets.map { asset in
+            let data = asset.feature
+            let observation = data.flatMap { payload in
+                try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: payload)
+            }
+            return Candidate(asset: asset, observation: observation, hasFeatureData: data != nil)
+        }
+        var groups: [[Candidate]] = []
+        for candidate in candidates {
             if let index = groups.firstIndex(where: { group in
                 guard let rep = group.first else { return false }
-                if let a = asset.digest, a == rep.digest { return true }
-                if let a = asset.takenAt, let b = rep.takenAt, abs(a.timeIntervalSince(b)) > 120 { return false }
-                guard let a = asset.perceptualHash, let b = rep.perceptualHash, (a ^ b).nonzeroBitCount <= 14 else { return false }
-                guard let x = asset.feature, let y = rep.feature else { return (a ^ b).nonzeroBitCount <= 5 }
-                guard
-                      let fa = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: x),
-                      let fb = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: y) else { return false }
+                if let a = candidate.asset.digest, a == rep.asset.digest { return true }
+                if let a = candidate.asset.takenAt, let b = rep.asset.takenAt, abs(a.timeIntervalSince(b)) > 120 { return false }
+                guard let a = candidate.asset.perceptualHash, let b = rep.asset.perceptualHash, (a ^ b).nonzeroBitCount <= 14 else { return false }
+                guard candidate.hasFeatureData, rep.hasFeatureData else { return (a ^ b).nonzeroBitCount <= 5 }
+                guard let fa = candidate.observation, let fb = rep.observation else { return false }
                 var distance: Float = 100; try? fa.computeDistance(&distance, to: fb); return distance < 0.5
-            }) { groups[index].append(asset) } else { groups.append([asset]) }
+            }) { groups[index].append(candidate) } else { groups.append([candidate]) }
         }
-        return groups.map { $0.map(\.id) }
+        return groups.map { $0.map(\.asset.id) }
     }
 }

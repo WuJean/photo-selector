@@ -10,6 +10,22 @@ final class FlowTests: XCTestCase {
     }
     override func tearDown() { XCUIDevice.shared.orientation = .portrait; app.terminate() }
     func screenshot(_ name: String) { let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment) }
+    /// Rotates and waits until the window really is landscape.
+    ///
+    /// The framebuffer keeps the old size for a moment after the rotation, so
+    /// a picture taken right away shows the portrait layout turned sideways.
+    private func rotateToLandscape() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            let frame = app.windows.firstMatch.frame
+            if frame.width > frame.height { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        // Let the last layout pass and the framebuffer update finish before
+        // the picture is taken.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+    }
     func testEmptyOnboardingCreatesBatchAndOffersSources() {
         app.terminate()
         app.launchEnvironment["PHOTO_SELECTOR_UI_TEST"] = UUID().uuidString
@@ -66,6 +82,7 @@ final class FlowTests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.buttons["开始整理照片"].waitForExistence(timeout: 5))
         assertGuideFitsWithoutScrolling()
+        rotateToLandscape()
         screenshot("横向一屏引导")
         app.buttons["开始整理照片"].tap()
         XCTAssertTrue(app.alerts.textFields["旅行名称"].waitForExistence(timeout: 5))
@@ -95,7 +112,7 @@ final class FlowTests: XCTestCase {
         app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
         XCTAssertTrue(app.buttons["开始整理照片"].waitForExistence(timeout: 10))
-        XCUIDevice.shared.orientation = .landscapeLeft
+        rotateToLandscape()
         let start = app.buttons["开始整理照片"]
         XCTAssertTrue(start.isHittable)
         XCTAssertTrue(app.windows.firstMatch.frame.contains(start.frame))
@@ -124,7 +141,7 @@ final class FlowTests: XCTestCase {
         let trip = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch
         XCTAssertTrue(trip.waitForExistence(timeout: 10)); trip.tap()
         XCTAssertTrue(app.navigationBars["模拟旅行"].waitForExistence(timeout: 5)); screenshot("作品集照片墙")
-        XCUIDevice.shared.orientation = .landscapeLeft; screenshot("展开横向照片墙")
+        rotateToLandscape(); screenshot("展开横向照片墙")
     }
     func testCoarseDecisionUndoAndFine() {
         app.buttons["导入与选片"].tap()

@@ -152,9 +152,8 @@ private struct PortfolioCoverCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack {
                     if let cover {
-                        AssetImage(asset: cover, size: 1080)
+                        AssetImage(asset: cover, size: 1080, fill: true, aspect: 4.0 / 3.0)
                             .frame(maxWidth: .infinity)
-                            .aspectRatio(portfolioImageAspectRatio(cover), contentMode: .fit)
                             .background(PhotoPalette.accent.opacity(0.14))
                     } else {
                         ZStack {
@@ -216,9 +215,8 @@ private struct SelectablePortfolioPhoto: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
         ZStack(alignment: .topTrailing) {
-            AssetImage(asset: asset)
+            AssetImage(asset: asset, size: 480, fill: true, aspect: 1)
                 .frame(maxWidth: .infinity)
-                .aspectRatio(portfolioImageAspectRatio(asset), contentMode: .fit)
                 .background(PhotoPalette.accent.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
@@ -245,9 +243,7 @@ private struct SelectablePortfolioPhoto: View {
     }
 }
 
-private func portfolioImageAspectRatio(_ asset: LocalAsset) -> CGFloat {
-    CGFloat(max(asset.width, 1)) / CGFloat(max(asset.height, 1))
-}
+private func portfolioImageAspectRatio(_ asset: LocalAsset) -> CGFloat { assetAspect(asset) }
 
 struct PortfolioDetailView: View {
     @EnvironmentObject var model: AppModel

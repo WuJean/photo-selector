@@ -23,7 +23,7 @@ struct DuoLayout<Primary: View, Secondary: View>: View {
     private var fallback: some View {
             GeometryReader { geometry in
                 if geometry.size.width >= 700 {
-                    HStack(spacing: 12) { primary.frame(maxWidth: .infinity); secondary.frame(width: 300) }
+                    HStack(spacing: 12) { primary.frame(maxWidth: .infinity, maxHeight: .infinity); secondary.frame(width: 300) }
                 } else { VStack(spacing: 8) { primary; secondary } }
             }
     }

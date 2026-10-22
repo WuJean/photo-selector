@@ -83,7 +83,7 @@ struct BatchView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 8)], spacing: 10) {
                     ForEach(displayed) { asset in
                         VStack(alignment: .leading, spacing: 6) {
-                            AssetImage(asset: asset).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(alignment: .topTrailing) { if selected.contains(asset.id) { Image(systemName: "checkmark.circle.fill").font(.title).foregroundStyle(.orange).padding(5) } }
+                            AssetImage(asset: asset, size: 480, fill: true, aspect: 1).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(alignment: .topTrailing) { if selected.contains(asset.id) { Image(systemName: "checkmark.circle.fill").font(.title).foregroundStyle(.orange).padding(5) } }
                             HStack {
                                 Text(asset.name).lineLimit(1).font(.caption)
                                 if let group = model.groups.first(where: { $0.contains(asset.id) }), group.count > 1 { Text("相似 \(group.count)").font(.caption2).foregroundStyle(.orange) }
@@ -147,11 +147,21 @@ struct AlbumImportView: View {
                 DatePicker("结束日期", selection: $end, in: start..., displayedComponents: .date)
                 HStack { Button("最近一周") { start = Calendar.current.date(byAdding: .day, value: -7, to: Date())! }; Button("最近一个月") { start = Calendar.current.date(byAdding: .month, value: -1, to: Date())! } }
                 Text("范围内 \(count) 张静态照片")
+                if count > ImportPolicy.maxPhotosPerImport {
+                    Label("\(ImportPolicy.limitDescription)，超出部分需要再导入一次。", systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if limited { Text("仅能读取系统授权的照片。可在系统设置中调整授权。").font(.caption); Button("打开系统设置") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) } }
             }
             Button("预览并选择范围内的照片") { loadRange(); rangePicker = true }.disabled(count == 0)
             Toggle("允许从 iCloud 下载原片", isOn: $model.allowCloudDownload)
-            Section { Button("读取整个范围") { Task { await model.importPhotos(start: Calendar.current.startOfDay(for: start), end: endExclusive, albumID: album.isEmpty ? nil : album, batchID: batchID); dismiss() } }.disabled(model.busy || count == 0) }
+            Section {
+                Button(importButtonTitle) { Task { await model.importPhotos(start: Calendar.current.startOfDay(for: start), end: endExclusive, albumID: album.isEmpty ? nil : album, batchID: batchID); dismiss() } }
+                    .disabled(model.busy || count == 0)
+            } footer: {
+                Text(count > ImportPolicy.maxPhotosPerImport ? "将按拍摄时间读取最早的 \(ImportPolicy.maxPhotosPerImport) 张。" : ImportPolicy.limitDescription + "，剩下的照片留在相册里随时再导入。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }.scrollContentBackground(.hidden).photoBackdrop().sheet(isPresented: $rangePicker) { NavigationStack { PhotoRangePicker(assets: rangePhotos) { ids in
             Task { await model.importPhotos(start: Calendar.current.startOfDay(for: start), end: endExclusive, albumID: album.isEmpty ? nil : album, batchID: batchID, selectedIDs: ids); rangePicker = false; dismiss() }
         } } }
@@ -160,6 +170,9 @@ struct AlbumImportView: View {
                 let fetched = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil)
                 fetched.enumerateObjects { value, _, _ in albums.append((value.localIdentifier, value.localizedTitle ?? "相册")) }; updateCount()
             }.onChange(of: start) { _, _ in updateCount() }.onChange(of: end) { _, _ in updateCount() }.onChange(of: album) { _, _ in updateCount() }
+    }
+    private var importButtonTitle: String {
+        count > ImportPolicy.maxPhotosPerImport ? "读取最早的 \(ImportPolicy.maxPhotosPerImport) 张" : "读取整个范围"
     }
     var endExclusive: Date { Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: end))! }
     func loadRange() {
@@ -203,10 +216,16 @@ struct DecisionButtons: View {
     let round: SelectionRound
     let action: (Decision) -> Void
     var body: some View {
-        HStack(spacing: 12) {
-            if round == .coarse { decision("待定", .pending, .yellow) }
-            decision("保留", .keep, .green); decision("不要", .reject, .red)
+        // The bar sits at the bottom on a phone and inside a narrow side rail
+        // on a Duo, so it falls back to stacked buttons when it cannot fit.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { buttons }
+            VStack(spacing: 10) { buttons }
         }
+    }
+    @ViewBuilder private var buttons: some View {
+        if round == .coarse { decision("待定", .pending, .yellow) }
+        decision("保留", .keep, .green); decision("不要", .reject, .red)
     }
     func decision(_ name: String, _ value: Decision, _ color: Color) -> some View {
         Button { action(value) } label: {
@@ -235,6 +254,11 @@ struct ImmersiveView: View {
         self.initialID = initialID; self.batchID = batchID; self.round = round
     }
     var current: LocalAsset? { ids.indices.contains(index) ? model.state.assets.first { $0.id == ids[index] } : nil }
+    /// Share of the canvas reserved for the neighbouring photos.
+    private let neighbourShare: CGFloat = 0.10
+    private var hasPrevious: Bool { index > 0 }
+    private var hasNext: Bool { index < ids.count - 1 }
+    private var currentAspect: CGFloat { current.map { assetAspect($0) } ?? 1 }
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -250,21 +274,7 @@ struct ImmersiveView: View {
             else {
                 DuoLayout {
                 GeometryReader { geometry in
-                    ZStack {
-                        ForEach(Array([-1, 0, 1]), id: \.self) { delta in
-                            let position = index + delta
-                            if ids.indices.contains(position), let asset = model.state.assets.first(where: { $0.id == ids[position] }) {
-                                let similar = model.groups.contains { $0.contains(ids[index]) && $0.contains(asset.id) }
-                                AssetImage(asset: asset, size: delta == 0 ? (original ? 6000 : 1600) : 480, original: delta == 0 && original)
-                                    .frame(width: geometry.size.width * (delta == 0 ? 0.86 : 0.55), height: geometry.size.height)
-                                    .blur(radius: delta == 0 || similar ? 0 : 8)
-                                    .scaleEffect(delta == 0 ? scale : 0.8)
-                                    .offset(x: delta == 0 ? offset.width : CGFloat(delta) * geometry.size.width * 0.78, y: delta == 0 ? offset.height : 0)
-                                    .opacity(delta == 0 ? 1 : 0.5)
-                                    .allowsHitTesting(delta == 0)
-                            }
-                        }
-                    }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                    canvas(size: geometry.size)
                         .accessibilityElement(children: .contain).accessibilityIdentifier("immersive-canvas")
                         .contentShape(Rectangle())
                         .gesture(MagnifyGesture().onChanged { scale = min(8, max(1, scaleBase * $0.magnification)) }.onEnded { _ in scaleBase = scale; if scale <= 1 { offset = .zero; baseOffset = .zero } })
@@ -275,7 +285,7 @@ struct ImmersiveView: View {
                         .onTapGesture(count: 2) { scale = scale > 1 ? 1 : 2; scaleBase = scale; offset = .zero; baseOffset = .zero }
                 }
                 } secondary: {
-                VStack(spacing: 4) {
+                VStack(spacing: 6) {
                 if let analysis = current?.analysis { Text(analysis.labels.joined(separator: " · ")).font(.caption).padding(.horizontal) }
                 if let batchID, let current {
                     DecisionButtons(round: round) { decision in
@@ -288,6 +298,47 @@ struct ImmersiveView: View {
             }
         }.background(Color(white: 0.035)).preferredColorScheme(.dark).onAppear { index = ids.firstIndex(of: initialID) ?? 0; model.focusedID = initialID }
             .sheet(isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } })) { if let sharing { ShareSheet(items: [sharing]) } }
+    }
+    /// Lays the photo out between the two neighbour strips.
+    ///
+    /// The neighbours used to sit behind the photo at an offset that pushed
+    /// them off screen, so the surrounding photos were never actually visible.
+    private func canvas(size: CGSize) -> some View {
+        let strip = size.width * neighbourShare
+        let band = size.width - (hasPrevious ? strip : 0) - (hasNext ? strip : 0)
+        let bandCenter = (hasPrevious ? strip : 0) + band / 2
+        var photoWidth = band
+        var photoHeight = photoWidth / currentAspect
+        if photoHeight > size.height { photoHeight = size.height; photoWidth = photoHeight * currentAspect }
+        return ZStack {
+            if hasPrevious { neighbour(delta: -1, width: strip, height: size.height).offset(x: strip / 2 - size.width / 2) }
+            if hasNext { neighbour(delta: 1, width: strip, height: size.height).offset(x: size.width - strip / 2 - size.width / 2) }
+            if let current {
+                AssetImage(asset: current, size: original ? 6000 : 1600, original: original)
+                    .frame(width: photoWidth, height: photoHeight)
+                    .scaleEffect(scale)
+                    .offset(x: bandCenter - size.width / 2 + offset.width, y: offset.height)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+    }
+    @ViewBuilder
+    private func neighbour(delta: Int, width: CGFloat, height: CGFloat) -> some View {
+        let position = index + delta
+        if ids.indices.contains(position), let asset = model.state.assets.first(where: { $0.id == ids[position] }) {
+            // Photos from the same group stay sharp, the rest stay blurred.
+            let similar = model.groups.contains { $0.contains(ids[index]) && $0.contains(asset.id) }
+            AssetImage(asset: asset, size: 480, fill: true)
+                .frame(width: width, height: height)
+                .clipped()
+                .blur(radius: similar ? 0 : 10)
+                .opacity(similar ? 1 : 0.6)
+                .allowsHitTesting(false)
+        } else {
+            Color.clear.frame(width: width, height: height)
+        }
     }
     func move(_ delta: Int) { index = min(max(0, index + delta), max(0, ids.count - 1)); scale = 1; scaleBase = 1; offset = .zero; baseOffset = .zero; original = false; model.focusedID = current?.id }
 }
@@ -310,14 +361,16 @@ struct PhotoRangePicker: View {
     @State private var anchor: String?
     @State private var baseline = Set<String>()
     @State private var frames: [String: CGRect] = [:]
+    @State private var reachedLimit = false
+    private var limit: Int { ImportPolicy.maxPhotosPerImport }
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))]) {
                 ForEach(assets) { asset in
-                    AssetImage(asset: asset).frame(minHeight: 100).overlay(alignment: .topTrailing) { Image(systemName: selected.contains(asset.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(selected.contains(asset.id) ? .orange : .white).padding(4) }
+                    AssetImage(asset: asset, size: 320, fill: true, aspect: 1).overlay(alignment: .topTrailing) { Image(systemName: selected.contains(asset.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(selected.contains(asset.id) ? .orange : .white).padding(4) }
                         .background(GeometryReader { geometry in Color.clear.preference(key: RangeFrames.self, value: [asset.id: geometry.frame(in: .named("range"))]) })
-                        .onTapGesture { if selectingRange { if anchor == nil { anchor = asset.id; baseline = selected }; selectThrough(asset.id) } else if !selected.insert(asset.id).inserted { selected.remove(asset.id) } }
-                        .onLongPressGesture { selectingRange = true; anchor = asset.id; baseline = selected; selected.insert(asset.id) }
+                        .onTapGesture { if selectingRange { if anchor == nil { anchor = asset.id; baseline = selected }; selectThrough(asset.id) } else { toggle(asset.id) } }
+                        .onLongPressGesture { selectingRange = true; anchor = asset.id; baseline = selected; if !selected.contains(asset.id) { toggle(asset.id) } }
                 }
             }.padding(8)
         }.coordinateSpace(name: "range").onPreferenceChange(RangeFrames.self) { frames = $0 }
@@ -327,18 +380,29 @@ struct PhotoRangePicker: View {
                 if anchor == nil, let first = frames.first(where: { $0.value.contains(value.startLocation) }) { anchor = first.key; baseline = selected }
                 if let current = frames.first(where: { $0.value.contains(value.location) }) { selectThrough(current.key) }
             }.onEnded { _ in anchor = nil })
-            .navigationTitle("已选 \(selected.count) 张")
+            .navigationTitle("已选 \(selected.count) / \(limit)")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("导入") { importSelection(selected) }.disabled(selected.isEmpty) }
                 ToolbarItemGroup(placement: .bottomBar) {
-                    Button("全选") { selected = Set(assets.map(\.id)) }; Button("清空") { selected = []; anchor = nil }
+                    Button("全选") { selected = Set(assets.prefix(limit).map(\.id)); reachedLimit = assets.count > limit }
+                    Button("清空") { selected = []; anchor = nil; reachedLimit = false }
                     Button(selectingRange ? "完成范围选择" : "连续选择") { selectingRange.toggle(); anchor = nil; baseline = selected }
                 }
             }
+            .overlay(alignment: .bottom) { if reachedLimit { Label("已选满\(ImportPolicy.limitDescription)，其余照片可以再导入一次。", systemImage: "info.circle").font(.caption).padding(10).photoGlass(cornerRadius: 18).padding(.horizontal, 14).padding(.bottom, 64) } }
+    }
+    /// Adds or removes a photo while respecting the per import cap.
+    private func toggle(_ id: String) {
+        if selected.contains(id) { selected.remove(id); reachedLimit = false }
+        else if selected.count < limit { selected.insert(id) }
+        else { reachedLimit = true }
     }
     func selectThrough(_ id: String) {
         guard let anchor, let start = assets.firstIndex(where: { $0.id == anchor }), let end = assets.firstIndex(where: { $0.id == id }) else { return }
-        selected = baseline.union(assets[min(start, end)...max(start, end)].map(\.id))
+        let range = assets[min(start, end)...max(start, end)].map(\.id)
+        let merged = baseline.union(range)
+        selected = Set(merged.prefix(limit))
+        reachedLimit = merged.count > limit
     }
 }
