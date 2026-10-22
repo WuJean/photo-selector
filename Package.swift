@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "PhotoSelector",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v18)],
     products: [.library(name: "PhotoCore", targets: ["PhotoCore"]), .executable(name: "PhotoSelector", targets: ["PhotoSelector"])],
     targets: [
         .systemLibrary(name: "CSQLite"),

@@ -15,6 +15,11 @@ func throwsError(_ action: () throws -> Void) throws {
 @main struct TestRunner {
     static func main() async {
         let tests: [(String, () async throws -> Void)] = [
+            ("两轮决定、撤销与三小时边界", { try LocalLibraryTests.decisions() }),
+            ("跨批次与作品集引用保护", { try LocalLibraryTests.references() }),
+            ("AI 校验与迟到结果", { try LocalLibraryTests.analysis() }),
+            ("本地事务回滚与恢复", { try LocalLibraryTests.transaction() }),
+            ("全量检索与约束模板", { try LocalLibraryTests.searchAndTemplates() }),
             ("SQLite 持久化、更新、项目隔离", { try StoreTests.testPersistsAndReplacesDocumentsAcrossConnections() })
         ]
         var failures = 0
