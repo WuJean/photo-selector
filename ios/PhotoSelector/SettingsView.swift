@@ -56,7 +56,7 @@ struct SettingsView: View {
                 Text(backupStatus).font(.caption)
                 Text("备份包含可访问的原片、创作和记录，不包含密钥。请先连接来源；卸载应用会删除本机私有库。").font(.caption).foregroundStyle(.secondary)
             }
-        }.navigationTitle("设置").toolbar { Button("完成") { dismiss() } }
+        }.scrollContentBackground(.hidden).photoBackdrop().navigationTitle("设置").toolbar { Button("完成") { dismiss() } }
             .onAppear { config = model.aiConfig; key = Keychain.load() }
             .confirmationDialog("重新分析所有粗筛入选照片？", isPresented: $rerun) {
                 Button("重新分类") { model.perform { try model.change { s in

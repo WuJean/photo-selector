@@ -10,6 +10,30 @@ final class FlowTests: XCTestCase {
     }
     override func tearDown() { XCUIDevice.shared.orientation = .portrait; app.terminate() }
     func screenshot(_ name: String) { let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment) }
+    func testEmptyOnboardingCreatesBatchAndOffersSources() {
+        app.terminate()
+        app.launchEnvironment["PHOTO_SELECTOR_UI_TEST"] = UUID().uuidString
+        app.launchEnvironment["PHOTO_SELECTOR_UI_EMPTY"] = "1"
+        app.launch()
+        let start = app.buttons["开始整理照片"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        screenshot("首次打开引导")
+        XCTAssertTrue(start.isHittable, "首次打开无需寻找隐藏的开始入口")
+        start.tap()
+        let name = app.alerts.textFields["旅行名称"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap(); name.typeText("周末散步")
+        app.alerts.buttons["创建"].tap()
+        XCTAssertTrue(app.navigationBars["周末散步"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["从相册读取"].isHittable)
+        XCTAssertTrue(app.buttons["存储卡／文件夹"].isHittable)
+        screenshot("首次导入来源")
+        // Duo places navigation controls in a side rail outside NavigationBar.
+        let sideBack = app.buttons["BackButton"]
+        if sideBack.exists { sideBack.tap() } else { app.navigationBars.buttons.firstMatch.tap() }
+        XCTAssertTrue(app.buttons["继续选片"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["开始整理照片"].exists)
+    }
     func testTimelineGalleryAndRotation() {
         let trip = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch
         XCTAssertTrue(trip.waitForExistence(timeout: 10)); trip.tap()
@@ -64,13 +88,40 @@ final class FlowTests: XCTestCase {
         XCTAssertFalse(app.buttons["保留"].exists)
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "photo-card-fixture-0").firstMatch.exists)
     }
+    func testPortfolioUsesCompactTabsAndKeepsCandidateSelection() {
+        app.buttons["作品集"].tap()
+        XCTAssertTrue(app.buttons["我的作品"].exists)
+        XCTAssertTrue(app.buttons["待归集"].exists)
+        XCTAssertFalse(app.staticTexts["把照片编成故事"].exists)
+        screenshot("简洁作品集")
+        app.buttons["待归集"].tap()
+        app.switches["全部"].tap()
+        let candidate = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "测试照片6.jpg")).firstMatch
+        XCTAssertTrue(candidate.waitForExistence(timeout: 5)); candidate.tap()
+        let add = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "加入作品集")).firstMatch
+        XCTAssertTrue(add.exists)
+        app.buttons["我的作品"].tap()
+        XCTAssertFalse(add.exists, "切换页签清空批量选择")
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["智能拼图"].exists)
+        XCTAssertTrue(app.buttons["生成文案"].exists)
+        screenshot("简洁作品详情")
+        app.buttons["创作"].tap()
+        XCTAssertTrue(app.staticTexts["暂无创作"].exists)
+        app.buttons["照片"].tap()
+        XCTAssertTrue(candidate.exists)
+        app.buttons["更多"].tap()
+        app.buttons["查看照片墙"].tap()
+        XCTAssertFalse(app.buttons["智能拼图"].exists)
+    }
     func testCollageAndSettings() {
         app.buttons["作品集"].tap()
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch.tap()
         app.buttons["智能拼图"].tap()
         XCTAssertTrue(app.buttons["随机组合"].waitForExistence(timeout: 5))
-        app.buttons["随机组合"].tap(); screenshot("拼图编辑")
+        app.buttons["随机组合"].tap()
         app.buttons["保存"].tap()
         XCTAssertTrue(app.staticTexts["已保存到作品集创作"].waitForExistence(timeout: 20))
+        screenshot("拼图编辑")
     }
 }

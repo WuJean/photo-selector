@@ -8,12 +8,31 @@ struct BatchListView: View {
     @State private var name = ""
     @State private var create = false
     var body: some View {
-        List {
-            Button("新建导入批次", systemImage: "plus") { create = true }
-            ForEach(model.state.batches.reversed()) { batch in
-                NavigationLink { BatchView(batchID: batch.id) } label: { VStack(alignment: .leading) { Text(batch.name); Text("\(batch.photos.count) 张").font(.caption).foregroundStyle(.secondary) } }
-            }
-        }.navigationTitle("导入与选片")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                GlassSectionHeader(title: "从一次拍摄开始", subtitle: "导入相册或存储卡，留下值得珍藏的画面。", symbol: "camera.aperture")
+                Button { create = true } label: {
+                    Label("新建导入批次", systemImage: "plus").font(.headline).frame(maxWidth: .infinity, minHeight: 52)
+                }.buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent).tint(PhotoPalette.accent)
+                if model.state.batches.isEmpty {
+                    GuidedEmptyState(title: "照片还在相册里？", message: "先为这次拍摄起个名字，再选择照片范围。你的原片会保留在原处。", symbol: "photo.stack")
+                }
+                ForEach(model.state.batches.reversed()) { batch in
+                    NavigationLink { BatchView(batchID: batch.id) } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "rectangle.stack").font(.title2).foregroundStyle(PhotoPalette.accent)
+                                .frame(width: 52, height: 60).background(PhotoPalette.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(batch.name).font(.headline).foregroundStyle(.primary)
+                                Text("\(batch.photos.count) 张 · 已初筛 \(batch.photos.filter { $0.coarse != .unseen }.count) 张").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        }.padding(16).photoGlass()
+                    }.buttonStyle(.plain)
+                }
+            }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
+        }.photoBackdrop().navigationTitle("导入与选片")
             .alert("新建批次", isPresented: $create) { TextField("旅行名称", text: $name); Button("创建") { model.perform { _ = try model.createBatch(name); name = "" } }; Button("取消", role: .cancel) {} }
     }
 }
@@ -51,29 +70,39 @@ struct BatchView: View {
                 Button("筛选", systemImage: "line.3.horizontal.decrease") { showFilters = true }
                 Spacer()
                 Button(multi ? "完成选择" : "选择") { multi.toggle(); selected.removeAll() }
-            }.font(.subheadline).padding(.horizontal)
+            }.font(.subheadline.weight(.medium)).buttonStyle(.bordered).tint(PhotoPalette.accent).padding(.horizontal)
             ScrollView {
+                if batch?.photos.isEmpty == true {
+                    VStack(spacing: 20) {
+                        GuidedEmptyState(title: "把照片带进来", message: "按时间读取相册，或从存储卡和文件夹导入。", symbol: "photo.badge.plus")
+                        Button { importSheet = true } label: { Label("从相册读取", systemImage: "photo.on.rectangle").frame(maxWidth: .infinity, minHeight: 52) }.buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent)
+                        Button { reconnecting = false; fileImporter = true } label: { Label("存储卡／文件夹", systemImage: "folder").frame(maxWidth: .infinity, minHeight: 48) }.buttonStyle(.bordered)
+                    }.tint(PhotoPalette.accent).padding(20)
+                }
+
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 8)], spacing: 10) {
                     ForEach(displayed) { asset in
                         VStack(alignment: .leading, spacing: 6) {
-                            AssetImage(asset: asset).overlay(alignment: .topTrailing) { if selected.contains(asset.id) { Image(systemName: "checkmark.circle.fill").font(.title).foregroundStyle(.orange).padding(5) } }
+                            AssetImage(asset: asset).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(alignment: .topTrailing) { if selected.contains(asset.id) { Image(systemName: "checkmark.circle.fill").font(.title).foregroundStyle(.orange).padding(5) } }
                             HStack {
                                 Text(asset.name).lineLimit(1).font(.caption)
                                 if let group = model.groups.first(where: { $0.contains(asset.id) }), group.count > 1 { Text("相似 \(group.count)").font(.caption2).foregroundStyle(.orange) }
                             }
                             if let analysis = asset.analysis { Text(analysis.labels.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                        }.accessibilityElement(children: .combine).accessibilityAddTraits(.isButton).accessibilityIdentifier("photo-card-" + asset.id).contentShape(Rectangle()).onTapGesture {
+                        }.padding(10).photoGlass(cornerRadius: 22).accessibilityElement(children: .combine).accessibilityAddTraits(.isButton).accessibilityIdentifier("photo-card-" + asset.id).contentShape(Rectangle()).onTapGesture {
                             if multi { if !selected.insert(asset.id).inserted { selected.remove(asset.id) } }
                             else { model.focusedID = asset.id; immersive = asset }
                         }.onLongPressGesture { multi = true; selected.insert(asset.id) }
                     }
                 }.padding()
-                if photos.isEmpty { ContentUnavailableView("当前范围已完成", systemImage: "checkmark.circle", description: Text(round == .coarse ? "切换到精筛继续挑选，或导入更多照片" : "精筛保留照片可在作品集中归集")) }
+                if photos.isEmpty && batch?.photos.isEmpty == false {
+                    GuidedEmptyState(title: query.isEmpty && tags.isEmpty ? "当前范围已完成" : "没有匹配的照片", message: query.isEmpty && tags.isEmpty ? (round == .coarse ? "切换到精筛继续挑选，或导入更多照片。" : "精筛保留的照片可以加入作品集。") : "试试其他关键词，或清除标签筛选。", symbol: query.isEmpty && tags.isEmpty ? "checkmark.seal" : "magnifyingglass").padding()
+                }
             }
             if !selected.isEmpty { DecisionButtons(round: round) { decision in
                 if model.decide(batchID: batchID, ids: Array(selected), round: round, decision: decision, next: nil) { selected.removeAll() }
             }.padding() }
-        }.navigationTitle(batch?.name ?? "选片")
+        }.photoBackdrop().navigationTitle(batch?.name ?? "选片")
             .toolbar {
                 Menu {
                     Button("从相册读取", systemImage: "photo.on.rectangle") { importSheet = true }
@@ -123,7 +152,7 @@ struct AlbumImportView: View {
             Button("预览并选择范围内的照片") { loadRange(); rangePicker = true }.disabled(count == 0)
             Toggle("允许从 iCloud 下载原片", isOn: $model.allowCloudDownload)
             Section { Button("读取整个范围") { Task { await model.importPhotos(start: Calendar.current.startOfDay(for: start), end: endExclusive, albumID: album.isEmpty ? nil : album, batchID: batchID); dismiss() } }.disabled(model.busy || count == 0) }
-        }.sheet(isPresented: $rangePicker) { NavigationStack { PhotoRangePicker(assets: rangePhotos) { ids in
+        }.scrollContentBackground(.hidden).photoBackdrop().sheet(isPresented: $rangePicker) { NavigationStack { PhotoRangePicker(assets: rangePhotos) { ids in
             Task { await model.importPhotos(start: Calendar.current.startOfDay(for: start), end: endExclusive, albumID: album.isEmpty ? nil : album, batchID: batchID, selectedIDs: ids); rangePicker = false; dismiss() }
         } } }
         .navigationTitle("从相册读取").toolbar { Button("取消") { dismiss() } }
@@ -166,7 +195,7 @@ struct TagFilterView: View {
                 }
             }
             Button("清除筛选") { selected.removeAll() }
-        }.navigationTitle("标签筛选").toolbar { Button("完成") { dismiss() } }
+        }.scrollContentBackground(.hidden).photoBackdrop().navigationTitle("标签筛选").toolbar { Button("完成") { dismiss() } }
     }
 }
 extension TagDomain { var title: String { switch self { case .subject: return "主体"; case .distance: return "景别"; case .environment: return "环境"; case .style: return "风格"; case .other: return "其他" } } }
@@ -180,7 +209,10 @@ struct DecisionButtons: View {
         }
     }
     func decision(_ name: String, _ value: Decision, _ color: Color) -> some View {
-        Button { action(value) } label: { Text(name).font(.headline).frame(maxWidth: .infinity, minHeight: 56) }.buttonStyle(.bordered).tint(color)
+        Button { action(value) } label: {
+            Label(name, systemImage: value == .keep ? "checkmark" : value == .reject ? "xmark" : "bookmark")
+                .font(.headline).frame(maxWidth: .infinity, minHeight: 56)
+        }.buttonStyle(.bordered).tint(color).accessibilityLabel(name)
     }
 }
 struct ImmersiveView: View {
@@ -213,8 +245,8 @@ struct ImmersiveView: View {
                     Button(original ? "使用预览" : "查看原图") { original.toggle() }
                     Button("下载／分享原片") { Task { do { if let asset = current { sharing = try await model.media.exportOriginal(asset, allowNetwork: model.allowCloudDownload) } } catch { model.error = error.localizedDescription } } }
                 } label: { Image(systemName: "ellipsis.circle") }
-            }.padding()
-            if finished { ContentUnavailableView("当前范围已完成", systemImage: "checkmark.circle"); Button("返回") { dismiss() }.buttonStyle(.borderedProminent); Spacer() }
+            }.padding(12).photoGlass(cornerRadius: 22).padding(.horizontal, 12).padding(.top, 4)
+            if finished { ContentUnavailableView("当前范围已完成", systemImage: "checkmark.circle"); Button("返回") { dismiss() }.buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent); Spacer() }
             else {
                 DuoLayout {
                 GeometryReader { geometry in
@@ -249,12 +281,12 @@ struct ImmersiveView: View {
                     DecisionButtons(round: round) { decision in
                         let next = index + 1 < ids.count ? ids[index + 1] : nil
                         if model.decide(batchID: batchID, ids: [current.id], round: round, decision: decision, next: next) { if next == nil { finished = true } else { move(1) } }
-                    }.padding(.horizontal).padding(.bottom, 12)
+                    }.padding(12).photoGlass(cornerRadius: 24).padding(.horizontal, 12).padding(.bottom, 12)
                 }
                 }
                 }
             }
-        }.background(Color.black).onAppear { index = ids.firstIndex(of: initialID) ?? 0; model.focusedID = initialID }
+        }.background(Color(white: 0.035)).preferredColorScheme(.dark).onAppear { index = ids.firstIndex(of: initialID) ?? 0; model.focusedID = initialID }
             .sheet(isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } })) { if let sharing { ShareSheet(items: [sharing]) } }
     }
     func move(_ delta: Int) { index = min(max(0, index + delta), max(0, ids.count - 1)); scale = 1; scaleBase = 1; offset = .zero; baseOffset = .zero; original = false; model.focusedID = current?.id }

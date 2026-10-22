@@ -55,7 +55,7 @@ struct CollageEditor: View {
             canvas
         } secondary: {
             ScrollView { controls }
-        }.navigationTitle("拼图")
+        }.photoBackdrop().navigationTitle("拼图")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { persist(); dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { Task { await save() } }.disabled(saving || draft.cells.contains { $0.assetID == nil }) } }
             .onAppear {
                 if let existing = model.state.drafts.first(where: { $0.collectionID == collectionID }) { draft = existing }
@@ -74,11 +74,16 @@ struct CollageEditor: View {
             if let preview { Image(uiImage: preview).resizable().scaledToFit().padding(8) }
             else { Rectangle().fill(.quaternary).aspectRatio(draft.ratio, contentMode: .fit).overlay(Text("选择照片开始拼图")) }
             Text(status).font(.caption).foregroundStyle(.secondary)
-            HStack { ForEach(draft.cells.indices, id: \.self) { i in Button("第 \(i + 1) 格") { activeCell = i }.buttonStyle(.bordered).tint(activeCell == i ? .orange : .gray) } }
+            HStack { ForEach(draft.cells.indices, id: \.self) { i in Button("第 \(i + 1) 格") { activeCell = i }.buttonStyle(.bordered).tint(activeCell == i ? PhotoPalette.accent : .gray) } }
         }
     }
     var controls: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 18) {
+            GlassSectionHeader(title: "让画面彼此呼应", subtitle: "快速组合，再逐格调整构图。", symbol: "square.grid.2x2")
+            HStack {
+                Button("随机组合", systemImage: "shuffle") { model.perform { draft.cells = try PhotoSearch.randomCombination(candidates: candidates, requirements: requirements, cells: draft.cells) } }
+                Button("AI 搭配", systemImage: "sparkles") { Task { await recommend() } }.disabled(saving)
+            }.buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent).tint(PhotoPalette.accent).controlSize(.large)
             Picker("布局", selection: $draft.layout) { Text("横图三拼").tag("rows"); Text("竖图三拼").tag("columns"); Text("一大两小").tag("hero"); Text("四宫格").tag("grid") }.onChange(of: draft.layout) { _, value in
                 let count = value == "grid" ? 4 : 3; draft.cells = Array((draft.cells + Array(repeating: CollageCell(), count: count)).prefix(count)); requirements = Array((requirements + Array(repeating: CollageSlot(), count: count)).prefix(count)); activeCell = min(activeCell, count - 1)
             }
@@ -94,10 +99,6 @@ struct CollageEditor: View {
                 Text("垂直位置"); Slider(value: $draft.cells[activeCell].offsetY, in: -1...1)
             }
             HStack { TextField("自定义模板名称", text: $templateName); Button("保存模板") { model.perform { let template = QuickTemplate(name: templateName, layout: draft.layout, slots: requirements); try model.change { $0.templates.append(template) }; templateName = "" } }.disabled(templateName.isEmpty) }
-            HStack {
-                Button("随机组合", systemImage: "shuffle") { model.perform { draft.cells = try PhotoSearch.randomCombination(candidates: candidates, requirements: requirements, cells: draft.cells) } }
-                Button("AI 搭配", systemImage: "sparkles") { Task { await recommend() } }.disabled(saving)
-            }.buttonStyle(.borderedProminent)
             DisclosureGroup("间距、相框与水印") {
                 Slider(value: $draft.gap, in: 0...100) { Text("间距") }; Slider(value: $draft.frame, in: 0...200) { Text("相框") }
                 TextField("背景色 #141414", text: $draft.background); TextField("文字水印", text: $draft.watermark)
@@ -107,7 +108,7 @@ struct CollageEditor: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 90))]) {
                 ForEach(Array(candidates.prefix(limit))) { asset in AssetImage(asset: asset).onTapGesture { if !draft.cells[activeCell].locked { draft.cells[activeCell] = CollageCell(asset.id) } }.onAppear { if asset.id == candidates.prefix(limit).last?.id { limit += 40 } } }
             }
-        }.padding()
+        }.padding(18).photoGlass(cornerRadius: 28).padding(12)
     }
     func persist() {
         draft.requirements = requirements
