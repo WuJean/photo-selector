@@ -26,6 +26,7 @@ obj('assets', 'PBXFileReference',lastKnownFileType='folder.assetcatalog',path='P
 obj('assetsbuild', 'PBXBuildFile',fileRef=ref('assets')); files.append(ref('assets'))
 obj('privacy', 'PBXFileReference', lastKnownFileType='text.xml', path='PhotoSelector/PrivacyInfo.xcprivacy', sourceTree='<group>')
 obj('privacy-build', 'PBXBuildFile', fileRef=ref('privacy')); files.append(ref('privacy'))
+obj('signing', 'PBXFileReference', lastKnownFileType='text.xcconfig', path='Signing.xcconfig', sourceTree='<group>'); files.append(ref('signing'))
 obj('product', 'PBXFileReference', explicitFileType='wrapper.application', path='PhotoSelector.app', sourceTree='BUILT_PRODUCTS_DIR')
 obj('products', 'PBXGroup', children=[ref('product')], name='Products', sourceTree='<group>')
 obj('group', 'PBXGroup', children=files + [ref('products')], sourceTree='<group>')
@@ -40,7 +41,8 @@ appsettings={'ENABLE_DEBUG_DYLIB':'NO','ASSETCATALOG_COMPILER_APPICON_NAME':'App
 for label, settings in [('project', base),('app',appsettings)]:
     for mode in ['Debug','Release']:
         extra = {'SWIFT_OPTIMIZATION_LEVEL':'-Onone','DEBUG_INFORMATION_FORMAT':'dwarf','SWIFT_ACTIVE_COMPILATION_CONDITIONS':'DEBUG','ENABLE_TESTABILITY':'YES'} if mode=='Debug' else {'SWIFT_OPTIMIZATION_LEVEL':'-O','DEBUG_INFORMATION_FORMAT':'dwarf-with-dsym'}
-        obj(label+mode, 'XCBuildConfiguration', name=mode, buildSettings={**settings,**extra})
+        config = {'baseConfigurationReference': ref('signing')} if label == 'project' else {}
+        obj(label+mode, 'XCBuildConfiguration', name=mode, buildSettings={**settings,**extra}, **config)
     obj(label+'config','XCConfigurationList',buildConfigurations=[ref(label+'Debug'),ref(label+'Release')],defaultConfigurationIsVisible='0',defaultConfigurationName='Release')
 obj('target','PBXNativeTarget',name='PhotoSelectorIOS',productName='PhotoSelector',productReference=ref('product'),productType='com.apple.product-type.application',buildConfigurationList=ref('appconfig'),buildPhases=[ref('sources'),ref('frameworks'),ref('resources')],buildRules=[],dependencies=[],packageProductDependencies=[ref('core')])
 testbuilds=[]

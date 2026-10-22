@@ -27,6 +27,7 @@ backups/
 wechat/config.local.json
 # Generated iOS development state and signing artifacts
 **/xcuserdata/
+ios/LocalSigning.xcconfig
 *.xcarchive/
 *.ipa
 !ios/PhotoSelector/Assets.xcassets/AppIcon.appiconset/AppIcon.png

@@ -15,9 +15,37 @@ actor MediaStore {
     }
     nonisolated func url(_ relative: String) throws -> URL {
         guard !relative.hasPrefix("/"), !relative.split(separator: "/").contains("..") else { throw PhotoError.message("无效资源路径") }
-        let target = root.appendingPathComponent(relative).standardizedFileURL
-        guard target.path.hasPrefix(root.standardizedFileURL.path + "/") else { throw PhotoError.message("资源超出照片库") }
-        return target
+        let canonicalRoot = root.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+        let rootPath = try Self.canonicalPath(canonicalRoot.path)
+        let targetPath = try Self.canonicalPath(canonicalRoot.appendingPathComponent(relative).standardizedFileURL.path)
+        let rootPrefix = rootPath == "/" ? "/" : rootPath + "/"
+        guard targetPath != rootPath, targetPath.hasPrefix(rootPrefix) else {
+            throw PhotoError.message("资源超出照片库")
+        }
+        return URL(fileURLWithPath: targetPath)
+    }
+    private static func canonicalPath(_ path: String) throws -> String {
+        var pending = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        var resolved: [String] = []
+        var followedSymlinks = 0
+        while !pending.isEmpty {
+            let component = pending.removeFirst()
+            if component == "." { continue }
+            if component == ".." {
+                if !resolved.isEmpty { resolved.removeLast() }
+                continue
+            }
+            let candidate = "/" + (resolved + [component]).joined(separator: "/")
+            if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: candidate) {
+                followedSymlinks += 1
+                guard followedSymlinks <= 40 else { throw PhotoError.message("资源超出照片库") }
+                if destination.hasPrefix("/") { resolved.removeAll() }
+                pending = destination.split(separator: "/", omittingEmptySubsequences: true).map(String.init) + pending
+            } else {
+                resolved.append(component)
+            }
+        }
+        return resolved.isEmpty ? "/" : "/" + resolved.joined(separator: "/")
     }
     func image(_ asset: LocalAsset, maxSize: Int = 1600, original: Bool = false, allowNetwork: Bool = false) async throws -> UIImage {
         if !original, let path = asset.previewPath, let source = CGImageSourceCreateWithURL(try url(path) as CFURL, nil), let cg = Self.thumbnail(source, maxSize: maxSize) { return UIImage(cgImage: cg) }

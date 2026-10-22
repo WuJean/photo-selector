@@ -1,0 +1,2 @@
+// Optional machine-local Personal Team; never commit account-specific settings.
+#include? "LocalSigning.xcconfig"
