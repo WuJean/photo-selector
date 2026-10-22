@@ -2,18 +2,23 @@
 """Generate a dependency-free, deterministic Xcode project. No signing secrets."""
 from pathlib import Path
 import hashlib
+import re
 root = Path(__file__).resolve().parents[1]
 ios = root / 'ios'
 objects = {}
 def uid(key): return hashlib.sha256(key.encode()).hexdigest()[:24].upper()
 def q(value): return '"' + str(value).replace('\\','\\\\').replace('"','\\"') + '"'
+def qkey(value):
+    """pbxproj keys are unquoted only when they are plain identifiers."""
+    text = str(value)
+    return text if re.fullmatch(r'[A-Za-z0-9_]+', text) else q(text)
 def obj(key, kind, **values):
     ident = uid(key); objects[ident] = {'isa': kind, **values}; return ident
 class Ref(str): pass
 def ref(key): return Ref(uid(key))
 def serialize(value):
     if isinstance(value, Ref): return str(value)
-    if isinstance(value, dict): return '{ ' + ' '.join(f'{k} = {serialize(v)};' for k,v in value.items()) + ' }'
+    if isinstance(value, dict): return '{ ' + ' '.join(f'{qkey(k)} = {serialize(v)};' for k,v in value.items()) + ' }'
     if isinstance(value, list): return '(' + ', '.join(serialize(x) for x in value) + ')'
     return q(value)
 files=[]; builds=[]
@@ -36,7 +41,7 @@ obj('package', 'XCLocalSwiftPackageReference', relativePath='..')
 obj('core', 'XCSwiftPackageProductDependency', package=ref('package'), productName='PhotoCore')
 obj('core-link', 'PBXBuildFile', productRef=ref('core'))
 obj('frameworks', 'PBXFrameworksBuildPhase', buildActionMask='2147483647', files=[ref('core-link')], runOnlyForDeploymentPostprocessing='0')
-base={'SWIFT_VERSION':'5.0','IPHONEOS_DEPLOYMENT_TARGET':'18.0','SDKROOT':'iphoneos','CLANG_ENABLE_MODULES':'YES'}
+base={'SWIFT_VERSION':'5.0','IPHONEOS_DEPLOYMENT_TARGET':'18.0','SDKROOT':'iphoneos','CLANG_ENABLE_MODULES':'YES','ONLY_ACTIVE_ARCH':'YES'}
 appsettings={'ENABLE_DEBUG_DYLIB':'NO','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','PRODUCT_NAME':'PhotoSelector','PRODUCT_BUNDLE_IDENTIFIER':'com.wujean.photoselector','INFOPLIST_FILE':'PhotoSelector/Info.plist','TARGETED_DEVICE_FAMILY':'1','SUPPORTED_PLATFORMS':'iphoneos iphonesimulator','CODE_SIGN_STYLE':'Automatic','MARKETING_VERSION':'0.1.0','CURRENT_PROJECT_VERSION':'1','SWIFT_EMIT_LOC_STRINGS':'YES','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks']}
 for label, settings in [('project', base),('app',appsettings)]:
     for mode in ['Debug','Release']:
