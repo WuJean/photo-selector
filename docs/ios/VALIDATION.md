@@ -28,7 +28,8 @@
 - 4 项真机界面测试全部通过：左右滑动、双指缩放与平移、连续六张不漏选、撤销、精筛二选、标签筛选清除多选、随机拼图保存、作品集查看及横屏。
 - 测试使用隔离的合成照片库，不读取个人相册，不调用付费 AI；测试结束后重新启动到正式照片库的空首页，已通过手机屏幕确认。
 - 原生结果：`.local/ios-physical-verified.xcresult` 中原生测试通过，但当时 UI 被系统密码确认阻塞。确认后独立重跑全部 UI，结果为 `.local/ios-physical-ui-final.xcresult`，`TEST EXECUTE SUCCEEDED`。
-- 修复已通过 GitHub iOS checks；Mac 应用及浏览器回归通过。Docker 作业当时仍在安装浏览器依赖，单独跟进结果。
+- 路径修复已通过 GitHub iOS checks；Mac 应用、浏览器及 Docker 回归也已通过。
+- 移除沉浸式上一张／下一张按钮后，再次在真机通过选片专项测试：粗筛和精筛均无导航按钮，左右滑动、缩放平移、连续决定和撤销正常。结果：`.local/ios-swipe-only.xcresult`。
 
 ## 本轮交互修复与截图
 

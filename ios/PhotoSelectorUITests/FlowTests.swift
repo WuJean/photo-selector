@@ -22,6 +22,8 @@ final class FlowTests: XCTestCase {
         let photo = app.descendants(matching: .any).matching(identifier: "photo-card-fixture-0").firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 10)); photo.tap()
         XCTAssertTrue(app.buttons["保留"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["上一张"].exists)
+        XCTAssertFalse(app.buttons["下一张"].exists)
         let canvas = app.otherElements["immersive-canvas"]
         XCTAssertTrue(canvas.exists)
         canvas.pinch(withScale: 2, velocity: 1)
@@ -47,6 +49,8 @@ final class FlowTests: XCTestCase {
         app.buttons["关闭"].tap()
         app.buttons["精筛"].tap(); app.descendants(matching: .any).matching(identifier: "photo-card-fixture-0").firstMatch.tap()
         XCTAssertFalse(app.buttons["待定"].exists); XCTAssertTrue(app.buttons["保留"].exists)
+        XCTAssertFalse(app.buttons["上一张"].exists)
+        XCTAssertFalse(app.buttons["下一张"].exists)
         screenshot("精筛二选")
     }
     func testTagFilterClearsBulkSelection() {

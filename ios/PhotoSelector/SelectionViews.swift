@@ -245,7 +245,6 @@ struct ImmersiveView: View {
                 } secondary: {
                 VStack(spacing: 4) {
                 if let analysis = current?.analysis { Text(analysis.labels.joined(separator: " · ")).font(.caption).padding(.horizontal) }
-                HStack { Button("上一张", systemImage: "chevron.left") { move(-1) }; Spacer(); Button("下一张", systemImage: "chevron.right") { move(1) } }.padding()
                 if let batchID, let current {
                     DecisionButtons(round: round) { decision in
                         let next = index + 1 < ids.count ? ids[index + 1] : nil
