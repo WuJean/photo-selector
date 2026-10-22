@@ -172,9 +172,11 @@ struct AssetImage: View {
 }
 struct TimelineView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showCreateBatch = false
     @State private var batchName = ""
     @State private var destinationBatchID: String?
+    @State private var guidePage = 0
 
     private var portfolios: [Portfolio] {
         model.state.portfolios.sorted { $0.date < $1.date }
@@ -185,30 +187,29 @@ struct TimelineView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                if !portfolios.isEmpty {
-                    GlassSectionHeader(title: "一路收藏的故事", subtitle: "从照片里，重新遇见那些时刻。", symbol: "sparkles")
-                        .padding(.bottom, 2)
+        GeometryReader { geometry in
+            let expanded = geometry.size.width >= 700 && geometry.size.height >= 400
 
-                    ForEach(portfolios) { portfolio in
-                        NavigationLink { GalleryView(collectionID: portfolio.id) } label: {
-                            PortfolioTimelineCard(portfolio: portfolio)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(portfolio.name)，\(portfolio.assetIDs.count) 张照片，打开照片墙")
+            Group {
+                if !portfolios.isEmpty {
+                    if expanded {
+                        expandedTimeline(in: geometry.size)
+                    } else {
+                        compactTimeline
                     }
                 } else if let batch = mostRecentBatch {
-                    returningHome(for: batch)
+                    if expanded {
+                        returningExpandedHome(for: batch, availableHeight: geometry.size.height)
+                    } else {
+                        returningCompactHome(for: batch, availableHeight: geometry.size.height)
+                    }
+                } else if expanded {
+                    firstRunExpandedOnboarding(availableHeight: geometry.size.height)
                 } else {
-                    firstRunOnboarding
+                    firstRunCompactOnboarding(availableHeight: geometry.size.height)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 28)
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .photoBackdrop()
         .navigationTitle("时间线")
@@ -228,122 +229,543 @@ struct TimelineView: View {
         }
     }
 
-    private var firstRunOnboarding: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 10) {
+    private var compactTimeline: some View {
+        ScrollView {
+            portfolioTimelineEntries
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 28)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
+        }
+        .accessibilityIdentifier("timeline-compact")
+    }
+
+    private var portfolioTimelineEntries: some View {
+        LazyVStack(alignment: .leading, spacing: 20) {
+            GlassSectionHeader(title: "一路收藏的故事", subtitle: "从照片里，重新遇见那些时刻。", symbol: "sparkles")
+                .padding(.bottom, 2)
+
+            ForEach(portfolios) { portfolio in
+                NavigationLink { GalleryView(collectionID: portfolio.id) } label: {
+                    PortfolioTimelineCard(portfolio: portfolio)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(portfolio.name)，\(portfolio.assetIDs.count) 张照片，打开照片墙")
+            }
+        }
+    }
+
+    private func expandedTimeline(in size: CGSize) -> some View {
+        HStack(alignment: .top, spacing: 18) {
+            ScrollView {
+                portfolioTimelineEntries
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
+                    .padding(.bottom, 24)
+            }
+            .frame(width: min(max(size.width * 0.45, 292), 448), alignment: .top)
+
+            if let latest = portfolios.last {
+                FeaturedPortfolioPreview(portfolio: latest)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+        .frame(maxWidth: 1480, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("timeline-expanded")
+    }
+
+    private func firstRunCompactOnboarding(availableHeight: CGFloat) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                accessibleOnboardingGuide
+            } else {
+                ViewThatFits(in: .vertical) {
+                    firstRunCompactCard(
+                        illustrationHeight: min(max(availableHeight * 0.16, 82), 132),
+                        showsSubtitle: true,
+                        showsDetails: true,
+                        shortTitle: false
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    firstRunCompactCard(
+                        illustrationHeight: min(max(availableHeight * 0.13, 56), 86),
+                        showsSubtitle: false,
+                        showsDetails: false,
+                        shortTitle: false
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    firstRunLandscapeCard
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    firstRunCompactCard(
+                        illustrationHeight: 0,
+                        showsSubtitle: false,
+                        showsDetails: false,
+                        shortTitle: true
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: 560, maxHeight: .infinity, alignment: .center)
+        .padding(.horizontal, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("timeline-onboarding")
+    }
+
+    private var firstRunLandscapeCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("从照片开始，留下一段故事")
+                .font(.title3.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 8) {
+                onboardingTile(number: "01", symbol: "photo.on.rectangle.angled", title: "选择照片来源")
+                onboardingTile(number: "02", symbol: "heart.text.square", title: "完成粗选与精挑")
+                onboardingTile(number: "03", symbol: "rectangle.stack", title: "整理成作品集")
+            }
+            startOrganizingButton
+        }
+        .padding(14)
+        .photoGlass(cornerRadius: 26)
+    }
+
+    private func onboardingTile(number: String, symbol: String, title: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(number)
+                    .font(.caption2.weight(.bold).monospacedDigit())
+                    .foregroundStyle(PhotoPalette.accent)
+                    .accessibilityHidden(true)
+                Image(systemName: symbol)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(PhotoPalette.accent)
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .padding(10)
+        .photoGlass(cornerRadius: 18)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("timeline-guide-step-\(Int(number) ?? 0)")
+    }
+
+    private var accessibleOnboardingGuide: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 8) {
+                if geometry.size.height > 350 {
+                    Text("照片整理指南")
+                        .font(.title3.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Text(["选择照片来源", "完成粗选与精挑", "整理成作品集"][guidePage])
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("timeline-guide-step-\(guidePage + 1)")
+                HStack {
+                    Button { guidePage = max(0, guidePage - 1) } label: {
+                        Image(systemName: "chevron.left").frame(minWidth: 44, minHeight: 44)
+                    }.accessibilityLabel("上一步指引").disabled(guidePage == 0)
+                    Spacer(minLength: 8)
+                    Text("\(guidePage + 1) / 3").font(.caption).accessibilityLabel("第 \(guidePage + 1) 步，共 3 步")
+                    Spacer(minLength: 8)
+                    Button { guidePage = min(2, guidePage + 1) } label: {
+                        Image(systemName: "chevron.right").frame(minWidth: 44, minHeight: 44)
+                    }.accessibilityLabel("下一步指引").disabled(guidePage == 2)
+                }
+                startOrganizingButton
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .photoGlass(cornerRadius: 26)
+        }.frame(maxWidth: 560, maxHeight: .infinity)
+    }
+
+    private func firstRunCompactCard(
+        illustrationHeight: CGFloat,
+        showsSubtitle: Bool,
+        showsDetails: Bool,
+        shortTitle: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: showsDetails ? 12 : 8) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(shortTitle ? "从照片开始，留下一段故事" : "把喜欢的照片，留成一段故事")
+                    .font(.system(size: shortTitle ? 25 : 29, weight: .semibold, design: .rounded))
+                    .tracking(-0.5)
+                    .fixedSize(horizontal: false, vertical: true)
+                if showsSubtitle {
+                    Text("从一组照片开始，慢慢选出值得珍藏的瞬间。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if illustrationHeight > 0 {
+                PhotoStoryIllustration(height: illustrationHeight)
+                    .padding(.horizontal, 4)
+            }
+
+            onboardingSteps(showsDetails: showsDetails)
+
+            startOrganizingButton
+        }
+        .padding(showsDetails ? 18 : 14)
+        .photoGlass(cornerRadius: 28)
+    }
+
+    private func firstRunExpandedOnboarding(availableHeight: CGFloat) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                accessibleOnboardingGuide
+            } else {
+                ViewThatFits(in: .vertical) {
+                    firstRunExpandedCard(illustrationHeight: min(max(availableHeight * 0.34, 112), 180), showsDetails: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                    firstRunExpandedCard(illustrationHeight: min(max(availableHeight * 0.22, 76), 112), showsDetails: false)
+                        .fixedSize(horizontal: false, vertical: true)
+                    firstRunLandscapeCard
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: 1100, maxHeight: .infinity, alignment: .center)
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("timeline-onboarding")
+    }
+
+    private func firstRunExpandedCard(illustrationHeight: CGFloat, showsDetails: Bool) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("把喜欢的照片，\n留成一段故事")
-                    .font(.system(size: 31, weight: .semibold, design: .rounded))
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
                     .tracking(-0.6)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("从一组照片开始，慢慢选出值得珍藏的瞬间。")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                PhotoStoryIllustration(height: illustrationHeight)
+                    .padding(.horizontal, 4)
             }
-            .padding(.top, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+            .photoGlass(cornerRadius: 28)
 
-            PhotoStoryIllustration()
-                .padding(.horizontal, 4)
-
-            Button { showCreateBatch = true } label: {
-                HStack(spacing: 10) {
-                    Text("开始整理照片")
-                    Image(systemName: "arrow.right")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 56)
+            VStack(alignment: .leading, spacing: 10) {
+                onboardingSteps(showsDetails: showsDetails)
+                startOrganizingButton
             }
-            .buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent)
-            .controlSize(.large)
-            .accessibilityHint("先创建一个批次，再选择相册或存储卡中的照片")
-
-
-            VStack(spacing: 0) {
-                onboardingStep(number: "01", symbol: "photo.on.rectangle.angled", title: "选择照片来源", detail: "从系统相册或存储卡导入")
-                onboardingDivider
-                onboardingStep(number: "02", symbol: "heart.text.square", title: "完成粗选与精挑", detail: "一步步留下最喜欢的照片")
-                onboardingDivider
-                onboardingStep(number: "03", symbol: "rectangle.stack", title: "整理成作品集", detail: "添加地点、诗句，再看照片墙")
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 6)
-            .photoGlass(cornerRadius: 26)
-
-
-            Text("由你选择照片来源和导入范围。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+            .padding(18)
+            .photoGlass(cornerRadius: 28)
         }
-        .padding(22)
-        .photoGlass(cornerRadius: 32)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func onboardingSteps(showsDetails: Bool) -> some View {
+        VStack(spacing: 0) {
+            onboardingStep(number: "01", symbol: "photo.on.rectangle.angled", title: "选择照片来源", detail: "从系统相册或存储卡导入", showsDetail: showsDetails)
+            onboardingDivider
+            onboardingStep(number: "02", symbol: "heart.text.square", title: "完成粗选与精挑", detail: "一步步留下最喜欢的照片", showsDetail: showsDetails)
+            onboardingDivider
+            onboardingStep(number: "03", symbol: "rectangle.stack", title: "整理成作品集", detail: "添加地点、诗句，再看照片墙", showsDetail: showsDetails)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+        .photoGlass(cornerRadius: 24)
     }
 
     private var onboardingDivider: some View {
         Rectangle()
             .fill(PhotoPalette.glassStroke)
             .frame(height: 1)
-            .padding(.leading, 48)
+            .padding(.leading, 42)
     }
 
-    private func onboardingStep(number: String, symbol: String, title: String, detail: String) -> some View {
+    private func onboardingStep(number: String, symbol: String, title: String, detail: String, showsDetail: Bool) -> some View {
         HStack(spacing: 13) {
             Text(number)
                 .font(.caption2.weight(.bold).monospacedDigit())
                 .foregroundStyle(PhotoPalette.accent)
-                .frame(width: 29, height: 29)
+                .frame(width: 27, height: 27)
                 .background(PhotoPalette.accent.opacity(0.11), in: Circle())
                 .accessibilityHidden(true)
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(PhotoPalette.accent)
-                .frame(width: 22)
+                .frame(width: 20)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                if showsDetail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 13)
+        .padding(.vertical, showsDetail ? 10 : 6)
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("timeline-guide-step-\(Int(number) ?? 0)")
     }
 
-    private func returningHome(for batch: ImportBatch) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
-            GlassSectionHeader(
-                title: "继续你的故事",
-                subtitle: "已经有一段整理中的照片批次。",
-                symbol: "bookmark"
-            )
+    private var startOrganizingButton: some View {
+        Button { showCreateBatch = true } label: {
+            HStack(spacing: 10) {
+                Text("开始整理照片")
+                Image(systemName: "arrow.right")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 50)
+        }
+        .buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent)
+        .controlSize(.large)
+        .accessibilityHint("先创建一个批次，再选择相册或存储卡中的照片")
+    }
 
-            VStack(alignment: .leading, spacing: 18) {
-                PhotoStoryIllustration()
-                    .frame(height: 164)
+    private func returningCompactHome(for batch: ImportBatch, availableHeight: CGFloat) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                returningMinimalCard(for: batch)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    returningCompactCard(for: batch, illustrationHeight: min(max(availableHeight * 0.14, 64), 104), compact: false)
+                        .fixedSize(horizontal: false, vertical: true)
+                    returningCompactCard(for: batch, illustrationHeight: 0, compact: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                    returningMinimalCard(for: batch)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: 560, maxHeight: .infinity, alignment: .center)
+        .padding(.horizontal, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("timeline-onboarding")
+    }
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(batch.name)
-                        .font(.title3.weight(.semibold))
-                    Text("\(batch.photos.count) 张照片 · 创建于 \(batch.createdAt.formatted(date: .abbreviated, time: .omitted))")
+    private func returningCompactCard(for batch: ImportBatch, illustrationHeight: CGFloat, compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 10 : 14) {
+            if compact {
+                Text("继续你的故事")
+                    .font(.title3.weight(.semibold))
+            } else {
+                GlassSectionHeader(title: "继续你的故事", subtitle: "已经有一段整理中的照片批次。", symbol: "bookmark")
+            }
+
+            if illustrationHeight > 0 {
+                PhotoStoryIllustration(height: illustrationHeight)
+            }
+
+            batchSummary(batch, compact: compact)
+            continueBatchButton(batch)
+            newBatchButton
+        }
+        .padding(compact ? 16 : 20)
+        .photoGlass(cornerRadius: 28)
+    }
+
+    private func returningExpandedHome(for batch: ImportBatch, availableHeight: CGFloat) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                returningMinimalCard(for: batch)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    returningExpandedCard(for: batch, illustrationHeight: min(max(availableHeight * 0.34, 108), 180), compact: false)
+                        .fixedSize(horizontal: false, vertical: true)
+                    returningExpandedCard(for: batch, illustrationHeight: min(max(availableHeight * 0.20, 68), 104), compact: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                    returningMinimalCard(for: batch)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: 1050, maxHeight: .infinity, alignment: .center)
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("timeline-onboarding")
+    }
+
+    private func returningExpandedCard(for batch: ImportBatch, illustrationHeight: CGFloat, compact: Bool) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("继续你的故事")
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+                if !compact {
+                    Text("已经有一段整理中的照片批次。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                PhotoStoryIllustration(height: illustrationHeight)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+            .photoGlass(cornerRadius: 28)
 
-                Button { destinationBatchID = batch.id } label: {
-                    Label("继续选片", systemImage: "arrow.right")
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                }
-                .buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent)
-
-                Button("新建导入批次") { showCreateBatch = true }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 12) {
+                batchSummary(batch, compact: compact)
+                continueBatchButton(batch)
+                newBatchButton
             }
             .padding(20)
-            .photoGlass(cornerRadius: 30)
+            .photoGlass(cornerRadius: 28)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func returningMinimalCard(for batch: ImportBatch) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            batchSummary(batch, compact: true)
+            continueBatchButton(batch)
+            newBatchButton
+        }
+        .padding(14)
+        .photoGlass(cornerRadius: 26)
+    }
+
+    private func batchSummary(_ batch: ImportBatch, compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(batch.name)
+                .font(compact ? .headline : .title3.weight(.semibold))
+                .lineLimit(2)
+            Text("\(batch.photos.count) 张照片 · 创建于 \(batch.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func continueBatchButton(_ batch: ImportBatch) -> some View {
+        Button { destinationBatchID = batch.id } label: {
+            Label("继续选片", systemImage: "arrow.right")
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 50)
+        }
+        .buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent)
+    }
+
+    private var newBatchButton: some View {
+        Button("新建导入批次") { showCreateBatch = true }
+            .font(.subheadline.weight(.medium))
+            .frame(maxWidth: .infinity)
+    }
+}
+
+private struct FeaturedPortfolioPreview: View {
+    @EnvironmentObject private var model: AppModel
+    let portfolio: Portfolio
+
+    private var previewPhotos: [LocalAsset] {
+        Array(portfolio.assetIDs.prefix(4)).compactMap { id in model.state.assets.first { $0.id == id } }
+    }
+
+    private let photoColumns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("最近收藏")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(PhotoPalette.accent)
+                    Spacer()
+                    Text(portfolio.date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(portfolio.name)
+                    .font(.title2.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
+
+                if !portfolio.location.isEmpty {
+                    Label(portfolio.location, systemImage: "mappin.and.ellipse")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                if !portfolio.poem.isEmpty {
+                    Text(portfolio.poem)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(PhotoPalette.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                }
+
+                if !portfolio.description.isEmpty {
+                    Text(portfolio.description)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                }
+
+                if !previewPhotos.isEmpty {
+                    LazyVGrid(columns: photoColumns, spacing: 8) {
+                        ForEach(previewPhotos) { asset in
+                            Color.clear
+                                .aspectRatio(1, contentMode: .fit)
+                                .overlay {
+                                    GeometryReader { geometry in
+                                        AssetImage(asset: asset, size: 480, fill: true)
+                                            .frame(width: geometry.size.width, height: geometry.size.height)
+                                            .clipped()
+                                    }
+                                }
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                    .accessibilityLabel("\(previewPhotos.count) 张精选照片预览")
+                } else {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(LinearGradient(colors: [PhotoPalette.softTeal, PhotoPalette.peach], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(height: 116)
+                        .overlay {
+                            Image(systemName: "photo.stack")
+                                .font(.system(size: 34, weight: .light))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .accessibilityHidden(true)
+                        }
+                }
+            }
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            NavigationLink { GalleryView(collectionID: portfolio.id) } label: {
+                Label("查看全部照片", systemImage: "photo.on.rectangle.angled")
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 50)
+            }
+            .buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .photoGlass(cornerRadius: 28)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("timeline-featured")
     }
 }
 

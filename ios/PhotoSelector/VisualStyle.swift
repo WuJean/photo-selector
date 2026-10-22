@@ -215,6 +215,8 @@ struct GuidedEmptyState: View {
 }
 
 struct PhotoStoryIllustration: View {
+    var height: CGFloat = 208
+
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
@@ -245,7 +247,7 @@ struct PhotoStoryIllustration: View {
             }
             .frame(width: width, height: height)
         }
-        .frame(height: 208)
+        .frame(height: height)
         .accessibilityHidden(true)
     }
 

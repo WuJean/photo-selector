@@ -19,11 +19,13 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 10))
         screenshot("首次打开引导")
         XCTAssertTrue(start.isHittable, "首次打开无需寻找隐藏的开始入口")
+        assertGuideFitsWithoutScrolling()
         start.tap()
         let name = app.alerts.textFields["旅行名称"]
         XCTAssertTrue(name.waitForExistence(timeout: 5))
-        name.tap(); name.typeText("周末散步")
-        app.alerts.buttons["创建"].tap()
+        name.tap(); name.typeText("周末散步\n")
+        // Depending on the keyboard, Return either commits marked text or submits the alert.
+        if app.alerts.buttons["创建"].exists { app.alerts.buttons["创建"].tap() }
         XCTAssertTrue(app.navigationBars["周末散步"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["从相册读取"].isHittable)
         XCTAssertTrue(app.buttons["存储卡／文件夹"].isHittable)
@@ -33,6 +35,90 @@ final class FlowTests: XCTestCase {
         if sideBack.exists { sideBack.tap() } else { app.navigationBars.buttons.firstMatch.tap() }
         XCTAssertTrue(app.buttons["继续选片"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["开始整理照片"].exists)
+        let resume = app.buttons["继续选片"]
+        XCTAssertTrue(resume.isHittable)
+        let resumeY = resume.frame.midY
+        app.swipeUp()
+        XCTAssertEqual(resume.frame.midY, resumeY, accuracy: 2, "已有批次的空时间线也不应滚动")
+    }
+    private func assertGuideFitsWithoutScrolling(file: StaticString = #filePath, line: UInt = #line) {
+        let start = app.buttons["开始整理照片"]
+        for number in 1...3 {
+            let step = app.descendants(matching: .any).matching(identifier: "timeline-guide-step-\(number)").firstMatch
+            XCTAssertTrue(step.exists, file: file, line: line)
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+                step.isHittable && app.windows.firstMatch.frame.contains(step.frame)
+            }, object: step)
+            XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed, "三步引导都在首屏", file: file, line: line)
+        }
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(start.frame), file: file, line: line)
+        let originalY = start.frame.midY
+        app.swipeUp()
+        XCTAssertEqual(start.frame.midY, originalY, accuracy: 2, "空状态无垂直滚动", file: file, line: line)
+    }
+    func testEmptyGuideFitsAfterRotation() {
+        app.terminate()
+        app.launchEnvironment["PHOTO_SELECTOR_UI_TEST"] = UUID().uuidString
+        app.launchEnvironment["PHOTO_SELECTOR_UI_EMPTY"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["开始整理照片"].waitForExistence(timeout: 10))
+        assertGuideFitsWithoutScrolling()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.buttons["开始整理照片"].waitForExistence(timeout: 5))
+        assertGuideFitsWithoutScrolling()
+        screenshot("横向一屏引导")
+        app.buttons["开始整理照片"].tap()
+        XCTAssertTrue(app.alerts.textFields["旅行名称"].waitForExistence(timeout: 5))
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 5))
+        XCUIDevice.shared.orientation = .portrait
+        assertGuideFitsWithoutScrolling()
+    }
+    func testExpandedTimelineOffersPhotoPreview() throws {
+        let expanded = app.descendants(matching: .any).matching(identifier: "timeline-expanded").firstMatch
+        guard expanded.waitForExistence(timeout: 5) else {
+            throw XCTSkip("本次运行是紧凑视口；在 Duo 展开模式单独验收双栏。")
+        }
+        let featured = app.descendants(matching: .any).matching(identifier: "timeline-featured").firstMatch
+        XCTAssertTrue(featured.exists)
+        let gallery = app.buttons["查看全部照片"]
+        XCTAssertTrue(gallery.isHittable)
+        screenshot("Duo展开时间线与照片预览")
+        gallery.tap()
+        XCTAssertTrue(app.navigationBars["模拟旅行"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["智能拼图"].exists, "时间线仍然直达只读照片墙")
+    }
+    func testLargeTextGuideUsesButtonsWithoutScrolling() {
+        app.terminate()
+        app.launchEnvironment["PHOTO_SELECTOR_UI_TEST"] = UUID().uuidString
+        app.launchEnvironment["PHOTO_SELECTOR_UI_EMPTY"] = "1"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        XCTAssertTrue(app.buttons["开始整理照片"].waitForExistence(timeout: 10))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let start = app.buttons["开始整理照片"]
+        XCTAssertTrue(start.isHittable)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(start.frame))
+        for number in 1...3 {
+            let step = app.descendants(matching: .any).matching(identifier: "timeline-guide-step-\(number)").firstMatch
+            XCTAssertTrue(step.isHittable)
+            XCTAssertTrue(app.windows.firstMatch.frame.contains(step.frame))
+            if number < 3 { app.buttons["下一步指引"].tap() }
+        }
+        let startY = start.frame.midY
+        app.swipeUp()
+        XCTAssertEqual(start.frame.midY, startY, accuracy: 2)
+        screenshot("大字号横向一屏引导")
+        start.tap()
+        XCTAssertTrue(app.alerts.buttons["创建"].waitForExistence(timeout: 5))
+        app.alerts.buttons["创建"].tap()
+        XCTAssertTrue(app.buttons["从相册读取"].waitForExistence(timeout: 5))
+        let sideBack = app.buttons["BackButton"]
+        if sideBack.exists { sideBack.tap() } else { app.navigationBars.buttons.firstMatch.tap() }
+        let resume = app.buttons["继续选片"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(resume.frame))
+        XCTAssertTrue(resume.isHittable)
     }
     func testTimelineGalleryAndRotation() {
         let trip = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch
