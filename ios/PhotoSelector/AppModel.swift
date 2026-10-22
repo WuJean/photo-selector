@@ -3,6 +3,10 @@ import Photos
 import PhotoCore
 
 @MainActor final class AppModel: ObservableObject {
+    typealias MediaPreparer = @MainActor (LocalAsset, Bool) async throws -> LocalAsset
+    typealias ImageLoader = @MainActor (LocalAsset, Int, Bool) async throws -> UIImage
+    typealias ImageAnalyzer = @MainActor (UIImage, [LibraryTag], AIConfiguration, String) async throws -> PhotoAnalysis
+
     @Published private(set) var state: LocalLibraryState
     @Published var error: String?
     @Published var progress = ""
@@ -13,17 +17,27 @@ import PhotoCore
     @Published var groups: [[String]] = []
     let library: LocalLibrary
     let media: MediaStore
-    let intelligence = Intelligence()
+    let intelligence: Intelligence
+    private let prepareAsset: MediaPreparer
+    private let loadImage: ImageLoader
+    private let analyzeImage: ImageAnalyzer
     private var analysisRunner: Task<Void, Never>?
+    private var analysisRunnerID: UUID?
     private var copying = false
     private var copyQueue: [String] = []
     private var offlinePhotoCopies = Set<String>()
     private var mediaRunner: Task<Void, Never>?
     let root: URL
-    init(root: URL) throws {
-        self.root = root; library = try LocalLibrary(url: root.appendingPathComponent("library.sqlite")); state = library.state
-        media = try MediaStore(root: root)
+    init(root: URL, prepareAsset: MediaPreparer? = nil, loadImage: ImageLoader? = nil, analyzeImage: ImageAnalyzer? = nil) throws {
+        self.root = root
+        let library = try LocalLibrary(url: root.appendingPathComponent("library.sqlite"))
+        let media = try MediaStore(root: root)
+        let intelligence = Intelligence()
+        self.library = library; state = library.state; self.media = media; self.intelligence = intelligence
         aiConfig = UserDefaults.standard.data(forKey: "ai.config").flatMap { try? JSONDecoder().decode(AIConfiguration.self, from: $0) } ?? AIConfiguration()
+        self.prepareAsset = prepareAsset ?? { asset, allowNetwork in try await media.prepare(asset, allowNetwork: allowNetwork) }
+        self.loadImage = loadImage ?? { asset, maxSize, allowNetwork in try await media.image(asset, maxSize: maxSize, allowNetwork: allowNetwork) }
+        self.analyzeImage = analyzeImage ?? { image, tags, config, key in try await intelligence.analyze(image, tags: tags, config: config, key: key) }
     }
     func change(_ action: (inout LocalLibraryState) throws -> Void) throws {
         try library.transaction(action); state = library.state
@@ -82,10 +96,10 @@ import PhotoCore
                 try change { s in if let i = s.assets.firstIndex(where: { $0.id == old.id }) { s.assets[i].bookmark = candidate.bookmark } }; matched += 1
             }
             if matched == 0 { throw PhotoError.message("没有找到摘要匹配的文件，请选择原来的来源目录；尚无摘要的失败文件需重新导入") }
-            startMediaPreparation(); await copySelected(Array(ids)); error = "已重新连接 \(matched) 张照片"
+            startMediaPreparation(); await copySelected(Array(ids.filter { state.isFinalist($0) })); error = "已重新连接 \(matched) 张照片"
         } catch { self.error = error.localizedDescription }
     }
-    private func register(_ assets: [LocalAsset], batchID: String) throws {
+    func register(_ assets: [LocalAsset], batchID: String) throws {
         try change { s in
             guard let b = s.batches.firstIndex(where: { $0.id == batchID }) else { return }
             for asset in assets {
@@ -100,18 +114,30 @@ import PhotoCore
         guard mediaRunner == nil else { return }
         mediaRunner = Task { [weak self] in
             guard let self else { return }; defer { self.mediaRunner = nil; self.progress = "" }
-            let expired = Set(self.state.cleanupCandidates(now: Date()))
-            let pending = self.state.assets.filter { $0.previewPath == nil && !expired.contains($0.id) }
-            for (index, asset) in pending.enumerated() {
-                if Task.isCancelled { break }
-                self.progress = "生成预览 \(index + 1)/\(pending.count)"
+            var attempted = Set<String>()
+            while !Task.isCancelled {
+                let expired = Set(self.state.cleanupCandidates(now: Date()))
+                guard let asset = self.state.assets.first(where: { $0.previewPath == nil && !expired.contains($0.id) && !attempted.contains($0.id) }) else {
+                    self.groups = await self.media.groups(self.state.assets)
+                    if Task.isCancelled { break }
+                    // Imports can arrive while grouping is suspended. Re-scan before
+                    // exiting so the importing caller cannot miss this runner.
+                    let expiredAfterGrouping = Set(self.state.cleanupCandidates(now: Date()))
+                    if self.state.assets.contains(where: { $0.previewPath == nil && !expiredAfterGrouping.contains($0.id) && !attempted.contains($0.id) }) { continue }
+                    break
+                }
+                attempted.insert(asset.id)
+                self.progress = "生成预览 \(attempted.count)"
                 do {
-                    let prepared = try await self.media.prepare(asset, allowNetwork: self.allowCloudDownload)
+                    try Task.checkCancellation()
+                    let prepared = try await self.prepareAsset(asset, self.allowCloudDownload)
+                    try Task.checkCancellation()
                     try self.change { s in if let i = s.assets.firstIndex(where: { $0.id == asset.id }) { s.assets[i].previewPath = prepared.previewPath; s.assets[i].feature = prepared.feature; s.assets[i].perceptualHash = prepared.perceptualHash; s.assets[i].digest = prepared.digest; s.assets[i].focalLength = prepared.focalLength; s.assets[i].equivalentFocalLength = prepared.equivalentFocalLength; s.assets[i].camera = prepared.camera } }
+                } catch is CancellationError {
+                    break
                 } catch { self.error = "\(asset.name)：\(error.localizedDescription)" }
             }
-            self.groups = await self.media.groups(self.state.assets)
-            self.runAnalysis()
+            if !Task.isCancelled { self.runAnalysis() }
         }
     }
     func decide(batchID: String, ids: [String], round: SelectionRound, decision: Decision, next: String?) -> Bool {
@@ -141,18 +167,36 @@ import PhotoCore
     }
     func runAnalysis() {
         guard analysisRunner == nil else { return }
+        let runnerID = UUID()
+        analysisRunnerID = runnerID
         analysisRunner = Task { [weak self] in
-            guard let self else { return }; defer { self.analysisRunner = nil }
+            guard let self else { return }
+            defer {
+                if self.analysisRunnerID == runnerID {
+                    self.analysisRunner = nil
+                    self.analysisRunnerID = nil
+                }
+            }
             while !Task.isCancelled {
                 guard !ProcessInfo.processInfo.isLowPowerModeEnabled, ProcessInfo.processInfo.thermalState != .serious, ProcessInfo.processInfo.thermalState != .critical else { break }
                 guard let task = self.state.tasks.first(where: { $0.status == .waiting }), let asset = self.state.assets.first(where: { $0.id == task.assetID }) else { break }
                 let config = self.aiConfig; let key = Keychain.load()
                 do {
                     try self.change { s in if let i = s.tasks.firstIndex(where: { $0.id == task.id }) { s.tasks[i].status = .running; s.tasks[i].model = config.remoteEnabled ? config.model : "Apple on-device" } }
-                    let image = try await self.media.image(asset, maxSize: 1080, allowNetwork: self.allowCloudDownload)
-                    let result = try await self.intelligence.analyze(image, tags: task.tags, config: config, key: key)
+                    try Task.checkCancellation()
+                    guard self.isCurrentAnalysisTask(task, runnerID: runnerID) else { continue }
+                    let image = try await self.loadImage(asset, 1080, self.allowCloudDownload)
+                    try Task.checkCancellation()
+                    // Photo loading may suspend while the user pauses/cancels the queue
+                    // or changes this task's generation. Never dispatch stale work to AI.
+                    guard self.isCurrentAnalysisTask(task, runnerID: runnerID) else { continue }
+                    let result = try await self.analyzeImage(image, task.tags, config, key)
+                    try Task.checkCancellation()
+                    guard self.isCurrentAnalysisTask(task, runnerID: runnerID) else { continue }
                     try self.change { try $0.finishAnalysis(result, assetID: asset.id, generation: task.generation) }
                 } catch {
+                    guard !Task.isCancelled, self.analysisRunnerID == runnerID else { break }
+                    guard self.isCurrentAnalysisTask(task, runnerID: runnerID) else { continue }
                     self.perform { try self.change { s in if let i = s.tasks.firstIndex(where: { $0.id == task.id }), s.tasks[i].generation == task.generation, s.tasks[i].status == .running { s.tasks[i].status = .paused; s.tasks[i].message = error.localizedDescription } } }
                     // Missing service/authorization pauses dispatch, rather than exhausting the library.
                     break
@@ -161,13 +205,26 @@ import PhotoCore
             }
         }
     }
+    private func isCurrentAnalysisTask(_ task: AnalysisTask, runnerID: UUID) -> Bool {
+        guard analysisRunnerID == runnerID,
+              let current = state.tasks.first(where: { $0.id == task.id }) else { return false }
+        return current.generation == task.generation && current.status == .running && state.isAdmitted(task.assetID)
+    }
+    private func cancelAnalysisRunner() {
+        analysisRunner?.cancel()
+        analysisRunner = nil
+        analysisRunnerID = nil
+    }
     func setTasks(_ status: TaskStatus) {
-        perform { try change { s in for i in s.tasks.indices where s.tasks[i].status != .complete {
-            s.tasks[i].status = s.isAdmitted(s.tasks[i].assetID) ? status : .cancelled
-            s.tasks[i].statusBeforeRemoval = nil
-            s.tasks[i].generation = UUID().uuidString
-        } } }
-        if status == .waiting { runAnalysis() }
+        do {
+            try change { s in for i in s.tasks.indices where s.tasks[i].status != .complete {
+                s.tasks[i].status = s.isAdmitted(s.tasks[i].assetID) ? status : .cancelled
+                s.tasks[i].statusBeforeRemoval = nil
+                s.tasks[i].generation = UUID().uuidString
+            } }
+            cancelAnalysisRunner()
+            if status == .waiting { runAnalysis() }
+        } catch { self.error = error.localizedDescription }
     }
     func cleanupExpired() async {
             for id in state.cleanupCandidates(now: Date()) {
@@ -178,6 +235,7 @@ import PhotoCore
     func resumed() {
         Task {
             await cleanupExpired()
+            startMediaPreparation()
             groups = await media.groups(state.assets); runAnalysis()
             await copySelected(state.assets.filter { state.isFinalist($0.id) && $0.source == .external && $0.ownedPath == nil }.map(\.id))
         }

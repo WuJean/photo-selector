@@ -127,10 +127,33 @@ actor MediaStore {
         return asset
     }
     func exportOriginal(_ asset: LocalAsset, allowNetwork: Bool = false) async throws -> URL {
-        if let path = asset.ownedPath { return try url(path) }
-        let exported = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(URL(fileURLWithPath: asset.name).pathExtension)
-        if asset.source == .photos { try await photoData(asset.sourceID, allowNetwork: allowNetwork).write(to: exported, options: .atomic) }
-        else { try withExternal(asset) { try FileManager.default.copyItem(at: $0, to: exported) } }
+        if let path = asset.ownedPath {
+            let original = try url(path)
+            try Self.verifyDigest(original, expected: asset.digest)
+            return original
+        }
+        let ext = URL(fileURLWithPath: asset.name).pathExtension
+        let exported = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PhotoSelector-export-\(UUID().uuidString)")
+            .appendingPathExtension(ext)
+        var keepExport = false
+        defer { if !keepExport { try? FileManager.default.removeItem(at: exported) } }
+        if asset.source == .photos {
+            try await photoData(asset.sourceID, allowNetwork: allowNetwork).write(to: exported, options: .atomic)
+            try Self.verifyDigest(exported, expected: asset.digest)
+        } else {
+            try withExternal(asset) { source in
+                let sourceDigest = try Self.digest(source)
+                if let expected = asset.digest, sourceDigest != expected {
+                    throw PhotoError.message("原片校验失败，文件可能已变化，请重新导入")
+                }
+                try FileManager.default.copyItem(at: source, to: exported)
+                guard try Self.digest(exported) == sourceDigest else {
+                    throw PhotoError.message("原片复制校验失败，请重试")
+                }
+            }
+        }
+        keepExport = true
         return exported
     }
     func removePreview(_ asset: LocalAsset) throws { if let path = asset.previewPath, FileManager.default.fileExists(atPath: try url(path).path) { try FileManager.default.removeItem(at: url(path)) } }
@@ -161,6 +184,11 @@ actor MediaStore {
         let handle = try FileHandle(forReadingFrom: file); defer { try? handle.close() }; var hash = SHA256()
         while let bytes = try handle.read(upToCount: 1024 * 1024), !bytes.isEmpty { hash.update(data: bytes) }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+    static func verifyDigest(_ file: URL, expected: String?) throws {
+        if let expected, try digest(file) != expected {
+            throw PhotoError.message("原片校验失败，文件可能已变化，请重新导入")
+        }
     }
     static func hash(_ image: CGImage) -> UInt64 {
         var pixels = [UInt8](repeating: 0, count: 64)

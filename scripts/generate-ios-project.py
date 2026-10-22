@@ -43,12 +43,16 @@ for label, settings in [('project', base),('app',appsettings)]:
         obj(label+mode, 'XCBuildConfiguration', name=mode, buildSettings={**settings,**extra})
     obj(label+'config','XCConfigurationList',buildConfigurations=[ref(label+'Debug'),ref(label+'Release')],defaultConfigurationIsVisible='0',defaultConfigurationName='Release')
 obj('target','PBXNativeTarget',name='PhotoSelectorIOS',productName='PhotoSelector',productReference=ref('product'),productType='com.apple.product-type.application',buildConfigurationList=ref('appconfig'),buildPhases=[ref('sources'),ref('frameworks'),ref('resources')],buildRules=[],dependencies=[],packageProductDependencies=[ref('core')])
-obj('testfile','PBXFileReference',lastKnownFileType='sourcecode.swift',path='PhotoSelectorTests/NativeTests.swift',sourceTree='<group>')
-obj('testbuild','PBXBuildFile',fileRef=ref('testfile'))
+testbuilds=[]
+for path in sorted((ios/'PhotoSelectorTests').glob('*.swift')):
+    key='testfile:'+path.name
+    obj(key,'PBXFileReference',lastKnownFileType='sourcecode.swift',path='PhotoSelectorTests/'+path.name,sourceTree='<group>')
+    obj('testbuild:'+path.name,'PBXBuildFile',fileRef=ref(key))
+    objects[uid('group')]['children'].append(ref(key))
+    testbuilds.append(ref('testbuild:'+path.name))
 obj('testproduct','PBXFileReference',explicitFileType='wrapper.cfbundle',path='PhotoSelectorTests.xctest',sourceTree='BUILT_PRODUCTS_DIR')
-objects[uid('group')]['children'].append(ref('testfile'))
 objects[uid('products')]['children'].append(ref('testproduct'))
-obj('testsources','PBXSourcesBuildPhase',buildActionMask='2147483647',files=[ref('testbuild')],runOnlyForDeploymentPostprocessing='0')
+obj('testsources','PBXSourcesBuildPhase',buildActionMask='2147483647',files=testbuilds,runOnlyForDeploymentPostprocessing='0')
 obj('testcore','XCSwiftPackageProductDependency',package=ref('package'),productName='PhotoCore')
 obj('testcorelink','PBXBuildFile',productRef=ref('testcore'))
 obj('testframeworks','PBXFrameworksBuildPhase',buildActionMask='2147483647',files=[],runOnlyForDeploymentPostprocessing='0')
