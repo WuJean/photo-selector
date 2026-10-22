@@ -88,6 +88,8 @@ struct BatchView: View {
             }
             .searchable(text: $query, prompt: "名称、标签或描述")
             .onChange(of: query) { _, _ in selected.removeAll() }.onChange(of: round) { _, _ in selected.removeAll() }
+            .onChange(of: tags) { _, _ in selected.removeAll() }.onChange(of: any) { _, _ in selected.removeAll() }
+            .onChange(of: collapsed) { _, _ in selected.removeAll() }
             .sheet(isPresented: $importSheet) { NavigationStack { AlbumImportView(batchID: batchID) } }
             .sheet(isPresented: $showFilters) { NavigationStack { TagFilterView(selected: $tags, any: $any) } }
             .fileImporter(isPresented: $fileImporter, allowedContentTypes: [.folder, .jpeg, .png, .heic, .heif], allowsMultipleSelection: true) { result in
@@ -184,7 +186,7 @@ struct DecisionButtons: View {
 struct ImmersiveView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
-    let ids: [String]
+    @State private var ids: [String]
     let initialID: String
     let batchID: String?
     let round: SelectionRound
@@ -196,6 +198,10 @@ struct ImmersiveView: View {
     @State private var original = false
     @State private var sharing: URL?
     @State private var finished = false
+    init(ids: [String], initialID: String, batchID: String?, round: SelectionRound) {
+        _ids = State(initialValue: ids)
+        self.initialID = initialID; self.batchID = batchID; self.round = round
+    }
     var current: LocalAsset? { ids.indices.contains(index) ? model.state.assets.first { $0.id == ids[index] } : nil }
     var body: some View {
         VStack(spacing: 0) {
@@ -227,6 +233,7 @@ struct ImmersiveView: View {
                             }
                         }
                     }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                        .accessibilityElement(children: .contain).accessibilityIdentifier("immersive-canvas")
                         .contentShape(Rectangle())
                         .gesture(MagnifyGesture().onChanged { scale = min(8, max(1, scaleBase * $0.magnification)) }.onEnded { _ in scaleBase = scale; if scale <= 1 { offset = .zero; baseOffset = .zero } })
                         .simultaneousGesture(DragGesture().onChanged { value in if scale > 1.05 { offset = CGSize(width: baseOffset.width + value.translation.width, height: baseOffset.height + value.translation.height) } }.onEnded { value in

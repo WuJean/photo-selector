@@ -25,8 +25,8 @@ jobs:
           phone = next(d for group in devices.values() for d in group if d['name'].startswith('iPhone'))
           print('IOS_TEST_DEVICE=' + phone['udid'])
           PY
-      - name: Build and run native tests
-        run: xcodebuild -project ios/PhotoSelector.xcodeproj -scheme PhotoSelector -destination "platform=iOS Simulator,id=$IOS_TEST_DEVICE" -resultBundlePath test-results/ios.xcresult CODE_SIGNING_ALLOWED=NO ARCHS="$(uname -m)" -parallel-testing-enabled NO -only-testing:PhotoSelectorTests test
+      - name: Build and run native and interaction tests
+        run: xcodebuild -project ios/PhotoSelector.xcodeproj -scheme PhotoSelector -destination "platform=iOS Simulator,id=$IOS_TEST_DEVICE" -resultBundlePath test-results/ios.xcresult CODE_SIGNING_ALLOWED=NO ARCHS="$(uname -m)" -parallel-testing-enabled NO test
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -21,6 +21,7 @@ struct PortfolioListView: View {
                 }
             }.padding()
         }.navigationTitle("作品集")
+            .onChange(of: showAll) { _, _ in selected.removeAll() }
             .safeAreaInset(edge: .bottom) { if !selected.isEmpty { Menu("加入作品集 · \(selected.count) 张") { ForEach(model.state.portfolios) { p in Button(p.name) { model.perform { try model.change { try $0.addToPortfolio(Array(selected), portfolioID: p.id) }; selected.removeAll() } } } }.buttonStyle(.borderedProminent).padding().frame(maxWidth: .infinity).background(.ultraThinMaterial) } }
             .alert("新建作品集", isPresented: $create) { TextField("名称", text: $name); Button("创建") { model.perform { let p = Portfolio(name: name.isEmpty ? "新作品集" : name); try model.change { $0.portfolios.append(p) }; name = "" } }; Button("取消", role: .cancel) {} }
     }
@@ -71,6 +72,7 @@ struct PortfolioDetailView: View {
             }.padding()
         }.navigationTitle(portfolio?.name ?? "作品集").searchable(text: $query, prompt: "名称、描述、标签")
             .onChange(of: query) { _, _ in selected.removeAll() }
+            .onChange(of: tags) { _, _ in selected.removeAll() }.onChange(of: any) { _, _ in selected.removeAll() }
             .toolbar { Button("编辑") { edit = true } }
             .sheet(isPresented: $edit) { if let portfolio { NavigationStack { PortfolioEditor(portfolio: portfolio) } } }
             .sheet(isPresented: $collage) { NavigationStack { CollageEditor(collectionID: collectionID) } }
