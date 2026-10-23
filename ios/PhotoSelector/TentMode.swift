@@ -173,31 +173,47 @@ struct TentSlideshowView: View {
     }
 
     private var rail: some View {
-        VStack(spacing: 12) {
-            Text("帐篷模式").font(.headline)
-            Text(portfolio.name).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-            Text("\(min(index + 1, assets.count)) / \(assets.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                .accessibilityIdentifier("tent-counter")
-            Divider()
-            Button(paused ? "继续播放" : "暂停", systemImage: paused ? "play.fill" : "pause.fill") {
-                paused.toggle()
-                if paused { slideTask?.cancel() } else { runSlide() }
+        // Duo 的次要区域是一条又窄又矮的横带：竖排的按钮会掉到屏幕外，
+        // 「关闭」就再也点不到了。所以这里排成两列，外面还能滚，
+        // 任何视口下按钮都够得着。
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("帐篷模式").font(.headline)
+                        Text(portfolio.name).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 12)
+                    Text("\(min(index + 1, assets.count)) / \(assets.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("tent-counter")
+                }
+                Divider()
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                    controls
+                }
             }
-            .buttonStyle(.bordered)
-            Button("查看本张海报", systemImage: "doc.richtext") { buildPoster() }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("tent-poster-button")
-            Button("生成全部海报", systemImage: "square.stack.3d.up") {
-                Task { await model.generatePosters(portfolioID: portfolio.id) }
-            }
-            .buttonStyle(.bordered)
-            Button("关闭", systemImage: "xmark") { dismiss() }
-                .buttonStyle(.bordered)
-            Spacer()
+            .padding(12)
         }
         .font(.subheadline)
         .tint(PhotoPalette.accent)
-        .padding(12)
+    }
+
+    /// 幻灯片的四个操作按钮。
+    @ViewBuilder private var controls: some View {
+        Button(paused ? "继续播放" : "暂停", systemImage: paused ? "play.fill" : "pause.fill") {
+            paused.toggle()
+            if paused { slideTask?.cancel() } else { runSlide() }
+        }
+        .buttonStyle(.bordered)
+        Button("查看本张海报", systemImage: "doc.richtext") { buildPoster() }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("tent-poster-button")
+        Button("生成全部海报", systemImage: "square.stack.3d.up") {
+            Task { await model.generatePosters(portfolioID: portfolio.id) }
+        }
+        .buttonStyle(.bordered)
+        Button("关闭", systemImage: "xmark") { dismiss() }
+            .buttonStyle(.bordered)
     }
 
     // MARK: - Playback

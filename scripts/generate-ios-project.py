@@ -69,11 +69,17 @@ for mode in ['Debug','Release']:
     obj('test'+mode,'XCBuildConfiguration',name=mode,buildSettings={**base,'PRODUCT_BUNDLE_IDENTIFIER':'com.wujean.photoselector.tests','PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','TEST_HOST':'$(BUILT_PRODUCTS_DIR)/PhotoSelector.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PhotoSelector','BUNDLE_LOADER':'$(TEST_HOST)','CODE_SIGN_STYLE':'Automatic','SWIFT_OPTIMIZATION_LEVEL':'-Onone'})
 obj('testconfig','XCConfigurationList',buildConfigurations=[ref('testDebug'),ref('testRelease')],defaultConfigurationIsVisible='0',defaultConfigurationName='Release')
 obj('testtarget','PBXNativeTarget',name='PhotoSelectorTests',productName='PhotoSelectorTests',productReference=ref('testproduct'),productType='com.apple.product-type.bundle.unit-test',buildConfigurationList=ref('testconfig'),buildPhases=[ref('testsources'),ref('testframeworks')],buildRules=[],dependencies=[ref('testdependency')],packageProductDependencies=[])
-obj('uifile','PBXFileReference',lastKnownFileType='sourcecode.swift',path='PhotoSelectorUITests/FlowTests.swift',sourceTree='<group>')
-obj('uibuild','PBXBuildFile',fileRef=ref('uifile'))
+# UI 测试同样按目录收集，否则新增的 UI 测试文件会静默不参与编译。
+uibuilds=[]
+for path in sorted((ios/'PhotoSelectorUITests').glob('*.swift')):
+    key='uifile:'+path.name
+    obj(key,'PBXFileReference',lastKnownFileType='sourcecode.swift',path='PhotoSelectorUITests/'+path.name,sourceTree='<group>')
+    obj('uibuild:'+path.name,'PBXBuildFile',fileRef=ref(key))
+    objects[uid('group')]['children'].append(ref(key))
+    uibuilds.append(ref('uibuild:'+path.name))
 obj('uiproduct','PBXFileReference',explicitFileType='wrapper.cfbundle',path='PhotoSelectorUITests.xctest',sourceTree='BUILT_PRODUCTS_DIR')
-objects[uid('group')]['children'].append(ref('uifile')); objects[uid('products')]['children'].append(ref('uiproduct'))
-obj('uisources','PBXSourcesBuildPhase',buildActionMask='2147483647',files=[ref('uibuild')],runOnlyForDeploymentPostprocessing='0')
+objects[uid('products')]['children'].append(ref('uiproduct'))
+obj('uisources','PBXSourcesBuildPhase',buildActionMask='2147483647',files=uibuilds,runOnlyForDeploymentPostprocessing='0')
 for mode in ['Debug','Release']:
     obj('ui'+mode,'XCBuildConfiguration',name=mode,buildSettings={**base,'PRODUCT_BUNDLE_IDENTIFIER':'com.wujean.photoselector.uitests','PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','TEST_TARGET_NAME':'PhotoSelectorIOS','CODE_SIGN_STYLE':'Automatic'})
 obj('uiconfig','XCConfigurationList',buildConfigurations=[ref('uiDebug'),ref('uiRelease')],defaultConfigurationIsVisible='0',defaultConfigurationName='Release')
