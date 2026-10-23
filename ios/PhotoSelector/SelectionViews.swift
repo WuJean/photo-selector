@@ -272,7 +272,7 @@ struct ImmersiveView: View {
             }.padding(12).photoGlass(cornerRadius: 22).padding(.horizontal, 12).padding(.top, 4)
             if finished { ContentUnavailableView("当前范围已完成", systemImage: "checkmark.circle"); Button("返回") { dismiss() }.buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent); Spacer() }
             else {
-                DuoLayout {
+                DuoLayout(hinge: model.hinge) {
                 GeometryReader { geometry in
                     canvas(size: geometry.size)
                         .accessibilityElement(children: .contain).accessibilityIdentifier("immersive-canvas")

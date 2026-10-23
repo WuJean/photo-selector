@@ -21,6 +21,8 @@ import PhotoCore
     let library: LocalLibrary
     let media: MediaStore
     let intelligence: Intelligence
+    /// Shared hinge posture so every screen reacts to the same fold.
+    let hinge = HingeState()
     private let prepareAsset: MediaPreparer
     private let loadImage: ImageLoader
     private let analyzeImage: ImageAnalyzer
