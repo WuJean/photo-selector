@@ -10,22 +10,56 @@ struct AIConfiguration: Codable, Equatable {
     var remoteEnabled = false
     var baseURL = ""
     var model = ""
+    /// Image generation is opt-in and independent of the text model.
+    var imageEnabled = false
+    /// Optional separate host; when empty the chat base URL is reused.
+    var imageBaseURL = ""
+    var imageModel = ""
+    var imageSize = "1024x1024"
+
+    init(remoteEnabled: Bool = false, baseURL: String = "", model: String = "", imageEnabled: Bool = false, imageBaseURL: String = "", imageModel: String = "", imageSize: String = "1024x1024") {
+        self.remoteEnabled = remoteEnabled; self.baseURL = baseURL; self.model = model
+        self.imageEnabled = imageEnabled; self.imageBaseURL = imageBaseURL; self.imageModel = imageModel; self.imageSize = imageSize
+    }
+
+    /// Decoding tolerates configurations saved before the image fields existed,
+    /// so enabling the image model never discards an existing chat setup.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        remoteEnabled = try container.decodeIfPresent(Bool.self, forKey: .remoteEnabled) ?? false
+        baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? ""
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
+        imageEnabled = try container.decodeIfPresent(Bool.self, forKey: .imageEnabled) ?? false
+        imageBaseURL = try container.decodeIfPresent(String.self, forKey: .imageBaseURL) ?? ""
+        imageModel = try container.decodeIfPresent(String.self, forKey: .imageModel) ?? ""
+        imageSize = try container.decodeIfPresent(String.self, forKey: .imageSize) ?? "1024x1024"
+    }
 }
 enum Keychain {
-    static func load() -> String {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.wujean.photoselector.ai", kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+    private static let chatService = "com.wujean.photoselector.ai"
+    private static let imageService = "com.wujean.photoselector.imageai"
+
+    static func load() -> String { load(service: chatService) }
+    static func save(_ value: String) throws { try save(value, service: chatService) }
+
+    /// The image model may live at another provider, so it keeps its own key.
+    static func loadImage() -> String { load(service: imageService) }
+    static func saveImage(_ value: String) throws { try save(value, service: imageService) }
+
+    static func load(service: String) -> String {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var result: CFTypeRef?; guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
     }
-    static func save(_ value: String) throws {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.wujean.photoselector.ai"]
+    static func save(_ value: String, service: String) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
         SecItemDelete(query as CFDictionary)
         if value.isEmpty { return }
         var add = query; add[kSecValueData as String] = Data(value.utf8); add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else { throw PhotoError.message("密钥保存失败") }
     }
 }
-private final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
 }
 actor Intelligence {

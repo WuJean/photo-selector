@@ -8,6 +8,7 @@ struct PortfolioListView: View {
     @State private var selected = Set<String>()
     @State private var showAll = false
     @State private var selectedTab = 0
+    @State private var tent = false
 
     var candidates: [LocalAsset] {
         model.state.assets.filter { asset in
@@ -27,6 +28,18 @@ struct PortfolioListView: View {
                     Text("待归集").tag(1)
                 }
                 .pickerStyle(.segmented)
+
+                Button { tent = true } label: {
+                    Label("帐篷模式", systemImage: "tent.2")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .buttonStyle(.bordered)
+                .tint(PhotoPalette.accent)
+                .accessibilityIdentifier("tent-mode-button")
+                .disabled(model.state.portfolios.isEmpty)
+                Text("帐篷模式会先让你选择一个作品集，然后自动播放其中的照片。")
+                    .font(.caption).foregroundStyle(.secondary)
 
                 if selectedTab == 0 {
                     if model.state.portfolios.isEmpty {
@@ -83,6 +96,7 @@ struct PortfolioListView: View {
         }
         .photoBackdrop()
         .navigationTitle("作品集")
+        .fullScreenCover(isPresented: $tent) { TentModeFlow(startWith: nil) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("新建", systemImage: "plus") { create = true }
@@ -260,6 +274,7 @@ struct PortfolioDetailView: View {
     @State private var textEdit: Creation?
     @State private var selectedDetailTab = 0
     @State private var showGallery = false
+    @State private var tent = false
 
     var portfolio: Portfolio? { model.state.portfolios.first { $0.id == collectionID } }
     var photos: [LocalAsset] {
@@ -295,6 +310,23 @@ struct PortfolioDetailView: View {
                         .accessibilityLabel("更多")
                     }
                     .tint(PhotoPalette.accent)
+
+                    HStack(spacing: 8) {
+                        Button { tent = true } label: {
+                            Label("帐篷模式", systemImage: "tent.2").frame(maxWidth: .infinity, minHeight: 34)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("tent-mode-button")
+                        Button { Task { await model.generatePosters(portfolioID: collectionID) } } label: {
+                            Label("生成海报", systemImage: "doc.richtext").frame(maxWidth: .infinity, minHeight: 34)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("generate-posters-button")
+                        .disabled(portfolio.assetIDs.isEmpty)
+                    }
+                    .tint(PhotoPalette.accent)
+                    Text("每张照片都会单独生成一张海报，上下两半等高，不会拼贴。")
+                        .font(.caption).foregroundStyle(.secondary)
 
                     Picker("作品集内容", selection: $selectedDetailTab) {
                         Text("照片").tag(0)
@@ -387,6 +419,7 @@ struct PortfolioDetailView: View {
         }
         .sheet(isPresented: $collage) { NavigationStack { CollageEditor(collectionID: collectionID) } }
         .sheet(isPresented: $writing) { NavigationStack { WritingView(collectionID: collectionID) } }
+        .fullScreenCover(isPresented: $tent) { TentModeFlow(startWith: portfolio) }
         .sheet(isPresented: $filters) { NavigationStack { TagFilterView(selected: $tags, any: $any) } }
         .sheet(item: $textEdit) { creation in NavigationStack { TextCreationEditor(creation: creation) } }
         .sheet(isPresented: Binding(get: { !sharing.isEmpty }, set: { if !$0 { sharing = [] } })) { ShareSheet(items: sharing) }

@@ -123,7 +123,9 @@ struct FilmGrainOverlay: View {
     }
 
     static let tile: UIImage = {
-        let size = 256
+        // A small tile keeps the grain fine on a phone screen; the poster
+        // renderer draws its own noise at poster resolution.
+        let size = 96
         var bytes = [UInt8](repeating: 0, count: size * size * 4)
         var state: UInt64 = 0x5DEECE66D
         for i in stride(from: 0, to: bytes.count, by: 4) {

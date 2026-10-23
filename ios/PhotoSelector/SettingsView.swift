@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage("app.lock") var lock = false
     @State private var config = AIConfiguration()
     @State private var key = ""
+    @State private var imageKey = ""
     @State private var name = ""
     @State private var definition = ""
     @State private var domain = TagDomain.environment
@@ -31,12 +32,38 @@ struct SettingsView: View {
                     SecureField("你的 API Key", text: $key)
                     Text("仅将所分析照片的去 EXIF 压缩预览发送给你配置的服务，可能产生费用。").font(.caption).foregroundStyle(.secondary)
                 } else { Text("优先 Apple 端侧模型；设备、系统或语言不支持时，基础选片仍可离线使用。不会自动上传到云端。").font(.caption) }
-                Button("保存配置") { model.perform { try model.saveConfig(config, key: key) } }
+                Button("保存配置") { model.perform { try model.saveConfig(config, key: key, imageKey: imageKey) } }
                 Button(testing ? "正在测试" : "测试连接") { Task {
                     testing = true; defer { testing = false }
                     do { _ = try await model.intelligence.response(prompt: "只回复连接成功", images: [], config: config, key: key); model.error = "文字连接成功；图片理解会在实际分类时验证" } catch { model.error = error.localizedDescription }
                 } }.disabled(testing)
                 Button("清除密钥", role: .destructive) { model.perform { try Keychain.save(""); key = "" } }
+            }
+            Section("生图模型") {
+                Toggle("启用生图模型", isOn: $config.imageEnabled)
+                if config.imageEnabled {
+                    TextField("生图 Base URL（留空则用上面的地址）", text: $config.imageBaseURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    TextField("生图模型名称", text: $config.imageModel).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Picker("生成尺寸", selection: $config.imageSize) {
+                        Text("1024 × 1024").tag("1024x1024")
+                        Text("1024 × 1536").tag("1024x1536")
+                        Text("1536 × 1024").tag("1536x1024")
+                    }
+                    SecureField("生图 API Key", text: $imageKey)
+                    Text("开启后，帐篷模式播放时会默认调用生图模型，为每张照片生成独立的抽象图，再合成成海报。每张照片单独处理，不会拼贴；远程生图可能产生费用。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("测试生图连接") { Task {
+                        testing = true; defer { testing = false }
+                        do {
+                            let result = try await model.imageGeneration.generate(prompt: "一个抽象的渐变色场，不要文字。", reference: nil, size: config.imageSize, config: config, key: imageKey)
+                            model.error = "生图连接成功，返回 \(result.image.size.width) × \(result.image.size.height) px"
+                        } catch { model.error = error.localizedDescription }
+                    } }.disabled(testing)
+                    Button("清除生图密钥", role: .destructive) { model.perform { try Keychain.saveImage(""); imageKey = "" } }
+                } else {
+                    Text("未开启生图模型时，海报下半区由本机依据照片自身色彩生成抽象图，不会联网。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section("分类标签") {
                 ForEach(TagDomain.allCases, id: \.self) { group in
@@ -57,7 +84,7 @@ struct SettingsView: View {
                 Text("备份包含可访问的原片、创作和记录，不包含密钥。请先连接来源；卸载应用会删除本机私有库。").font(.caption).foregroundStyle(.secondary)
             }
         }.scrollContentBackground(.hidden).photoBackdrop().navigationTitle("设置").toolbar { Button("完成") { dismiss() } }
-            .onAppear { config = model.aiConfig; key = Keychain.load() }
+            .onAppear { config = model.aiConfig; key = Keychain.load(); imageKey = Keychain.loadImage() }
             .confirmationDialog("重新分析所有粗筛入选照片？", isPresented: $rerun) {
                 Button("重新分类") { model.perform { try model.change { s in
                     for i in s.assets.indices where s.isAdmitted(s.assets[i].id) { s.assets[i].analysis = nil }

@@ -227,4 +227,47 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["已保存到作品集创作"].waitForExistence(timeout: 20))
         screenshot("拼图编辑")
     }
+    /// Opening the tent mode asks for a portfolio first, then plays it.
+    func testTentModeAsksForPortfolioAndSlideshow() {
+        app.buttons["作品集"].tap()
+        let tent = app.buttons["帐篷模式"]
+        XCTAssertTrue(tent.waitForExistence(timeout: 10), "作品集页应当有帐篷模式入口")
+        tent.tap()
+        let choice = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 10), "开启帐篷模式后应当先让人选择作品集")
+        screenshot("帐篷模式选择作品集")
+        choice.tap()
+        let canvas = app.descendants(matching: .any).matching(identifier: "tent-canvas").firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 20), "应当进入幻灯片播放")
+        let counter = app.descendants(matching: .any).matching(identifier: "tent-counter").firstMatch
+        XCTAssertTrue(counter.waitForExistence(timeout: 10))
+        // The presentation advances on its own, so only the shape of the
+        // counter is pinned here, not the slide it happens to be on.
+        XCTAssertTrue(counter.label.contains(" / 6"), "应当显示播放进度，实际为 \(counter.label)")
+        screenshot("帐篷模式幻灯片")
+        let initial = counter.label
+        let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", initial), object: counter)
+        XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 25), .completed, "幻灯片应当自动播放下一张")
+        screenshot("帐篷模式自动播放")
+        // The poster of the current photograph is a single image, split in two
+        // equal halves.
+        app.buttons["查看本张海报"].tap()
+        let poster = app.descendants(matching: .any).matching(identifier: "poster-image").firstMatch
+        XCTAssertTrue(poster.waitForExistence(timeout: 90), "应当能查看本张照片的独立海报")
+        screenshot("帐篷模式海报")
+    }
+    /// The tent mode produces one poster per photograph; the poster is a
+    /// single image, never a collage.
+    func testTentModeProducesOnePoster() {
+        app.buttons["作品集"].tap()
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["生成海报"].waitForExistence(timeout: 10))
+        app.buttons["生成海报"].tap()
+        XCTAssertTrue(app.staticTexts["海报已生成"].waitForExistence(timeout: 180), "应当为每张照片各生成一张海报")
+        screenshot("海报已生成")
+        app.buttons["知道了"].tap()
+        app.buttons["创作"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch.waitForExistence(timeout: 10))
+        screenshot("作品集海报列表")
+    }
 }

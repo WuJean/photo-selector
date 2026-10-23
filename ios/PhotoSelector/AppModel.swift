@@ -21,8 +21,13 @@ import PhotoCore
     let library: LocalLibrary
     let media: MediaStore
     let intelligence: Intelligence
+    let imageGeneration: ImageGeneration
     /// Shared hinge posture so every screen reacts to the same fold.
     let hinge = HingeState()
+    /// Generated artwork, cached per photograph.
+    var artworkCache: [String: UIImage] = [:]
+    /// Rendered posters, cached per photograph and portfolio.
+    var posterCache: [String: UIImage] = [:]
     private let prepareAsset: MediaPreparer
     private let loadImage: ImageLoader
     private let analyzeImage: ImageAnalyzer
@@ -38,7 +43,8 @@ import PhotoCore
         let library = try LocalLibrary(url: root.appendingPathComponent("library.sqlite"))
         let media = try MediaStore(root: root)
         let intelligence = Intelligence()
-        self.library = library; state = library.state; self.media = media; self.intelligence = intelligence
+        let imageGeneration = ImageGeneration()
+        self.library = library; state = library.state; self.media = media; self.intelligence = intelligence; self.imageGeneration = imageGeneration
         aiConfig = UserDefaults.standard.data(forKey: "ai.config").flatMap { try? JSONDecoder().decode(AIConfiguration.self, from: $0) } ?? AIConfiguration()
         self.prepareAsset = prepareAsset ?? { asset, allowNetwork in try await media.prepare(asset, allowNetwork: allowNetwork) }
         self.loadImage = loadImage ?? { asset, maxSize, allowNetwork in try await media.image(asset, maxSize: maxSize, allowNetwork: allowNetwork) }
@@ -53,8 +59,10 @@ import PhotoCore
     func createBatch(_ name: String) throws -> String {
         let batch = ImportBatch(name: name.isEmpty ? "新导入" : name); try change { $0.batches.append(batch) }; return batch.id
     }
-    func saveConfig(_ config: AIConfiguration, key: String) throws {
-        try Keychain.save(key); UserDefaults.standard.set(try JSONEncoder().encode(config), forKey: "ai.config"); aiConfig = config
+    func saveConfig(_ config: AIConfiguration, key: String, imageKey: String? = nil) throws {
+        try Keychain.save(key)
+        if let imageKey { try Keychain.saveImage(imageKey) }
+        UserDefaults.standard.set(try JSONEncoder().encode(config), forKey: "ai.config"); aiConfig = config
         // User explicitly resumes paused tasks after changing configuration.
     }
     func importPhotos(start: Date, end: Date, albumID: String?, batchID: String, selectedIDs: Set<String>? = nil) async {

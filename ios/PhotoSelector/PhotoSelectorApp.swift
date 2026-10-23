@@ -39,6 +39,7 @@ struct RootView: View {
     @AppStorage("app.lock") var lockEnabled = false
     @State private var unlocked = false
     @State private var settings = false
+    @State private var tent = false
     var body: some View {
         Group {
             if lockEnabled && !unlocked {
@@ -57,8 +58,13 @@ struct RootView: View {
         }
         .tint(PhotoPalette.accent)
         .sheet(isPresented: $settings) { NavigationStack { SettingsView() } }
+        .fullScreenCover(isPresented: $tent) { TentModeFlow(startWith: nil) }
         .alert(model.alertTitle, isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("知道了") { model.error = nil } } message: { Text(model.error ?? "") }
         .onChange(of: phase) { _, value in if value == .active { model.resumed(); if lockEnabled && !unlocked { unlock() } } else if value == .background { unlocked = false } }
+        .onChange(of: model.hinge.posture) { _, posture in
+            // Folding the device into a tent offers the presentation directly.
+            if posture == .partiallyOpen, !tent { tent = true }
+        }
         .task { model.resumed(); if lockEnabled { unlock() }; while !Task.isCancelled { do { try await Task.sleep(for: .seconds(60)); await model.cleanupExpired() } catch { break } } }
     }
     private func unlock() {
