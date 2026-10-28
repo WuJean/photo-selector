@@ -142,6 +142,50 @@ final class QueueRecoveryTests: XCTestCase {
         XCTAssertEqual(model.state.tasks.first?.status, .paused, "launch must preserve an explicitly paused task")
     }
 
+    func testRegisterReusesReferencesWithoutDuplicatingBatchEntries() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = try AppModel(root: root)
+        let firstBatch = try model.createBatch("一")
+        let secondBatch = try model.createBatch("二")
+        let original = LocalAsset(source: .photos, sourceID: "stable-id", name: "a.heic")
+        let same = LocalAsset(source: .photos, sourceID: "stable-id", name: "a.heic")
+        try model.register([original, same], batchID: firstBatch)
+        try model.register([same], batchID: secondBatch)
+        XCTAssertEqual(model.state.assets.count, 1)
+        XCTAssertEqual(model.state.batches.map { $0.photos.map(\.assetID) }, [[original.id], [original.id]])
+    }
+
+    func testPhotoReferencesPrepareWithoutPreviewAndDoNotRepeatAfterRestart() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let probe = Probe()
+        let photo = LocalAsset(source: .photos, sourceID: "local-photo", name: "photo.heic")
+        let cloud = LocalAsset(source: .photos, sourceID: "cloud-photo", name: "cloud.heic")
+        let model = try AppModel(root: root, prepareAsset: { input, network in
+            XCTAssertFalse(network, "background grouping never downloads iCloud originals")
+            probe.prepareCount[input.id, default: 0] += 1
+            if input.id == cloud.id { throw ExpectedFailure.failed }
+            var result = input; result.perceptualHash = 42
+            return result
+        })
+        model.allowCloudDownload = true
+        let batch = try model.createBatch("图库引用")
+        try model.register([photo, cloud], batchID: batch)
+        XCTAssertEqual(model.state.assets.count, 2)
+        XCTAssertTrue(probe.prepareCount.isEmpty, "registration does no decoding/compression")
+        model.startMediaPreparation()
+        let completed = await eventually { probe.prepareCount[cloud.id] == 1 && !model.groups.isEmpty }
+        XCTAssertTrue(completed)
+        XCTAssertNil(model.error, "missing cloud cache must not become an import error")
+        XCTAssertNil(model.state.assets.first?.previewPath)
+        XCTAssertNil(model.state.assets.first?.ownedPath)
+        let reloaded = try AppModel(root: root)
+        XCTAssertFalse(AppModel.needsMediaPreparation(try XCTUnwrap(reloaded.state.assets.first)))
+        XCTAssertTrue(AppModel.needsMediaPreparation(try XCTUnwrap(reloaded.state.assets.last)))
+        XCTAssertEqual(probe.prepareCount[photo.id], 1)
+    }
+
     private func seed(_ model: AppModel, assets: [LocalAsset]) throws {
         try model.change { state in
             state.assets = assets

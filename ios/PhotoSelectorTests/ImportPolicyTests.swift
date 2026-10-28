@@ -86,6 +86,23 @@ final class ImportPolicyTests: XCTestCase {
         XCTAssertTrue(groups.contains { $0 == [other.id] })
     }
 
+    func testLargeLibraryGroupingKeepsEveryPhoto() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let media = try MediaStore(root: root)
+        let photos = (0..<3_000).map { index -> LocalAsset in
+            var photo = LocalAsset(source: .photos, sourceID: "large-\(index)", name: "\(index).jpg")
+            photo.perceptualHash = UInt64(index) &* 0x9e3779b97f4a7c15
+            photo.takenAt = Date(timeIntervalSince1970: Double(index * 180))
+            return photo
+        }
+        let start = Date()
+        let groups = await Task.detached(priority: .utility) { media.groups(photos) }.value
+        XCTAssertEqual(groups.flatMap { $0 }.count, photos.count)
+        XCTAssertEqual(Set(groups.flatMap { $0 }).count, photos.count)
+        print("3000-photo similarity grouping: \(Date().timeIntervalSince(start))s")
+    }
+
     private func jpeg(_ index: Int) -> Data {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         return UIGraphicsImageRenderer(size: CGSize(width: 80, height: 60), format: format).jpegData(withCompressionQuality: 0.8) { context in

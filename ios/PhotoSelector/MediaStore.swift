@@ -9,8 +9,19 @@ import PhotoCore
 
 actor MediaStore {
     let root: URL
-    init(root: URL) throws {
+    private let photoProvider: PhotoKitImageProviding
+    private let localPhotoRequestTimeout: TimeInterval
+    private let networkPhotoRequestTimeout: TimeInterval
+    init(
+        root: URL,
+        photoProvider: PhotoKitImageProviding = PhotosImageProvider(),
+        localPhotoRequestTimeout: TimeInterval = 3,
+        networkPhotoRequestTimeout: TimeInterval = 30
+    ) throws {
         self.root = root
+        self.photoProvider = photoProvider
+        self.localPhotoRequestTimeout = max(0.01, localPhotoRequestTimeout)
+        self.networkPhotoRequestTimeout = max(0.01, networkPhotoRequestTimeout)
         for folder in ["previews", "originals", "creations", "staging"] { try FileManager.default.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true) }
     }
     nonisolated func url(_ relative: String) throws -> URL {
@@ -61,6 +72,162 @@ actor MediaStore {
             return UIImage(cgImage: cg)
         }
     }
+    /// Streams local PhotoKit renditions as they arrive. If PhotoKit has no
+    /// usable local image, request a bounded thumbnail over the network for
+    /// this visible cell; never ask for the original here.
+    func displayImages(_ asset: LocalAsset, maxSize: Int) async -> AsyncThrowingStream<UIImage, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { [weak self] in
+                guard let self else { continuation.finish(); return }
+                do {
+                    if asset.source == .photos {
+                        try await self.produceDisplayImages(asset, maxSize: maxSize, continuation: continuation)
+                    } else {
+                        let image = try await self.image(asset, maxSize: maxSize)
+                        try Task.checkCancellation()
+                        if case .terminated = continuation.yield(image) { return }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+
+    private enum PhotoImageResult {
+        case image
+        case failed(Error?)
+        case cancelled
+    }
+
+    private func produceDisplayImages(
+        _ asset: LocalAsset,
+        maxSize: Int,
+        continuation: AsyncThrowingStream<UIImage, Error>.Continuation
+    ) async throws {
+        var hasCachedImage = false
+        if let path = asset.previewPath, let preview = try? await decode(url(path), maxSize: maxSize) {
+            if case .terminated = continuation.yield(preview) { throw CancellationError() }
+            hasCachedImage = true
+        }
+        if !hasCachedImage, let path = asset.ownedPath, let backup = try? await decode(url(path), maxSize: maxSize) {
+            if case .terminated = continuation.yield(backup) { throw CancellationError() }
+            hasCachedImage = true
+        }
+
+        let localRequest = photoImageEvents(
+            id: asset.sourceID,
+            maxSize: maxSize,
+            deliveryMode: .opportunistic,
+            allowNetwork: false
+        )
+        switch await emitPhotoImages(localRequest, continuation: continuation) {
+        case .image:
+            return
+        case .cancelled:
+            throw CancellationError()
+        case .failed(let localError):
+            if hasCachedImage { return }
+            try Task.checkCancellation()
+            // Cloud access is limited to the visible cell's display size and
+            // runs only after PhotoKit reports that no local rendition exists.
+            let cloudSize = min(max(1, maxSize), 480)
+            let cloudRequest = photoImageEvents(
+                id: asset.sourceID,
+                maxSize: cloudSize,
+                deliveryMode: .opportunistic,
+                allowNetwork: true
+            )
+            switch await emitPhotoImages(cloudRequest, continuation: continuation) {
+            case .image:
+                return
+            case .cancelled:
+                throw CancellationError()
+            case .failed(let cloudError):
+                try Task.checkCancellation()
+                throw cloudError ?? localError ?? PhotoError.message("照片未下载或授权已变化，请连接网络后重试")
+            }
+        }
+    }
+
+    private func emitPhotoImages(
+        _ request: PhotoImageRequestEvents,
+        continuation: AsyncThrowingStream<UIImage, Error>.Continuation
+    ) async -> PhotoImageResult {
+        await withTaskCancellationHandler {
+            var receivedImage = false
+            for await outcome in request.stream {
+                if Task.isCancelled { return .cancelled }
+                switch outcome {
+                case .ignored:
+                    continue
+                case .image(let image, let final):
+                    if case .terminated = continuation.yield(image) { return .cancelled }
+                    receivedImage = true
+                    if final { return .image }
+                case .finished(let fallback, let error):
+                    if let fallback {
+                        if !receivedImage, case .terminated = continuation.yield(fallback) { return .cancelled }
+                        return .image
+                    }
+                    return .failed(error)
+                }
+            }
+            if Task.isCancelled { return .cancelled }
+            return receivedImage ? .image : .failed(nil)
+        } onCancel: {
+            request.control.cancel()
+        }
+    }
+
+    private func photoImageEvents(
+        id: String,
+        maxSize: Int,
+        deliveryMode: PhotoImageDeliveryMode,
+        allowNetwork: Bool
+    ) -> PhotoImageRequestEvents {
+        let pair = AsyncStream<PhotoImageRequestControl.CallbackOutcome>.makeStream(bufferingPolicy: .unbounded)
+        let control = PhotoImageRequestControl(provider: photoProvider)
+        pair.continuation.onTermination = { @Sendable _ in control.cancel() }
+        control.installCancellationHandler { pair.continuation.finish() }
+
+        let side = max(1, maxSize)
+        let requestID = photoProvider.requestImage(
+            identifier: id,
+            targetSize: CGSize(width: side, height: side),
+            deliveryMode: deliveryMode,
+            allowNetwork: allowNetwork
+        ) { image, degraded, error in
+            let outcome = control.receive(image: image, degraded: degraded, error: error)
+            switch outcome {
+            case .ignored:
+                break
+            case .image(_, let final):
+                pair.continuation.yield(outcome)
+                if final { pair.continuation.finish() }
+            case .finished:
+                pair.continuation.yield(outcome)
+                pair.continuation.finish()
+            }
+        }
+        control.installRequestID(requestID)
+
+        let timeoutSeconds = allowNetwork ? networkPhotoRequestTimeout : localPhotoRequestTimeout
+        let timeoutNanoseconds = UInt64(timeoutSeconds * 1_000_000_000)
+        let timeout = Task {
+            do { try await Task.sleep(nanoseconds: timeoutNanoseconds) } catch { return }
+            let outcome = control.timeOut(error: PhotoError.message("读取照片超时"))
+            if case .ignored = outcome { return }
+            pair.continuation.yield(outcome)
+            pair.continuation.finish()
+        }
+        control.installTimeout(timeout)
+        return PhotoImageRequestEvents(stream: pair.stream, control: control)
+    }
     func decode(_ file: URL, maxSize: Int) async throws -> UIImage {
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil), let image = Self.thumbnail(source, maxSize: maxSize) else { throw PhotoError.message("图片损坏或格式不受支持") }
         return UIImage(cgImage: image)
@@ -71,7 +238,13 @@ actor MediaStore {
     func prepare(_ input: LocalAsset, allowNetwork: Bool = false) async throws -> LocalAsset {
         var asset = input
         if asset.source == .external && asset.ownedPath == nil { asset.digest = try withExternal(asset) { try Self.digest($0) } }
-        if asset.source == .photos, let data = try? await photoData(asset.sourceID, allowNetwork: false), let source = CGImageSourceCreateWithData(data as CFData, nil) { Self.metadata(source, asset: &asset) }
+        if asset.source == .photos {
+            // Similarity enrichment needs only a small local rendition. Do not
+            // download a Photos original or write an app-owned preview JPEG.
+            let thumbnail = try await photoThumbnail(asset.sourceID, maxSize: 320, allowNetwork: false)
+            guard let cg = thumbnail.cgImage else { throw PhotoError.message("无法读取照片缩略图") }
+            return try await Self.renderPhotoFingerprint(cg, asset: asset)
+        }
         let image = try await image(asset, maxSize: 1600, allowNetwork: allowNetwork)
         guard let cg = image.cgImage else { throw PhotoError.message("无法生成预览") }
         // JPEG encoding, the Vision feature print and the perceptual hash are
@@ -87,6 +260,20 @@ actor MediaStore {
             guard let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.83) else { throw PhotoError.message("无法生成预览") }
             try jpeg.write(to: destination, options: .atomic)
             asset.previewPath = "previews/\(asset.id).jpg"
+            #if !targetEnvironment(simulator)
+            let request = VNGenerateImageFeaturePrintRequest(); let handler = VNImageRequestHandler(cgImage: cg)
+            // A feature-model failure must never make the photo unbrowseable.
+            if (try? handler.perform([request])) != nil, let result = request.results?.first { asset.feature = try? NSKeyedArchiver.archivedData(withRootObject: result, requiringSecureCoding: true) }
+            #endif
+            asset.perceptualHash = Self.hash(cg)
+            return asset
+        }.value
+    }
+    /// Computes the lightweight similarity data for Photos without retaining
+    /// image bytes or creating an app-owned display preview.
+    nonisolated private static func renderPhotoFingerprint(_ cg: CGImage, asset: LocalAsset) async throws -> LocalAsset {
+        try await Task.detached(priority: .utility) {
+            var asset = asset
             #if !targetEnvironment(simulator)
             let request = VNGenerateImageFeaturePrintRequest(); let handler = VNImageRequestHandler(cgImage: cg)
             // A feature-model failure must never make the photo unbrowseable.
@@ -197,27 +384,51 @@ actor MediaStore {
         return exported
     }
     func removePreview(_ asset: LocalAsset) throws { if let path = asset.previewPath, FileManager.default.fileExists(atPath: try url(path).path) { try FileManager.default.removeItem(at: url(path)) } }
-    func photoThumbnail(_ id: String, maxSize: Int, allowNetwork: Bool) async throws -> UIImage {
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { throw PhotoError.message("照片不可访问，请检查相册授权") }
-        return try await withCheckedThrowingContinuation { continuation in
-            let options = PHImageRequestOptions(); options.isNetworkAccessAllowed = allowNetwork; options.deliveryMode = .highQualityFormat; options.resizeMode = .fast
-            PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: maxSize, height: maxSize), contentMode: .aspectFit, options: options) { image, info in
-                if info?[PHImageResultIsDegradedKey] as? Bool == true { return }
-                if let error = info?[PHImageErrorKey] as? Error { continuation.resume(throwing: error) }
-                else if let image { continuation.resume(returning: image) }
-                else { continuation.resume(throwing: PhotoError.message("照片未下载或授权已变化")) }
+    private func awaitPhotoImage(id: String, maxSize: Int, allowNetwork: Bool) async throws -> UIImage {
+        let request = photoImageEvents(
+            id: id,
+            maxSize: maxSize,
+            deliveryMode: .highQuality,
+            allowNetwork: allowNetwork
+        )
+        return try await withTaskCancellationHandler {
+            var fallback: UIImage?
+            for await outcome in request.stream {
+                try Task.checkCancellation()
+                switch outcome {
+                case .ignored:
+                    continue
+                case .image(let image, let final):
+                    fallback = image
+                    if final { return image }
+                case .finished(let lastImage, let error):
+                    if let lastImage { return lastImage }
+                    if let fallback { return fallback }
+                    throw error ?? PhotoError.message("照片未下载或授权已变化")
+                }
             }
+            try Task.checkCancellation()
+            if let fallback { return fallback }
+            throw PhotoError.message("照片未下载或授权已变化")
+        } onCancel: {
+            request.control.cancel()
         }
     }
+    func photoThumbnail(_ id: String, maxSize: Int, allowNetwork: Bool) async throws -> UIImage {
+        try await awaitPhotoImage(id: id, maxSize: maxSize, allowNetwork: allowNetwork)
+    }
     func photoData(_ id: String, allowNetwork: Bool) async throws -> Data {
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { throw PhotoError.message("照片不可访问，请检查相册授权") }
-        return try await withCheckedThrowingContinuation { continuation in
-            let options = PHImageRequestOptions(); options.isNetworkAccessAllowed = allowNetwork; options.version = .original; options.deliveryMode = .highQualityFormat
-            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
-                if let error = info?[PHImageErrorKey] as? Error { continuation.resume(throwing: error) }
-                else if let data { continuation.resume(returning: data) }
-                else { continuation.resume(throwing: PhotoError.message("原片在 iCloud 或不可访问；可启用 iCloud 下载后重试")) }
+        let control = PhotoOriginalDataRequestControl(provider: photoProvider)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard control.installContinuation(continuation) else { return }
+                let requestID = photoProvider.requestOriginalData(identifier: id, allowNetwork: allowNetwork) { data, error in
+                    control.receive(data: data, error: error)
+                }
+                control.installRequestID(requestID)
             }
+        } onCancel: {
+            control.cancel()
         }
     }
     static func digest(_ file: URL) throws -> String {
@@ -236,7 +447,7 @@ actor MediaStore {
         c.draw(image, in: CGRect(x: 0, y: 0, width: 8, height: 8)); let mean = pixels.reduce(0) { $0 + Int($1) } / 64
         return pixels.enumerated().reduce(UInt64(0)) { $0 | (Int($1.element) >= mean ? UInt64(1) << $1.offset : 0) }
     }
-    func groups(_ assets: [LocalAsset]) -> [[String]] {
+    nonisolated func groups(_ assets: [LocalAsset]) -> [[String]] {
         // Unarchiving a feature print is expensive. Comparing every candidate
         // against every group used to unarchive the same observations again
         // and again, which grew quadratically with the number of photos.

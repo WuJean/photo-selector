@@ -75,15 +75,12 @@ import PhotoCore
             if let albumID, let album = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumID], options: nil).firstObject { fetch = PHAsset.fetchAssets(in: album, options: options) }
             else { fetch = PHAsset.fetchAssets(with: options) }
             var chunk: [LocalAsset] = []
-            var imported = 0, skipped = 0
+            var imported = 0
             for i in 0..<fetch.count {
                 try Task.checkCancellation()
                 let photo = fetch.object(at: i)
                 if let selectedIDs, !selectedIDs.contains(photo.localIdentifier) { continue }
-                // One import stays inside the documented cap; the remaining
-                // photos stay in the system library for the next batch.
-                guard imported < ImportPolicy.maxPhotosPerImport else { skipped += 1; continue }
-                progress = "读取相册 \(imported + 1)/\(min(fetch.count, ImportPolicy.maxPhotosPerImport))"
+                progress = "读取相册 \(i + 1)/\(fetch.count)"
                 var asset = LocalAsset(source: .photos, sourceID: photo.localIdentifier, name: PHAssetResource.assetResources(for: photo).first?.originalFilename ?? "照片.heic")
                 asset.takenAt = photo.creationDate; asset.width = photo.pixelWidth; asset.height = photo.pixelHeight
                 chunk.append(asset); imported += 1
@@ -91,7 +88,6 @@ import PhotoCore
             }
             if !chunk.isEmpty { try register(chunk, batchID: batchID) }
             if imported == 0 { throw PhotoError.message("这个范围内没有可导入的照片") }
-            if skipped > 0 { notify("已导入 \(imported) 张，另有 \(skipped) 张超出本次上限，可以再导入一次。", title: "已按上限导入") }
             startMediaPreparation()
         } catch { self.error = error.localizedDescription }
     }
@@ -136,20 +132,34 @@ import PhotoCore
     func register(_ assets: [LocalAsset], batchID: String) throws {
         try change { s in
             guard let b = s.batches.firstIndex(where: { $0.id == batchID }) else { return }
+            func key(_ asset: LocalAsset) -> AssetSourceKey {
+                AssetSourceKey(kind: asset.source.rawValue, identifier: asset.sourceID,
+                               bookmark: asset.source == .external ? asset.bookmark : nil)
+            }
+            var sources: [AssetSourceKey: String] = [:]
+            for existing in s.assets where sources[key(existing)] == nil { sources[key(existing)] = existing.id }
+            var included = Set(s.batches[b].photos.map(\.assetID))
             for asset in assets {
-            let existing = s.assets.first { $0.source == asset.source && $0.sourceID == asset.sourceID && ($0.source != .external || $0.bookmark == asset.bookmark) }
-            let id = existing?.id ?? asset.id
-            if existing == nil { s.assets.append(asset) }
-            if !s.batches[b].photos.contains(where: { $0.assetID == id }) { s.batches[b].photos.append(BatchPhoto(id)) }
+                let sourceKey = key(asset)
+                let id: String
+                if let existing = sources[sourceKey] { id = existing }
+                else { id = asset.id; sources[sourceKey] = id; s.assets.append(asset) }
+                if included.insert(id).inserted { s.batches[b].photos.append(BatchPhoto(id)) }
             }
         }
     }
+    static func needsMediaPreparation(_ asset: LocalAsset) -> Bool {
+        // PhotoKit owns the display cache. A hash, not an app-owned JPEG, marks
+        // completed lightweight similarity enrichment across launches.
+        asset.source == .photos ? asset.perceptualHash == nil : asset.previewPath == nil
+    }
     func startMediaPreparation() {
         guard mediaRunner == nil else { return }
-        mediaRunner = Task { [weak self] in
+        mediaRunner = Task(priority: .utility) { [weak self] in
             guard let self else { return }; defer { self.mediaRunner = nil; self.progress = "" }
             var attempted = Set<String>()
             var pending: [String: LocalAsset] = [:]
+            var sinceGrouping = 0
             // Recomputing the expired set walks the whole library. It only
             // changes when the library changes, so it is refreshed on demand
             // instead of once per photo.
@@ -160,10 +170,10 @@ import PhotoCore
                     expired = Set(self.state.cleanupCandidates(now: Date()))
                     knownAssetCount = self.state.assets.count
                 }
-                let candidates = self.state.assets.filter { $0.previewPath == nil && !expired.contains($0.id) && !attempted.contains($0.id) }
+                let candidates = self.state.assets.filter { Self.needsMediaPreparation($0) && !expired.contains($0.id) && !attempted.contains($0.id) }
                 guard !candidates.isEmpty else {
                     pending = self.flushPrepared(pending)
-                    self.groups = await self.media.groups(self.state.assets)
+                    self.groups = await self.groupSnapshot()
                     if Task.isCancelled { break }
                     // Imports can arrive while grouping is suspended. Re-scan before
                     // exiting so the importing caller cannot miss this runner.
@@ -171,23 +181,23 @@ import PhotoCore
                         expired = Set(self.state.cleanupCandidates(now: Date()))
                         knownAssetCount = self.state.assets.count
                     }
-                    if self.state.assets.contains(where: { $0.previewPath == nil && !expired.contains($0.id) && !attempted.contains($0.id) }) { continue }
+                    if self.state.assets.contains(where: { Self.needsMediaPreparation($0) && !expired.contains($0.id) && !attempted.contains($0.id) }) { continue }
                     break
                 }
                 let window = Array(candidates.prefix(ImportPolicy.previewConcurrency))
                 for asset in window { attempted.insert(asset.id) }
-                self.progress = "生成预览 \(attempted.count)"
+                if window.contains(where: { $0.source != .photos }) { self.progress = "生成预览 \(attempted.count)" }
                 await withTaskGroup(of: (LocalAsset?, String?).self) { group in
                     for asset in window {
                         group.addTask { [weak self] in
                             guard let self else { return (nil, nil) }
                             do {
-                                let prepared = try await self.prepareAsset(asset, self.allowCloudDownload)
+                                let prepared = try await self.prepareAsset(asset, asset.source == .photos ? false : self.allowCloudDownload)
                                 return (prepared, nil)
                             } catch is CancellationError {
                                 return (nil, nil)
                             } catch {
-                                return (nil, "\(asset.name)：\(error.localizedDescription)")
+                                return (nil, asset.source == .photos ? nil : "\(asset.name)：\(error.localizedDescription)")
                             }
                         }
                     }
@@ -196,11 +206,24 @@ import PhotoCore
                         if let failure { self.error = failure }
                     }
                 }
-                if pending.count >= ImportPolicy.previewWriteBatch { pending = self.flushPrepared(pending) }
+                if pending.count >= ImportPolicy.previewWriteBatch {
+                    sinceGrouping += pending.count
+                    pending = self.flushPrepared(pending)
+                    if sinceGrouping >= max(100, self.state.assets.count / 10) {
+                        self.groups = await self.groupSnapshot()
+                        sinceGrouping = 0
+                    }
+                }
+                await Task.yield()
             }
             pending = self.flushPrepared(pending)
             if !Task.isCancelled { self.runAnalysis() }
         }
+    }
+    private func groupSnapshot() async -> [[String]] {
+        let assets = state.assets
+        let media = self.media
+        return await Task.detached(priority: .utility) { media.groups(assets) }.value
     }
     /// Writes prepared previews back to the library.
     ///
@@ -321,8 +344,14 @@ import PhotoCore
         Task {
             await cleanupExpired()
             startMediaPreparation()
-            groups = await media.groups(state.assets); runAnalysis()
+            groups = await groupSnapshot(); runAnalysis()
             await copySelected(state.assets.filter { state.isFinalist($0.id) && $0.source == .external && $0.ownedPath == nil }.map(\.id))
         }
     }
+}
+
+private struct AssetSourceKey: Hashable {
+    let kind: String
+    let identifier: String
+    let bookmark: Data?
 }

@@ -39,7 +39,6 @@ struct RootView: View {
     @AppStorage("app.lock") var lockEnabled = false
     @State private var unlocked = false
     @State private var settings = false
-    @State private var tent = false
     var body: some View {
         Group {
             if lockEnabled && !unlocked {
@@ -58,13 +57,8 @@ struct RootView: View {
         }
         .tint(PhotoPalette.accent)
         .sheet(isPresented: $settings) { NavigationStack { SettingsView() } }
-        .fullScreenCover(isPresented: $tent) { TentModeFlow(startWith: nil) }
         .alert(model.alertTitle, isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("知道了") { model.error = nil } } message: { Text(model.error ?? "") }
         .onChange(of: phase) { _, value in if value == .active { model.resumed(); if lockEnabled && !unlocked { unlock() } } else if value == .background { unlocked = false } }
-        .onChange(of: model.hinge.posture) { _, posture in
-            // Folding the device into a tent offers the presentation directly.
-            if posture == .partiallyOpen, !tent { tent = true }
-        }
         .task { model.resumed(); if lockEnabled { unlock() }; while !Task.isCancelled { do { try await Task.sleep(for: .seconds(60)); await model.cleanupExpired() } catch { break } } }
     }
     private func unlock() {
@@ -174,9 +168,23 @@ struct AssetImage: View {
             else if failed { Button { retry += 1 } label: { Label("离线 · 重试", systemImage: "arrow.clockwise") }.font(.caption).frame(maxWidth: .infinity, minHeight: 100) }
             else { ProgressView().frame(maxWidth: .infinity, minHeight: 100) }
         }.photoAspect(aspect)
-        .task(id: "\(asset.id)-\(asset.previewPath ?? "")-\(original)-\(retry)") {
+        .task(id: "\(asset.id)-\(asset.previewPath ?? "")-\(original)-\(size)-\(retry)") {
             image = nil; failed = false
-            do { image = try await model.media.image(asset, maxSize: size, original: original, allowNetwork: model.allowCloudDownload) } catch { failed = true }
+            do {
+                if asset.source == .photos && !original {
+                    let images = await model.media.displayImages(asset, maxSize: size)
+                    for try await rendition in images {
+                        try Task.checkCancellation()
+                        image = rendition
+                    }
+                    if image == nil { failed = true }
+                } else {
+                    let rendition = try await model.media.image(asset, maxSize: size, original: original, allowNetwork: model.allowCloudDownload)
+                    try Task.checkCancellation()
+                    image = rendition
+                }
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled && image == nil { failed = true } }
         }
     }
 }
