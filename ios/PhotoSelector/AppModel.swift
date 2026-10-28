@@ -6,6 +6,7 @@ import PhotoCore
     typealias MediaPreparer = @MainActor (LocalAsset, Bool) async throws -> LocalAsset
     typealias ImageLoader = @MainActor (LocalAsset, Int, Bool) async throws -> UIImage
     typealias ImageAnalyzer = @MainActor (UIImage, [LibraryTag], AIConfiguration, String) async throws -> PhotoAnalysis
+    typealias AnalysisReadiness = @MainActor (AIConfiguration, String) -> Bool
 
     @Published private(set) var state: LocalLibraryState
     @Published var error: String? {
@@ -31,17 +32,22 @@ import PhotoCore
     private let prepareAsset: MediaPreparer
     private let loadImage: ImageLoader
     private let analyzeImage: ImageAnalyzer
+    private let analysisReadiness: AnalysisReadiness
     private var analysisRunner: Task<Void, Never>?
     private var analysisRunnerID: UUID?
+    private var focalMetadataRequests = Set<String>()
+    private var focalMetadataAttempted = Set<String>()
+    private var focalMetadataRetryAfterFlight = Set<String>()
     private var copying = false
     private var copyQueue: [String] = []
     private var offlinePhotoCopies = Set<String>()
     private var mediaRunner: Task<Void, Never>?
+    private var mediaPreparationRerun = false
     let root: URL
-    init(root: URL, prepareAsset: MediaPreparer? = nil, loadImage: ImageLoader? = nil, analyzeImage: ImageAnalyzer? = nil) throws {
+    init(root: URL, prepareAsset: MediaPreparer? = nil, loadImage: ImageLoader? = nil, analyzeImage: ImageAnalyzer? = nil, photoProvider: PhotoKitImageProviding = PhotosImageProvider(), analysisReadiness: AnalysisReadiness? = nil) throws {
         self.root = root
         let library = try LocalLibrary(url: root.appendingPathComponent("library.sqlite"))
-        let media = try MediaStore(root: root)
+        let media = try MediaStore(root: root, photoProvider: photoProvider)
         let intelligence = Intelligence()
         let imageGeneration = ImageGeneration()
         self.library = library; state = library.state; self.media = media; self.intelligence = intelligence; self.imageGeneration = imageGeneration
@@ -49,6 +55,12 @@ import PhotoCore
         self.prepareAsset = prepareAsset ?? { asset, allowNetwork in try await media.prepare(asset, allowNetwork: allowNetwork) }
         self.loadImage = loadImage ?? { asset, maxSize, allowNetwork in try await media.image(asset, maxSize: maxSize, allowNetwork: allowNetwork) }
         self.analyzeImage = analyzeImage ?? { image, tags, config, key in try await intelligence.analyze(image, tags: tags, config: config, key: key) }
+        self.analysisReadiness = analysisReadiness ?? { config, key in
+            config.remoteEnabled
+                && !config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !config.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !key.isEmpty
+        }
     }
     func change(_ action: (inout LocalLibraryState) throws -> Void) throws {
         try library.transaction(action); state = library.state
@@ -59,11 +71,13 @@ import PhotoCore
     func createBatch(_ name: String) throws -> String {
         let batch = ImportBatch(name: name.isEmpty ? "新导入" : name); try change { $0.batches.append(batch) }; return batch.id
     }
-    func saveConfig(_ config: AIConfiguration, key: String, imageKey: String? = nil) throws {
-        try Keychain.save(key)
+    func saveConfig(_ configuration: AIConfiguration, key: String? = nil, imageKey: String? = nil) throws {
+        var config = configuration
+        config.remoteEnabled = true
+        if let key { try Keychain.save(key) }
         if let imageKey { try Keychain.saveImage(imageKey) }
         UserDefaults.standard.set(try JSONEncoder().encode(config), forKey: "ai.config"); aiConfig = config
-        // User explicitly resumes paused tasks after changing configuration.
+        runAnalysis()
     }
     func importPhotos(start: Date, end: Date, albumID: String?, batchID: String, selectedIDs: Set<String>? = nil) async {
         busy = true; defer { busy = false; progress = "" }
@@ -90,6 +104,80 @@ import PhotoCore
             if imported == 0 { throw PhotoError.message("这个范围内没有可导入的照片") }
             startMediaPreparation()
         } catch { self.error = error.localizedDescription }
+    }
+
+    /// Loads only missing camera metadata when the coarse filter is opened.
+    /// Requests are bounded to two at once and are deduplicated while in flight.
+    /// PhotoKit requests use its local-only rendition; iCloud-only assets remain
+    /// unknown rather than downloading an original in the background.
+    func loadFocalMetadata(assetIDs: [String]) async {
+        let ids = Array(Set(assetIDs)).filter { id in
+            guard !focalMetadataRequests.contains(id), !focalMetadataAttempted.contains(id),
+                  let asset = state.assets.first(where: { $0.id == id }) else { return false }
+            return asset.equivalentFocalLength == nil
+        }
+        guard !ids.isEmpty else { return }
+        focalMetadataRequests.formUnion(ids)
+        focalMetadataAttempted.formUnion(ids)
+        defer {
+            focalMetadataRequests.subtract(ids)
+            let retryIDs = focalMetadataRetryAfterFlight.intersection(ids)
+            focalMetadataRetryAfterFlight.subtract(retryIDs)
+            if !retryIDs.isEmpty { Task { await self.loadFocalMetadata(assetIDs: Array(retryIDs)) } }
+        }
+
+        var next = ids.makeIterator()
+        var pending: [String: FocalMetadata] = [:]
+        await withTaskGroup(of: (String, FocalMetadata?).self) { group in
+            for _ in 0..<min(2, ids.count) {
+                guard let id = next.next(), let asset = state.assets.first(where: { $0.id == id }) else { continue }
+                let media = self.media
+                group.addTask { (id, try? await media.focalMetadata(asset)) }
+            }
+            while let (id, metadata) = await group.next() {
+                // Dimensions are already supplied by PhotoKit. Persist only
+                // useful EXIF and avoid writing the full library for empty reads.
+                if let metadata, metadata.focalLength != nil || metadata.equivalentFocalLength != nil {
+                    pending[id] = metadata
+                    if pending.count >= 32 {
+                        persistFocalMetadata(pending)
+                        pending.removeAll(keepingCapacity: true)
+                    }
+                }
+                if let id = next.next(), let asset = state.assets.first(where: { $0.id == id }) {
+                    let media = self.media
+                    group.addTask { (id, try? await media.focalMetadata(asset)) }
+                }
+            }
+        }
+        persistFocalMetadata(pending)
+    }
+
+    /// Explicit retry is separate from opening the filter: missing EXIF and
+    /// iCloud-only assets are attempted once per app session to avoid repeated
+    /// full-size local reads. A user can retry after making the source available.
+    func retryFocalMetadata(assetIDs: [String]) async {
+        let ids = Set(assetIDs)
+        let active = ids.intersection(focalMetadataRequests)
+        focalMetadataRetryAfterFlight.formUnion(active)
+        focalMetadataAttempted.subtract(ids)
+        await loadFocalMetadata(assetIDs: Array(ids.subtracting(active)))
+    }
+
+    private func persistFocalMetadata(_ metadataByID: [String: FocalMetadata]) {
+        let updates = metadataByID.filter { id, metadata in
+            guard let asset = state.assets.first(where: { $0.id == id }) else { return false }
+            return (asset.focalLength == nil && metadata.focalLength != nil)
+                || (asset.equivalentFocalLength == nil && metadata.equivalentFocalLength != nil)
+        }
+        guard !updates.isEmpty else { return }
+        try? change { state in
+            for (id, metadata) in updates {
+                guard let index = state.assets.firstIndex(where: { $0.id == id }) else { continue }
+                if state.assets[index].focalLength == nil { state.assets[index].focalLength = metadata.focalLength }
+                if state.assets[index].equivalentFocalLength == nil { state.assets[index].equivalentFocalLength = metadata.equivalentFocalLength }
+            }
+        }
     }
     func importFiles(_ urls: [URL], batchID: String) async {
         busy = true; defer { busy = false; progress = "" }
@@ -154,10 +242,27 @@ import PhotoCore
         asset.source == .photos ? asset.perceptualHash == nil : asset.previewPath == nil
     }
     func startMediaPreparation() {
-        guard mediaRunner == nil else { return }
+        startMediaPreparation(previouslyAttempted: [])
+    }
+
+    private func startMediaPreparation(previouslyAttempted: Set<String>) {
+        guard mediaRunner == nil else { mediaPreparationRerun = true; return }
+        mediaPreparationRerun = false
         mediaRunner = Task(priority: .utility) { [weak self] in
-            guard let self else { return }; defer { self.mediaRunner = nil; self.progress = "" }
-            var attempted = Set<String>()
+            guard let self else { return }
+            var attempted = previouslyAttempted
+            defer {
+                let rerun = self.mediaPreparationRerun
+                self.mediaPreparationRerun = false
+                self.mediaRunner = nil
+                self.progress = ""
+                // An import can arrive after the final rescan but before this
+                // runner releases its slot. Preserve that request across the
+                // handoff so new assets are never stranded without previews.
+                // Carry the drain's attempted set too: a failed asset must not
+                // be retried simply because a later import arrived at handoff.
+                if rerun { self.startMediaPreparation(previouslyAttempted: attempted) }
+            }
             var pending: [String: LocalAsset] = [:]
             var sinceGrouping = 0
             // Recomputing the expired set walks the whole library. It only
@@ -235,18 +340,24 @@ import PhotoCore
         try? change { s in
             for (id, prepared) in pending {
                 guard let i = s.assets.firstIndex(where: { $0.id == id }) else { continue }
-                s.assets[i].previewPath = prepared.previewPath
-                s.assets[i].feature = prepared.feature
-                s.assets[i].perceptualHash = prepared.perceptualHash
-                s.assets[i].digest = prepared.digest
-                s.assets[i].focalLength = prepared.focalLength
-                s.assets[i].equivalentFocalLength = prepared.equivalentFocalLength
-                s.assets[i].camera = prepared.camera
-                s.assets[i].width = prepared.width
-                s.assets[i].height = prepared.height
+                Self.mergePreparedMedia(prepared, into: &s.assets[i])
             }
         }
         return [:]
+    }
+
+    /// Preparation results can be older snapshots than an EXIF read completed
+    /// in parallel. Merge only available values so a stale nil never erases data.
+    static func mergePreparedMedia(_ prepared: LocalAsset, into current: inout LocalAsset) {
+        if let value = prepared.previewPath { current.previewPath = value }
+        if let value = prepared.feature { current.feature = value }
+        if let value = prepared.perceptualHash { current.perceptualHash = value }
+        if current.digest == nil, let value = prepared.digest { current.digest = value }
+        if current.focalLength == nil, let value = prepared.focalLength { current.focalLength = value }
+        if current.equivalentFocalLength == nil, let value = prepared.equivalentFocalLength { current.equivalentFocalLength = value }
+        if current.camera == nil, let value = prepared.camera { current.camera = value }
+        if current.width == 0 { current.width = prepared.width }
+        if current.height == 0 { current.height = prepared.height }
     }
     func decide(batchID: String, ids: [String], round: SelectionRound, decision: Decision, next: String?) -> Bool {
         do {
@@ -275,6 +386,11 @@ import PhotoCore
     }
     func runAnalysis() {
         guard analysisRunner == nil else { return }
+        let config = aiConfig
+        let key = Keychain.load()
+        // Keep queued work waiting until the user has configured a remote
+        // multimodal endpoint. There is no automatic on-device fallback.
+        guard analysisReadiness(config, key) else { return }
         let runnerID = UUID()
         analysisRunnerID = runnerID
         analysisRunner = Task { [weak self] in
@@ -287,10 +403,11 @@ import PhotoCore
             }
             while !Task.isCancelled {
                 guard !ProcessInfo.processInfo.isLowPowerModeEnabled, ProcessInfo.processInfo.thermalState != .serious, ProcessInfo.processInfo.thermalState != .critical else { break }
-                guard let task = self.state.tasks.first(where: { $0.status == .waiting }), let asset = self.state.assets.first(where: { $0.id == task.assetID }) else { break }
                 let config = self.aiConfig; let key = Keychain.load()
+                guard self.analysisReadiness(config, key) else { break }
+                guard let task = self.state.tasks.first(where: { $0.status == .waiting }), let asset = self.state.assets.first(where: { $0.id == task.assetID }) else { break }
                 do {
-                    try self.change { s in if let i = s.tasks.firstIndex(where: { $0.id == task.id }) { s.tasks[i].status = .running; s.tasks[i].model = config.remoteEnabled ? config.model : "Apple on-device" } }
+                    try self.change { s in if let i = s.tasks.firstIndex(where: { $0.id == task.id }) { s.tasks[i].status = .running; s.tasks[i].model = config.model } }
                     try Task.checkCancellation()
                     guard self.isCurrentAnalysisTask(task, runnerID: runnerID) else { continue }
                     let image = try await self.loadImage(asset, 1080, self.allowCloudDownload)

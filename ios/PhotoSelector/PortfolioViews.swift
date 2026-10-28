@@ -277,8 +277,11 @@ struct PortfolioDetailView: View {
     @State private var tent = false
 
     var portfolio: Portfolio? { model.state.portfolios.first { $0.id == collectionID } }
+    private var portfolioAssets: [LocalAsset] {
+        (portfolio?.assetIDs ?? []).compactMap { id in model.state.assets.first { $0.id == id } }
+    }
     var photos: [LocalAsset] {
-        PhotoSearch.filter((portfolio?.assetIDs ?? []).compactMap { id in model.state.assets.first { $0.id == id } }, keyword: query, tags: Array(tags), any: any)
+        PhotoSearch.filter(portfolioAssets, keyword: query, tags: Array(tags), any: any)
     }
     private var creations: [Creation] { model.state.creations.filter { $0.collectionID == collectionID } }
     private let photoColumns = [GridItem(.adaptive(minimum: 142), spacing: 10)]
@@ -420,7 +423,7 @@ struct PortfolioDetailView: View {
         .sheet(isPresented: $collage) { NavigationStack { CollageEditor(collectionID: collectionID) } }
         .sheet(isPresented: $writing) { NavigationStack { WritingView(collectionID: collectionID) } }
         .fullScreenCover(isPresented: $tent) { TentModeFlow(startWith: portfolio) }
-        .sheet(isPresented: $filters) { NavigationStack { TagFilterView(selected: $tags, any: $any) } }
+        .sheet(isPresented: $filters) { NavigationStack { TagFilterView(assets: portfolioAssets, selected: $tags, any: $any) } }
         .sheet(item: $textEdit) { creation in NavigationStack { TextCreationEditor(creation: creation) } }
         .sheet(isPresented: Binding(get: { !sharing.isEmpty }, set: { if !$0 { sharing = [] } })) { ShareSheet(items: sharing) }
     }

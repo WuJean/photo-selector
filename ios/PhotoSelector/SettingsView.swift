@@ -9,6 +9,8 @@ struct SettingsView: View {
     @State private var config = AIConfiguration()
     @State private var key = ""
     @State private var imageKey = ""
+    @State private var hasChatKey = false
+    @State private var hasImageKey = false
     @State private var name = ""
     @State private var definition = ""
     @State private var domain = TagDomain.environment
@@ -25,41 +27,63 @@ struct SettingsView: View {
                 Text("照片和选片记录保存在本机。不会删除系统相册或存储卡原片。").font(.caption).foregroundStyle(.secondary)
             }
             Section("AI 服务") {
-                Toggle("使用远程 AI（发送压缩预览）", isOn: $config.remoteEnabled)
-                if config.remoteEnabled {
-                    TextField("HTTPS Base URL，例如 /v1", text: $config.baseURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    TextField("模型名称", text: $config.model).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    SecureField("你的 API Key", text: $key)
-                    Text("仅将所分析照片的去 EXIF 压缩预览发送给你配置的服务，可能产生费用。").font(.caption).foregroundStyle(.secondary)
-                } else { Text("优先 Apple 端侧模型；设备、系统或语言不支持时，基础选片仍可离线使用。不会自动上传到云端。").font(.caption) }
-                Button("保存配置") { model.perform { try model.saveConfig(config, key: key, imageKey: imageKey) } }
+                TextField("多模态服务 Base URL", text: $config.baseURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                Picker("常用模型", selection: multimodalPreset) {
+                    Text("Qwen 3.8 Omni Flash").tag("qwen3.8-omni-flash")
+                    Text("Qwen VL Plus").tag("qwen-vl-plus")
+                    Text("自定义模型").tag("custom")
+                }
+                TextField("模型名称", text: $config.model).textInputAutocapitalization(.never).autocorrectionDisabled()
+                SecureField(hasChatKey ? "输入新 API Key（留空保留已保存密钥）" : "多模态 API Key", text: $key)
+                if hasChatKey { Text("已保存密钥；不会显示或写入普通配置文件。").font(.caption).foregroundStyle(.secondary) }
+                Text("AI 使用你配置的服务，不调用端侧模型。分析时仅发送压缩预览，可能产生服务费用；未配置时任务会等待。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("保存配置") {
+                    model.perform {
+                        try model.saveConfig(config, key: key.isEmpty ? nil : key,
+                                             imageKey: !config.imageUsesChatKey && !imageKey.isEmpty ? imageKey : nil)
+                        hasChatKey = !Keychain.load().isEmpty
+                        hasImageKey = !Keychain.loadStoredImage().isEmpty
+                        key = ""; imageKey = ""
+                    }
+                }
                 Button(testing ? "正在测试" : "测试连接") { Task {
                     testing = true; defer { testing = false }
-                    do { _ = try await model.intelligence.response(prompt: "只回复连接成功", images: [], config: config, key: key); model.error = "文字连接成功；图片理解会在实际分类时验证" } catch { model.error = error.localizedDescription }
+                    do { _ = try await model.intelligence.response(prompt: "只回复连接成功", images: [], config: config, key: key.isEmpty ? Keychain.load() : key); model.error = "文字连接成功；图片理解会在实际分类时验证" } catch { model.error = error.localizedDescription }
                 } }.disabled(testing)
-                Button("清除密钥", role: .destructive) { model.perform { try Keychain.save(""); key = "" } }
+                Button("清除多模态密钥", role: .destructive) { model.perform { try Keychain.save(""); key = ""; hasChatKey = false } }
             }
             Section("生图模型") {
                 Toggle("启用生图模型", isOn: $config.imageEnabled)
                 if config.imageEnabled {
-                    TextField("生图 Base URL（留空则用上面的地址）", text: $config.imageBaseURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    TextField("生图服务 Base URL（留空则复用上面的地址）", text: $config.imageBaseURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    Picker("常用模型", selection: imagePreset) {
+                        Text("Wan 2.7 Image").tag("wan2.7-image")
+                        Text("自定义模型").tag("custom")
+                    }
                     TextField("生图模型名称", text: $config.imageModel).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Picker("生成尺寸", selection: $config.imageSize) {
                         Text("1024 × 1024").tag("1024x1024")
                         Text("1024 × 1536").tag("1024x1536")
                         Text("1536 × 1024").tag("1536x1024")
                     }
-                    SecureField("生图 API Key", text: $imageKey)
+                    Toggle("复用多模态 API Key", isOn: $config.imageUsesChatKey)
+                    if !config.imageUsesChatKey {
+                        SecureField(hasImageKey ? "输入新生图 Key（留空保留已保存密钥）" : "生图 API Key", text: $imageKey)
+                        if hasImageKey { Text("已保存单独的生图密钥。").font(.caption).foregroundStyle(.secondary) }
+                    }
                     Text("开启后，帐篷模式播放时会默认调用生图模型，为每张照片生成独立的抽象图，再合成成海报。每张照片单独处理，不会拼贴；远程生图可能产生费用。")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("测试生图连接") { Task {
                         testing = true; defer { testing = false }
                         do {
-                            let result = try await model.imageGeneration.generate(prompt: "一个抽象的渐变色场，不要文字。", reference: nil, size: config.imageSize, config: config, key: imageKey)
+                            let savedKey = config.imageUsesChatKey ? Keychain.load() : Keychain.loadStoredImage()
+                            let providedKey = config.imageUsesChatKey ? (key.isEmpty ? savedKey : key) : (imageKey.isEmpty ? savedKey : imageKey)
+                            let result = try await model.imageGeneration.generate(prompt: "一个抽象的渐变色场，不要文字。", reference: nil, size: config.imageSize, config: config, key: providedKey)
                             model.error = "生图连接成功，返回 \(result.image.size.width) × \(result.image.size.height) px"
                         } catch { model.error = error.localizedDescription }
                     } }.disabled(testing)
-                    Button("清除生图密钥", role: .destructive) { model.perform { try Keychain.saveImage(""); imageKey = "" } }
+                    if !config.imageUsesChatKey { Button("清除生图密钥", role: .destructive) { model.perform { try Keychain.saveImage(""); imageKey = ""; hasImageKey = false } } }
                 } else {
                     Text("未开启生图模型时，海报下半区由本机依据照片自身色彩生成抽象图，不会联网。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -67,11 +91,11 @@ struct SettingsView: View {
             }
             Section("分类标签") {
                 ForEach(TagDomain.allCases, id: \.self) { group in
-                    DisclosureGroup(group.title) {
+                    DisclosureGroup(tagDomainName(group)) {
                         ForEach(model.state.tags.filter { $0.domain == group }) { tag in HStack { VStack(alignment: .leading) { Text(tag.name); if !tag.definition.isEmpty { Text(tag.definition).font(.caption).foregroundStyle(.secondary) } }; Spacer(); Button(role: .destructive) { model.perform { try model.change { $0.tags.removeAll { $0.id == tag.id } } } } label: { Image(systemName: "minus.circle") } } }
                     }
                 }
-                Picker("领域", selection: $domain) { ForEach(TagDomain.allCases, id: \.self) { Text($0.title).tag($0) } }
+                Picker("领域", selection: $domain) { ForEach(TagDomain.allCases, id: \.self) { Text(tagDomainName($0)).tag($0) } }
                 TextField("标签名称", text: $name); TextField("标签定义", text: $definition)
                 Button("添加／更新标签") { model.perform { let tag = LibraryTag(name.trimmingCharacters(in: .whitespacesAndNewlines), domain, definition: definition); guard !tag.name.isEmpty else { return }; try model.change { s in s.tags.removeAll { $0.name == tag.name }; s.tags.append(tag) }; name = ""; definition = "" } }
                 Button("按当前标签重新分类", role: .destructive) { rerun = true }
@@ -84,7 +108,14 @@ struct SettingsView: View {
                 Text("备份包含可访问的原片、创作和记录，不包含密钥。请先连接来源；卸载应用会删除本机私有库。").font(.caption).foregroundStyle(.secondary)
             }
         }.scrollContentBackground(.hidden).photoBackdrop().navigationTitle("设置").toolbar { Button("完成") { dismiss() } }
-            .onAppear { config = model.aiConfig; key = Keychain.load(); imageKey = Keychain.loadImage() }
+            .onAppear {
+                config = model.aiConfig
+                config.remoteEnabled = true
+                if config.imageModel.isEmpty { config.imageModel = "wan2.7-image" }
+                hasChatKey = !Keychain.load().isEmpty
+                hasImageKey = !Keychain.loadStoredImage().isEmpty
+                key = ""; imageKey = ""
+            }
             .confirmationDialog("重新分析所有粗筛入选照片？", isPresented: $rerun) {
                 Button("重新分类") { model.perform { try model.change { s in
                     for i in s.assets.indices where s.isAdmitted(s.assets[i].id) { s.assets[i].analysis = nil }
@@ -107,5 +138,26 @@ struct SettingsView: View {
                 }
                 }
             }
+    }
+
+    private var multimodalPreset: Binding<String> {
+        Binding(get: {
+            ["qwen3.8-omni-flash", "qwen-vl-plus"].contains(config.model) ? config.model : "custom"
+        }, set: { value in if value != "custom" { config.model = value } })
+    }
+
+    private var imagePreset: Binding<String> {
+        Binding(get: { config.imageModel == "wan2.7-image" ? config.imageModel : "custom" },
+                set: { value in if value != "custom" { config.imageModel = value } })
+    }
+
+    private func tagDomainName(_ domain: TagDomain) -> String {
+        switch domain {
+        case .subject: "主体"
+        case .distance: "景别"
+        case .environment: "环境"
+        case .style: "风格"
+        case .other: "其他"
+        }
     }
 }

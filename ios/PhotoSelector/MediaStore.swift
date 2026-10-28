@@ -7,6 +7,13 @@ import CryptoKit
 import UniformTypeIdentifiers
 import PhotoCore
 
+struct FocalMetadata: Sendable {
+    var focalLength: Double?
+    var equivalentFocalLength: Double?
+    var width: Int
+    var height: Int
+}
+
 actor MediaStore {
     let root: URL
     private let photoProvider: PhotoKitImageProviding
@@ -251,6 +258,37 @@ actor MediaStore {
         // CPU bound. Running them off the actor lets several photos be
         // compressed at the same time instead of one after another.
         return try await Self.renderPreview(cg, asset: asset, destination: url("previews/\(asset.id).jpg"))
+    }
+
+    /// Reads EXIF only when the user opens focal-length filtering. PhotoKit is
+    /// explicitly local-only here: iCloud-only originals remain unknown until
+    /// they are already available on-device, and this path never downloads them.
+    func focalMetadata(_ asset: LocalAsset) async throws -> FocalMetadata? {
+        let data: Data
+        if let path = asset.ownedPath, FileManager.default.fileExists(atPath: try url(path).path) {
+            data = try Data(contentsOf: url(path), options: .mappedIfSafe)
+        } else if asset.source == .photos {
+            data = try await photoData(asset.sourceID, allowNetwork: false)
+        } else if asset.source == .external {
+            data = try withExternal(asset) { try Data(contentsOf: $0, options: .mappedIfSafe) }
+        } else {
+            return nil
+        }
+        return await Self.readFocalMetadata(data)
+    }
+
+    nonisolated private static func readFocalMetadata(_ data: Data) async -> FocalMetadata? {
+        await Task.detached(priority: .utility) {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
+            let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+            return FocalMetadata(
+                focalLength: exif[kCGImagePropertyExifFocalLength] as? Double,
+                equivalentFocalLength: (exif[kCGImagePropertyExifFocalLenIn35mmFilm] as? NSNumber)?.doubleValue,
+                width: properties[kCGImagePropertyPixelWidth] as? Int ?? 0,
+                height: properties[kCGImagePropertyPixelHeight] as? Int ?? 0
+            )
+        }.value
     }
     /// Encodes the preview, computes the similarity fingerprint and writes the
     /// thumbnail. Runs on a background executor so the actor stays responsive.

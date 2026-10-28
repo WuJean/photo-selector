@@ -43,6 +43,8 @@ struct BatchView: View {
     @State private var reviewed = false
     @State private var query = ""
     @State private var tags: Set<String> = []
+    @State private var focalClasses: Set<String> = []
+    @State private var orientations: Set<PhotoOrientation> = []
     @State private var any = false
     @State private var selected = Set<String>()
     @State private var multi = false
@@ -53,9 +55,41 @@ struct BatchView: View {
     @State private var showFilters = false
     @State private var collapsed = true
     var batch: ImportBatch? { model.state.batches.first { $0.id == batchID } }
-    var photos: [LocalAsset] {
+    private var stagePhotos: [LocalAsset] {
         let ids = Set((batch?.photos ?? []).filter { row in round == .coarse ? (reviewed ? row.coarse != .unseen : row.coarse == .unseen) : (row.admitted && (reviewed ? row.fine != .unseen : row.fine == .unseen)) }.map(\.assetID))
-        return PhotoSearch.filter(model.state.assets.filter { ids.contains($0.id) }, keyword: query, tags: Array(tags), any: any).sorted { ($0.takenAt ?? $0.importedAt) < ($1.takenAt ?? $1.importedAt) }
+        return model.state.assets.filter { ids.contains($0.id) }
+    }
+    var photos: [LocalAsset] {
+        SelectionFilters.filter(
+            stagePhotos,
+            mode: round == .coarse ? .coarse : .fine,
+            query: query,
+            selectedTags: tags,
+            matchesAny: any,
+            selectedFocalClasses: focalClasses,
+            selectedOrientations: orientations
+        ).sorted { ($0.takenAt ?? $0.importedAt) < ($1.takenAt ?? $1.importedAt) }
+    }
+    /// Similar photos are adjacent in the immersive queue even when their capture
+    /// timestamps would otherwise interleave them with unrelated frames.
+    private var immersiveIDs: [String] {
+        SelectionPresentation.immersiveOrder(photos.map(\.id), groups: model.groups)
+    }
+    private var hasActiveFilters: Bool {
+        round == .coarse ? (!focalClasses.isEmpty || !orientations.isEmpty) : (!query.isEmpty || !tags.isEmpty)
+    }
+    private var filterCount: Int {
+        round == .coarse ? focalClasses.count + orientations.count : tags.count + (query.isEmpty ? 0 : 1)
+    }
+    private var emptyStateTitle: String {
+        hasActiveFilters ? "没有匹配的照片" : "当前范围已完成"
+    }
+    private var emptyStateMessage: String {
+        if hasActiveFilters { return "试试其他关键词，或清除筛选条件。" }
+        return round == .coarse ? "切换到精筛继续挑选，或导入更多照片。" : "精筛保留的照片可以加入作品集。"
+    }
+    private var emptyStateSymbol: String {
+        hasActiveFilters ? "magnifyingglass" : "checkmark.seal"
     }
     var displayed: [LocalAsset] {
         guard collapsed else { return photos }
@@ -63,71 +97,279 @@ struct BatchView: View {
         return photos.filter { !hidden.contains($0.id) }
     }
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("阶段", selection: $round) { Text("粗筛").tag(SelectionRound.coarse); Text("精筛").tag(SelectionRound.fine) }.pickerStyle(.segmented).padding()
-            HStack {
-                Button(reviewed ? "待处理" : "已处理") { reviewed.toggle(); selected.removeAll() }
-                Button("筛选", systemImage: "line.3.horizontal.decrease") { showFilters = true }
-                Spacer()
-                Button(multi ? "完成选择" : "选择") { multi.toggle(); selected.removeAll() }
-            }.font(.subheadline.weight(.medium)).buttonStyle(.bordered).tint(PhotoPalette.accent).padding(.horizontal)
-            ScrollView {
-                if batch?.photos.isEmpty == true {
-                    VStack(spacing: 20) {
-                        GuidedEmptyState(title: "把照片带进来", message: "按时间读取相册，或从存储卡和文件夹导入。", symbol: "photo.badge.plus")
-                        Button { importSheet = true } label: { Label("从相册读取", systemImage: "photo.on.rectangle").frame(maxWidth: .infinity, minHeight: 52) }.buttonStyle(.borderedProminent).foregroundStyle(PhotoPalette.onAccent)
-                        Button { reconnecting = false; fileImporter = true } label: { Label("存储卡／文件夹", systemImage: "folder").frame(maxWidth: .infinity, minHeight: 48) }.buttonStyle(.bordered)
-                    }.tint(PhotoPalette.accent).padding(20)
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 8)], spacing: 10) {
-                    ForEach(displayed) { asset in
-                        VStack(alignment: .leading, spacing: 6) {
-                            AssetImage(asset: asset, size: 480, fill: true, aspect: 1).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(alignment: .topTrailing) { if selected.contains(asset.id) { Image(systemName: "checkmark.circle.fill").font(.title).foregroundStyle(.orange).padding(5) } }
-                            HStack {
-                                Text(asset.name).lineLimit(1).font(.caption)
-                                if let group = model.groups.first(where: { $0.contains(asset.id) }), group.count > 1 { Text("相似 \(group.count)").font(.caption2).foregroundStyle(.orange) }
-                            }
-                            if let analysis = asset.analysis { Text(analysis.labels.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                        }.padding(10).photoGlass(cornerRadius: 22).accessibilityElement(children: .combine).accessibilityAddTraits(.isButton).accessibilityIdentifier("photo-card-" + asset.id).contentShape(Rectangle()).onTapGesture {
-                            if multi { if !selected.insert(asset.id).inserted { selected.remove(asset.id) } }
-                            else { model.focusedID = asset.id; immersive = asset }
-                        }.onLongPressGesture { multi = true; selected.insert(asset.id) }
-                    }
-                }.padding()
-                if photos.isEmpty && batch?.photos.isEmpty == false {
-                    GuidedEmptyState(title: query.isEmpty && tags.isEmpty ? "当前范围已完成" : "没有匹配的照片", message: query.isEmpty && tags.isEmpty ? (round == .coarse ? "切换到精筛继续挑选，或导入更多照片。" : "精筛保留的照片可以加入作品集。") : "试试其他关键词，或清除标签筛选。", symbol: query.isEmpty && tags.isEmpty ? "checkmark.seal" : "magnifyingglass").padding()
-                }
-            }
-            if !selected.isEmpty { DecisionButtons(round: round) { decision in
-                if model.decide(batchID: batchID, ids: Array(selected), round: round, decision: decision, next: nil) { selected.removeAll() }
-            }.padding() }
-        }.photoBackdrop().navigationTitle(batch?.name ?? "选片")
-            .toolbar {
-                Menu {
-                    Button("从相册读取", systemImage: "photo.on.rectangle") { importSheet = true }
-                    Button("存储卡／文件夹", systemImage: "folder") { reconnecting = false; fileImporter = true }
-                    Button(collapsed ? "全部展开" : "全部叠放") { collapsed.toggle() }
-                    Button("撤销上次决定", systemImage: "arrow.uturn.backward") { model.undo() }
-                    Button("重新连接来源文件夹") { reconnecting = true; fileImporter = true }
-                    Button("保存当前范围的离线原片") { Task { await model.copySelected(photos.map(\.id), includePhotos: true) } }
-                    Button("重新生成缺失预览") { model.startMediaPreparation() }
-                    Button("继续复制入选原片") { Task { await model.copySelected((batch?.photos ?? []).filter(\.finalist).map(\.assetID)) } }
-                } label: { Image(systemName: "ellipsis.circle") }
-                    .accessibilityIdentifier("selection-grid-menu")
-            }
-            .searchable(text: $query, prompt: "名称、标签或描述")
+        mainContent
+            .photoBackdrop()
+            .navigationTitle(batch?.name ?? "选片")
+            .toolbar { ToolbarItem(placement: .primaryAction) { batchMenu } }
             .onChange(of: query) { _, _ in selected.removeAll() }.onChange(of: round) { _, _ in selected.removeAll() }
             .onChange(of: tags) { _, _ in selected.removeAll() }.onChange(of: any) { _, _ in selected.removeAll() }
+            .onChange(of: focalClasses) { _, _ in selected.removeAll() }.onChange(of: orientations) { _, _ in selected.removeAll() }
             .onChange(of: collapsed) { _, _ in selected.removeAll() }
             .sheet(isPresented: $importSheet) { NavigationStack { AlbumImportView(batchID: batchID) } }
-            .sheet(isPresented: $showFilters) { NavigationStack { TagFilterView(selected: $tags, any: $any) } }
+            .sheet(isPresented: $showFilters) { selectionFilterSheet }
             .fileImporter(isPresented: $fileImporter, allowedContentTypes: [.folder, .jpeg, .png, .heic, .heif], allowsMultipleSelection: true) { result in
-                switch result { case .success(let urls): Task { if reconnecting, let folder = urls.first { await model.reconnect(folder, batchID: batchID) } else { await model.importFiles(urls, batchID: batchID) } }; case .failure(let error): model.error = error.localizedDescription }
+                handleFileImport(result)
             }
-            .fullScreenCover(item: $immersive) { asset in ImmersiveView(ids: photos.map(\.id), initialID: asset.id, batchID: batchID, round: round) }
+            .fullScreenCover(item: $immersive) { asset in
+                ImmersiveView(ids: immersiveIDs, initialID: asset.id, batchID: batchID, round: round, reviewed: reviewed)
+            }
+    }
+
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            phasePicker
+            selectionToolbar
+            ScrollView {
+                importPrompt
+                photoGrid
+                filteredEmptyState
+            }
+            batchDecisionDock
+        }
+    }
+
+    private var phasePicker: some View {
+        Picker("阶段", selection: $round) {
+            Text("粗筛").tag(SelectionRound.coarse)
+            Text("精筛").tag(SelectionRound.fine)
+        }
+        .pickerStyle(.segmented)
+        .padding()
+    }
+
+    private var selectionToolbar: some View {
+        HStack {
+            Button(reviewed ? "待处理" : "已处理") {
+                reviewed.toggle()
+                selected.removeAll()
+            }
+            Button(filterButtonTitle, systemImage: "line.3.horizontal.decrease") { showFilters = true }
+                .accessibilityIdentifier("selection-filter-button")
+            Spacer()
+            Button(multi ? "完成选择" : "选择") {
+                multi.toggle()
+                selected.removeAll()
+            }
+        }
+        .font(.subheadline.weight(.medium))
+        .buttonStyle(.bordered)
+        .tint(PhotoPalette.accent)
+        .padding(.horizontal)
+    }
+
+    private var filterButtonTitle: String {
+        filterCount == 0 ? "筛选" : "筛选 · \(filterCount)"
+    }
+
+    @ViewBuilder private var importPrompt: some View {
+        if batch?.photos.isEmpty == true {
+            VStack(spacing: 20) {
+                GuidedEmptyState(title: "把照片带进来", message: "按时间读取相册，或从存储卡和文件夹导入。", symbol: "photo.badge.plus")
+                Button { importSheet = true } label: {
+                    Label("从相册读取", systemImage: "photo.on.rectangle")
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                }
+                .buttonStyle(.borderedProminent)
+                .foregroundStyle(PhotoPalette.onAccent)
+                Button {
+                    reconnecting = false
+                    fileImporter = true
+                } label: {
+                    Label("存储卡／文件夹", systemImage: "folder")
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .buttonStyle(.bordered)
+            }
+            .tint(PhotoPalette.accent)
+            .padding(20)
+        }
+    }
+
+    private var photoGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 8)], spacing: 10) {
+            ForEach(displayed) { asset in
+                SelectionPhotoCard(
+                    asset: asset,
+                    similarityLabel: groupLabel(for: asset),
+                    isSelected: selected.contains(asset.id),
+                    onTap: { handlePhotoTap(asset) },
+                    onLongPress: { handlePhotoLongPress(asset) }
+                )
+            }
+        }
+        .padding()
+    }
+
+    @ViewBuilder private var filteredEmptyState: some View {
+        if photos.isEmpty && batch?.photos.isEmpty == false {
+            GuidedEmptyState(title: emptyStateTitle, message: emptyStateMessage, symbol: emptyStateSymbol)
+                .padding()
+        }
+    }
+
+    @ViewBuilder private var batchDecisionDock: some View {
+        if !selected.isEmpty {
+            DecisionButtons(round: round) { decision in
+                if model.decide(batchID: batchID, ids: Array(selected), round: round, decision: decision, next: nil) {
+                    selected.removeAll()
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var batchMenu: some View {
+        Menu {
+            Button("从相册读取", systemImage: "photo.on.rectangle") { importSheet = true }
+            Button("存储卡／文件夹", systemImage: "folder") { reconnecting = false; fileImporter = true }
+            Button(collapsed ? "全部展开" : "全部叠放") { collapsed.toggle() }
+            Button("撤销上次决定", systemImage: "arrow.uturn.backward") { model.undo() }
+            Button("重新连接来源文件夹") { reconnecting = true; fileImporter = true }
+            Button("保存当前范围的离线原片") { Task { await model.copySelected(photos.map(\.id), includePhotos: true) } }
+            Button("重新生成缺失预览") { model.startMediaPreparation() }
+            Button("继续复制入选原片") { Task { await model.copySelected((batch?.photos ?? []).filter(\.finalist).map(\.assetID)) } }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityIdentifier("selection-grid-menu")
+    }
+
+    private var selectionFilterSheet: some View {
+        NavigationStack {
+            ScrollView {
+                SelectionFilterContent(
+                    mode: round == .coarse ? .coarse : .fine,
+                    assets: stagePhotos,
+                    tagLibrary: model.state.tags,
+                    query: query,
+                    selectedTags: tags,
+                    selectedFocalClasses: focalClasses,
+                    selectedOrientations: orientations,
+                    matchesAny: any,
+                    onSearchChange: { query = $0 },
+                    onTagsChange: { tags = $0 },
+                    onFocalClassesChange: { focalClasses = $0 },
+                    onOrientationsChange: { orientations = $0 },
+                    onMatchesAnyChange: { any = $0 },
+                    onRequestFocalMetadata: { ids in Task { await model.loadFocalMetadata(assetIDs: ids) } },
+                    onRetryFocalMetadata: { ids in Task { await model.retryFocalMetadata(assetIDs: ids) } }
+                )
+            }
+            .scrollIndicators(.hidden)
+            .navigationTitle(round == .coarse ? "焦段与方向" : "搜索与标签")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showFilters = false } } }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func handlePhotoTap(_ asset: LocalAsset) {
+        if multi {
+            if !selected.insert(asset.id).inserted { selected.remove(asset.id) }
+        } else {
+            model.focusedID = asset.id
+            immersive = asset
+        }
+    }
+
+    private func handlePhotoLongPress(_ asset: LocalAsset) {
+        multi = true
+        selected.insert(asset.id)
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            Task {
+                if reconnecting, let folder = urls.first {
+                    await model.reconnect(folder, batchID: batchID)
+                } else {
+                    await model.importFiles(urls, batchID: batchID)
+                }
+            }
+        case .failure(let error):
+            model.error = error.localizedDescription
+        }
+    }
+
+    private func groupLabel(for asset: LocalAsset) -> String? {
+        SelectionPresentation.badge(for: asset.id, groups: model.groups, assets: model.state.assets)
     }
 }
+
+private struct SelectionPhotoCard: View {
+    let asset: LocalAsset
+    let similarityLabel: String?
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onLongPress: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            preview
+            titleRow
+            analysisLabels
+        }
+        .padding(10)
+        .photoGlass(cornerRadius: 22)
+        .overlay { groupOutline }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("photo-card-" + asset.id)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .onLongPressGesture(perform: onLongPress)
+    }
+
+    private var preview: some View {
+        AssetImage(asset: asset, size: 480, fill: true, aspect: 1)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(alignment: .topTrailing) { selectionMarker }
+    }
+
+    @ViewBuilder private var selectionMarker: some View {
+        if isSelected {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title)
+                .foregroundStyle(.orange)
+                .padding(5)
+        }
+    }
+
+    private var titleRow: some View {
+        HStack {
+            Text(asset.name).lineLimit(1).font(.caption)
+            Spacer(minLength: 2)
+            if let similarityLabel {
+                Text(similarityLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(PhotoPalette.peach)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier("similarity-label-\(asset.id)")
+            }
+        }
+    }
+
+    @ViewBuilder private var analysisLabels: some View {
+        if let analysis = asset.analysis {
+            Text(analysis.labels.joined(separator: " · "))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private var groupOutline: some View {
+        if similarityLabel != nil {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(PhotoPalette.peach.opacity(0.48), lineWidth: 1.2)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
 struct AlbumImportView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
@@ -186,26 +428,156 @@ struct AlbumImportView: View {
         else { count = PHAsset.fetchAssets(with: options).count }
     }
 }
+/// Small, pure presentation rules for similar-photo selection. Keeping the
+/// ordering and duplicate wording separate makes the multi-photo behavior
+/// testable without launching a gallery or loading image data.
+enum SelectionPresentation {
+    static func activeGroup(for assetID: String, in photoIDs: [String], groups: [[String]]) -> [String] {
+        guard let group = groups.first(where: { $0.contains(assetID) && $0.count > 1 }) else { return [] }
+        return photoIDs.filter(group.contains)
+    }
+
+    static func immersiveOrder(_ photoIDs: [String], groups: [[String]]) -> [String] {
+        var result: [String] = []
+        var visited = Set<String>()
+        for id in photoIDs where !visited.contains(id) {
+            let members = activeGroup(for: id, in: photoIDs, groups: groups)
+            if members.count > 1 {
+                result.append(contentsOf: members)
+                visited.formUnion(members)
+            } else {
+                result.append(id)
+                visited.insert(id)
+            }
+        }
+        return result
+    }
+
+    static func comparisonWindow(_ group: [String], currentID: String, limit: Int = 3) -> [String] {
+        guard limit > 0, let currentIndex = group.firstIndex(of: currentID) else { return [] }
+        let start = max(0, currentIndex - limit / 2)
+        let end = min(group.count, start + limit)
+        let adjustedStart = max(0, end - limit)
+        return Array(group[adjustedStart..<end])
+    }
+
+    static func nextUnresolvedID(in photoIDs: [String], after currentID: String, unresolved: Set<String>) -> String? {
+        guard photoIDs.count > 1, let currentIndex = photoIDs.firstIndex(of: currentID) else { return nil }
+        for offset in 1..<photoIDs.count {
+            let id = photoIDs[(currentIndex + offset) % photoIDs.count]
+            if unresolved.contains(id) { return id }
+        }
+        return nil
+    }
+
+    static func nextUnvisitedID(in photoIDs: [String], after currentID: String, visited: Set<String>) -> String? {
+        guard photoIDs.count > 1, let currentIndex = photoIDs.firstIndex(of: currentID) else { return nil }
+        for offset in 1..<photoIDs.count {
+            let id = photoIDs[(currentIndex + offset) % photoIDs.count]
+            if !visited.contains(id) { return id }
+        }
+        return nil
+    }
+
+    static func badge(for assetID: String, groups: [[String]], assets: [LocalAsset]) -> String? {
+        guard let group = groups.first(where: { $0.contains(assetID) && $0.count > 1 }),
+              let asset = assets.first(where: { $0.id == assetID }) else { return nil }
+        if let digest = asset.digest {
+            let duplicateCount = group.filter { id in assets.first(where: { $0.id == id })?.digest == digest }.count
+            if duplicateCount > 1 { return "重复 \(duplicateCount)" }
+        }
+        return "相似 \(group.count)"
+    }
+
+    static func notice(for assetID: String, in photoIDs: [String], groups: [[String]], assets: [LocalAsset]) -> String? {
+        let members = activeGroup(for: assetID, in: photoIDs, groups: groups)
+        guard members.count > 1 else { return nil }
+        if let digest = assets.first(where: { $0.id == assetID })?.digest {
+            let duplicateCount = members.filter { id in assets.first(where: { $0.id == id })?.digest == digest }.count
+            if duplicateCount > 1 { return "完全重复 · \(duplicateCount) 张" }
+        }
+        return "相似照片 · \(members.count) 张"
+    }
+}
+
+extension TagDomain {
+    var title: String {
+        switch self {
+        case .subject: "主体"
+        case .distance: "景别"
+        case .environment: "环境"
+        case .style: "风格"
+        case .other: "其他"
+        }
+    }
+}
+
+/// Compatibility filter used by a portfolio detail view. The caller passes
+/// only that portfolio's assets so labels from unrelated collections are not
+/// suggested here.
 struct TagFilterView: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    var assets: [LocalAsset]? = nil
     @Binding var selected: Set<String>
     @Binding var any: Bool
+
+    init(assets: [LocalAsset]? = nil, selected: Binding<Set<String>>, any: Binding<Bool>) {
+        self.assets = assets
+        self._selected = selected
+        self._any = any
+    }
+
+    private var availableTags: [LibraryTag] {
+        let labels = Set((assets ?? model.state.assets).flatMap { $0.analysis?.labels ?? [] })
+        let known = model.state.tags.filter { labels.contains($0.name) }
+        let knownNames = Set(known.map(\.name))
+        return known + labels.subtracting(knownNames).sorted().map { LibraryTag($0, .other) }
+    }
+
     var body: some View {
         Form {
             Toggle("满足任一标签", isOn: $any)
             ForEach(TagDomain.allCases, id: \.self) { domain in
-                DisclosureGroup(domain.title) {
-                    ForEach(model.state.tags.filter { $0.domain == domain }) { tag in
-                        Button { if !selected.insert(tag.name).inserted { selected.remove(tag.name) } } label: { HStack { Text(tag.name); Spacer(); if selected.contains(tag.name) { Image(systemName: "checkmark") } } }
+                let tags = availableTags.filter { $0.domain == domain }
+                if !tags.isEmpty {
+                    DisclosureGroup {
+                        ForEach(tags) { tag in
+                            Button {
+                                if !selected.insert(tag.name).inserted { selected.remove(tag.name) }
+                            } label: {
+                                HStack {
+                                    Text(tag.name)
+                                    Spacer()
+                                    if selected.contains(tag.name) {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(PhotoPalette.accent)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } label: {
+                        HStack {
+                            Text(domain.title)
+                            let count = tags.filter { selected.contains($0.name) }.count
+                            if count > 0 { Text("\(count)").font(.caption).foregroundStyle(PhotoPalette.accent) }
+                        }
                     }
                 }
             }
-            Button("清除筛选") { selected.removeAll() }
-        }.scrollContentBackground(.hidden).photoBackdrop().navigationTitle("标签筛选").toolbar { Button("完成") { dismiss() } }
+            if availableTags.isEmpty {
+                Text("当前作品集还没有 AI 标签").font(.caption).foregroundStyle(.secondary)
+            }
+            Button("清除已选标签") { selected.removeAll() }
+        }
+        .scrollContentBackground(.hidden)
+        .photoBackdrop()
+        .navigationTitle("标签筛选")
+        .toolbar { Button("完成") { dismiss() } }
     }
 }
-extension TagDomain { var title: String { switch self { case .subject: return "主体"; case .distance: return "景别"; case .environment: return "环境"; case .style: return "风格"; case .other: return "其他" } } }
+
 struct DecisionButtons: View {
     let round: SelectionRound
     let action: (Decision) -> Void
@@ -225,14 +597,21 @@ struct DecisionButtons: View {
     func decision(_ name: String, _ value: Decision, _ color: Color) -> some View {
         Button { action(value) } label: {
             Label(name, systemImage: value == .keep ? "checkmark" : value == .reject ? "xmark" : "bookmark")
-                .font(.headline).frame(minWidth: 76, maxWidth: .infinity, minHeight: 56)
-        }.buttonStyle(.bordered).tint(color).accessibilityLabel(name)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(minWidth: 76, maxWidth: .infinity, minHeight: 56)
+                .background(color.opacity(0.16), in: Capsule())
+                .overlay(Capsule().strokeBorder(color.opacity(0.26), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(name)
     }
 }
 private struct ImmersiveControlLayer: View {
     let position: String
     let photoName: String
     let analysis: String
+    let groupNotice: String?
     let round: SelectionRound?
     let finished: Bool
     let original: Bool
@@ -252,35 +631,48 @@ private struct ImmersiveControlLayer: View {
                     .allowsHitTesting(false)
                     .frame(width: region.width, height: region.height)
                     .overlay(alignment: .top) {
-                        topBar
-                            .padding(.horizontal, 12)
-                            .padding(.top, insets.top + 4)
-                            .frame(maxWidth: min(760, max(0, region.width - 24)))
+                        photoHeading
+                            .padding(.top, insets.top + 8)
+                            .frame(maxWidth: min(620, max(0, region.width - 90)))
                             .frame(maxWidth: .infinity)
+                    }
+                    .overlay(alignment: .leading) {
+                        sideRail
+                            .padding(.leading, 10)
                     }
                     .overlay(alignment: .bottom) {
                         if finished || round != nil || !analysis.isEmpty {
-                            VStack(spacing: 6) {
+                            VStack(spacing: 8) {
+                                if let groupNotice {
+                                    Label(groupNotice, systemImage: "square.stack.3d.up")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 12).padding(.vertical, 8)
+                                        .photoGlass(cornerRadius: 18)
+                                        .accessibilityIdentifier("immersive-group-notice")
+                                }
                                 if finished {
-                                    Label("当前范围已完成", systemImage: "checkmark.circle")
-                                    Button("返回", action: onReturn)
-                                        .buttonStyle(.borderedProminent)
-                                        .foregroundStyle(PhotoPalette.onAccent)
-                                        .frame(minHeight: 56)
+                                    VStack(spacing: 10) {
+                                        Label("当前范围已完成", systemImage: "checkmark.circle")
+                                        Button("返回", action: onReturn)
+                                            .font(.headline)
+                                            .frame(minWidth: 150, minHeight: 56)
+                                            .background(PhotoPalette.accent.opacity(0.25), in: Capsule())
+                                    }
+                                    .padding(12).photoGlass(cornerRadius: 24)
                                 } else {
                                     if !analysis.isEmpty {
                                         Text(analysis).font(.caption).lineLimit(1).padding(.horizontal, 6)
+                                            .padding(.vertical, 5).photoGlass(cornerRadius: 14)
                                     }
                                     if let round {
                                         DecisionButtons(round: round, action: onDecision)
+                                            .padding(8).photoGlass(cornerRadius: 28)
                                     }
                                 }
                             }
-                            .padding(10)
-                            .photoGlass(cornerRadius: 24)
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, insets.bottom + 8)
+                            .padding(.bottom, insets.bottom + 10)
                             .frame(maxWidth: min(480, max(0, region.width - 24)))
+                            .frame(maxWidth: .infinity)
                         }
                     }
                     .position(x: region.midX, y: region.midY)
@@ -289,31 +681,48 @@ private struct ImmersiveControlLayer: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 8) {
-            Button("关闭", systemImage: "xmark", action: onClose)
-            Spacer(minLength: 4)
-            VStack(spacing: 2) {
-                Text(position).monospacedDigit()
-                Text(photoName).font(.caption).lineLimit(1).accessibilityIdentifier("current-photo")
-            }
-            .frame(maxWidth: .infinity)
-            Spacer(minLength: 4)
-            if round != nil {
-                Button("撤销", systemImage: "arrow.uturn.backward", action: onUndo)
-            }
+    private var photoHeading: some View {
+        VStack(spacing: 3) {
+            Text(position).monospacedDigit().font(.caption.weight(.medium))
+            Text(photoName).font(.caption).lineLimit(1).accessibilityIdentifier("current-photo")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .photoGlass(cornerRadius: 20)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var sideRail: some View {
+        VStack(spacing: 8) {
+            floatingAction("xmark", label: "关闭", action: onClose)
+            if round != nil { floatingAction("arrow.uturn.backward", label: "撤销", action: onUndo) }
             Menu {
                 Button(original ? "使用预览" : "查看原图", action: onToggleOriginal)
                 Button("下载／分享原片", action: onShare)
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .frame(width: 40, height: 44)
-                    .contentShape(Rectangle())
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 44, height: 48)
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("更多照片操作")
         }
-        .padding(10)
-        .photoGlass(cornerRadius: 22)
+        .padding(5)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
+    }
+
+    private func floatingAction(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 44, height: 48)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private func controlRegion(in proxy: GeometryProxy) -> CGRect {
@@ -375,9 +784,11 @@ struct ImmersiveView: View {
     @State private var original = false
     @State private var sharing: URL?
     @State private var finished = false
-    init(ids: [String], initialID: String, batchID: String?, round: SelectionRound) {
+    @State private var visitedReviewIDs = Set<String>()
+    let reviewed: Bool
+    init(ids: [String], initialID: String, batchID: String?, round: SelectionRound, reviewed: Bool = false) {
         _ids = State(initialValue: ids)
-        self.initialID = initialID; self.batchID = batchID; self.round = round
+        self.initialID = initialID; self.batchID = batchID; self.round = round; self.reviewed = reviewed
     }
     var current: LocalAsset? { ids.indices.contains(index) ? model.state.assets.first { $0.id == ids[index] } : nil }
     /// Share of the canvas reserved for the neighbouring photos.
@@ -385,19 +796,31 @@ struct ImmersiveView: View {
     private var hasPrevious: Bool { index > 0 }
     private var hasNext: Bool { index < ids.count - 1 }
     private var currentAspect: CGFloat { current.map { assetAspect($0) } ?? 1 }
+    private var activeGroup: [String] {
+        guard let id = current?.id else { return [] }
+        return SelectionPresentation.activeGroup(for: id, in: ids, groups: model.groups)
+    }
+    private var groupNotice: String? {
+        guard let id = current?.id else { return nil }
+        return SelectionPresentation.notice(for: id, in: ids, groups: model.groups, assets: model.state.assets)
+    }
     var body: some View {
-        DuoLayout(hinge: model.hinge, style: .overlay) {
+        DuoLayout(hinge: model.hinge, style: .immersive) {
             ImmersiveControlLayer(
                 position: "\(min(index + 1, ids.count))/\(ids.count)",
                 photoName: current?.name ?? "",
                 analysis: current?.analysis?.labels.joined(separator: " · ") ?? "",
+                groupNotice: groupNotice,
                 round: batchID == nil ? nil : round,
                 finished: finished,
                 original: original,
                 onClose: { dismiss() },
                 onUndo: {
                     model.undo()
-                    if let focus = model.focusedID, let i = ids.firstIndex(of: focus) { index = i }
+                    if let focus = model.focusedID, let i = ids.firstIndex(of: focus) {
+                        index = i
+                        if reviewed { visitedReviewIDs.remove(focus) }
+                    }
                     finished = false
                 },
                 onReturn: { dismiss() },
@@ -411,9 +834,10 @@ struct ImmersiveView: View {
                 },
                 onDecision: { decision in
                     guard let batchID, let current, !finished else { return }
-                    let next = index + 1 < ids.count ? ids[index + 1] : nil
+                    let next = nextPhoto(after: current.id)
                     if model.decide(batchID: batchID, ids: [current.id], round: round, decision: decision, next: next) {
-                        if next == nil { finished = true } else { move(1) }
+                        if reviewed { visitedReviewIDs.insert(current.id) }
+                        if let next { move(to: next) } else { finished = true }
                     }
                 }
             )
@@ -430,17 +854,90 @@ struct ImmersiveView: View {
                     .onTapGesture(count: 2) { scale = scale > 1 ? 1 : 2; scaleBase = scale; offset = .zero; baseOffset = .zero }
             }
         }
-        .background(Color(white: 0.035))
+        .background(Color(white: 0.035).ignoresSafeArea())
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled()
-        .onAppear { index = ids.firstIndex(of: initialID) ?? 0; model.focusedID = initialID }
+        .onAppear {
+            index = ids.firstIndex(of: initialID) ?? 0
+            model.focusedID = initialID
+            visitedReviewIDs.removeAll()
+        }
         .sheet(isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } })) { if let sharing { ShareSheet(items: [sharing]) } }
     }
-    /// Lays the photo out between the two neighbour strips.
-    ///
-    /// The neighbours used to sit behind the photo at an offset that pushed
-    /// them off screen, so the surrounding photos were never actually visible.
+    @ViewBuilder
     private func canvas(size: CGSize) -> some View {
+        let landscapeOrExpanded = size.width > size.height || model.hinge.posture == .fullyOpen
+        if activeGroup.count > 1 && landscapeOrExpanded {
+            comparisonCanvas(size: size)
+        } else {
+            singlePhotoCanvas(size: size)
+        }
+    }
+
+    /// In wide layouts, compare the selected image with at most one group
+    /// member on either side. Tapping a comparison frame changes the active
+    /// decision target; decisions are still saved for exactly one photo.
+    private func comparisonCanvas(size: CGSize) -> some View {
+        let visibleIDs = SelectionPresentation.comparisonWindow(activeGroup, currentID: current?.id ?? "")
+        return ZStack {
+            blurredBackdrop
+            HStack(spacing: size.width > 900 ? 16 : 10) {
+                ForEach(visibleIDs, id: \.self) { id in
+                    if let asset = model.state.assets.first(where: { $0.id == id }) {
+                        let selected = id == current?.id
+                        if selected {
+                            comparisonCard(asset, selected: true)
+                                .accessibilityLabel(asset.name + ", 当前选择")
+                                .accessibilityIdentifier("similar-comparison-photo-\(id)")
+                                .allowsHitTesting(false)
+                        } else {
+                            Button {
+                                if let nextIndex = ids.firstIndex(of: id) { index = nextIndex; resetZoom() }
+                            } label: {
+                                comparisonCard(asset, selected: false)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(asset.name + ", 相似照片")
+                            .accessibilityIdentifier("similar-comparison-photo-\(id)")
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, size.width > 900 ? 54 : 44)
+            .padding(.vertical, 20)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+    }
+
+    private func comparisonCard(_ asset: LocalAsset, selected: Bool) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            AssetImage(asset: asset, size: selected && original ? 6000 : 1600, original: selected && original)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(selected ? scale : 1)
+                .offset(x: selected ? offset.width : 0, y: selected ? offset.height : 0)
+                .allowsHitTesting(false)
+            if selected {
+                Text("正在选择")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(12)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(selected ? PhotoPalette.lightSky : Color.white.opacity(0.34), lineWidth: selected ? 3 : 1)
+        }
+        .shadow(color: selected ? PhotoPalette.lightSky.opacity(0.20) : .black.opacity(0.16), radius: selected ? 18 : 8, y: 5)
+    }
+
+    /// Single-frame mode preserves the whole photograph and uses a softened
+    /// copy behind it so portrait images do not leave empty black side bands.
+    private func singlePhotoCanvas(size: CGSize) -> some View {
         let strip = size.width * neighbourShare
         let band = size.width - (hasPrevious ? strip : 0) - (hasNext ? strip : 0)
         let bandCenter = (hasPrevious ? strip : 0) + band / 2
@@ -448,6 +945,7 @@ struct ImmersiveView: View {
         var photoHeight = photoWidth / currentAspect
         if photoHeight > size.height { photoHeight = size.height; photoWidth = photoHeight * currentAspect }
         return ZStack {
+            blurredBackdrop
             if hasPrevious { neighbour(delta: -1, width: strip, height: size.height).offset(x: strip / 2 - size.width / 2) }
             if hasNext { neighbour(delta: 1, width: strip, height: size.height).offset(x: size.width - strip / 2 - size.width / 2) }
             if let current {
@@ -460,6 +958,19 @@ struct ImmersiveView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipped()
+    }
+
+    @ViewBuilder
+    private var blurredBackdrop: some View {
+        if let current {
+            AssetImage(asset: current, size: 960, fill: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(1.12)
+                .blur(radius: 30)
+                .overlay(Color.black.opacity(0.28))
+        } else {
+            Color(white: 0.035)
+        }
     }
     @ViewBuilder
     private func neighbour(delta: Int, width: CGFloat, height: CGFloat) -> some View {
@@ -477,7 +988,25 @@ struct ImmersiveView: View {
             Color.clear.frame(width: width, height: height)
         }
     }
-    func move(_ delta: Int) { index = min(max(0, index + delta), max(0, ids.count - 1)); scale = 1; scaleBase = 1; offset = .zero; baseOffset = .zero; original = false; model.focusedID = current?.id }
+    private func nextPhoto(after currentID: String) -> String? {
+        if reviewed {
+            return SelectionPresentation.nextUnvisitedID(in: ids, after: currentID, visited: visitedReviewIDs)
+        }
+        guard let batchID,
+              let batch = model.state.batches.first(where: { $0.id == batchID }) else { return nil }
+        let unresolved = Set(batch.photos.compactMap { photo -> String? in
+            let decision = round == .coarse ? photo.coarse : photo.fine
+            return decision == .unseen && ids.contains(photo.assetID) ? photo.assetID : nil
+        })
+        return SelectionPresentation.nextUnresolvedID(in: ids, after: currentID, unresolved: unresolved)
+    }
+    private func move(to id: String) {
+        guard let nextIndex = ids.firstIndex(of: id) else { return }
+        index = nextIndex
+        resetZoom()
+    }
+    func move(_ delta: Int) { index = min(max(0, index + delta), max(0, ids.count - 1)); resetZoom() }
+    private func resetZoom() { scale = 1; scaleBase = 1; offset = .zero; baseOffset = .zero; original = false; model.focusedID = current?.id }
 }
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]

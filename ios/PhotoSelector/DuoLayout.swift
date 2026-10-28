@@ -3,6 +3,10 @@ import SwiftUI
 enum DuoLayoutStyle: Equatable {
     case split
     case overlay
+    /// Full-canvas presentation with controls floating above the content.
+    /// Kept distinct from a generic overlay so folded layouts can adapt their
+    /// comparison canvas without changing editors that use `.split`.
+    case immersive
 }
 
 /// Uses system division/occlusion regions on Duo; never guesses hinge angles.
@@ -26,8 +30,9 @@ struct DuoLayout<Primary: View, Secondary: View>: View {
     var body: some View {
         #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
-            if style == .overlay {
+            if style != .split {
                 ZStack { secondary; primary }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .modifier(HingeObserver(state: hinge))
                     .overlay { creaseGradient }
             } else {
@@ -61,8 +66,9 @@ struct DuoLayout<Primary: View, Secondary: View>: View {
 
     private var fallback: some View {
         GeometryReader { geometry in
-            if style == .overlay {
+            if style != .split {
                 ZStack { secondary; primary }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
             } else if geometry.size.width >= 700 {
                 HStack(spacing: 12) { primary.frame(maxWidth: .infinity, maxHeight: .infinity); secondary.frame(width: 300) }
             } else {

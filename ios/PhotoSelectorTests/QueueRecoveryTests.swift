@@ -26,7 +26,8 @@ final class QueueRecoveryTests: XCTestCase {
             probe.analysisCount += 1
             if probe.analysisCount == 1 { await analysisGate.suspend() }
             return result
-        })
+        }, analysisReadiness: { _, _ in true })
+        model.aiConfig = AIConfiguration(remoteEnabled: true, baseURL: "https://mock.invalid/v1", model: "injected-test")
         let asset = LocalAsset(source: .owned, sourceID: "race", name: "race.jpg")
         try seed(model, assets: [asset])
 
@@ -67,7 +68,8 @@ final class QueueRecoveryTests: XCTestCase {
             await analysisGate.suspend()
             probe.analysisReturned = true
             return result
-        })
+        }, analysisReadiness: { _, _ in true })
+        model.aiConfig = AIConfiguration(remoteEnabled: true, baseURL: "https://mock.invalid/v1", model: "injected-test")
         let asset = LocalAsset(source: .owned, sourceID: "late", name: "late.jpg")
         try seed(model, assets: [asset])
 
@@ -109,8 +111,12 @@ final class QueueRecoveryTests: XCTestCase {
         model.startMediaPreparation()
         firstGate.release()
 
-        let newAssetPrepared = await eventually { model.state.assets.first(where: { $0.id == second.id })?.previewPath != nil && model.progress.isEmpty }
+        let newAssetStarted = await eventually(timeout: 5) { probe.prepareCount[second.id] == 1 }
+        XCTAssertTrue(newAssetStarted, "the active preparation runner should pick up an asset registered while it was suspended")
+        let newAssetPrepared = await eventually(timeout: 5) { model.state.assets.first(where: { $0.id == second.id })?.previewPath != nil }
         XCTAssertTrue(newAssetPrepared)
+        let drainFinished = await eventually(timeout: 5) { model.progress.isEmpty }
+        XCTAssertTrue(drainFinished, "the preparation runner should clear progress after draining queued work")
         XCTAssertEqual(probe.prepareCount[first.id], 1, "a failed item is attempted only once in this drain")
         XCTAssertEqual(probe.prepareCount[second.id], 1, "assets appended during preparation are drained")
         XCTAssertNil(model.state.assets.first(where: { $0.id == first.id })?.previewPath)
@@ -205,8 +211,9 @@ final class QueueRecoveryTests: XCTestCase {
         return root
     }
 
-    private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
-        for _ in 0..<200 {
+    private func eventually(timeout: TimeInterval = 1, _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
             if condition() { return true }
             try? await Task.sleep(for: .milliseconds(5))
         }
