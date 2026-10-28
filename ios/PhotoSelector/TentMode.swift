@@ -173,47 +173,99 @@ struct TentSlideshowView: View {
     }
 
     private var rail: some View {
-        // Duo 的次要区域是一条又窄又矮的横带：竖排的按钮会掉到屏幕外，
-        // 「关闭」就再也点不到了。所以这里排成两列，外面还能滚，
-        // 任何视口下按钮都够得着。
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("帐篷模式").font(.headline)
-                        Text(portfolio.name).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 12)
-                    Text("\(min(index + 1, assets.count)) / \(assets.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("tent-counter")
+        VStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("帐篷模式")
+                        .font(.headline.weight(.semibold))
+                    Text(portfolio.name)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                Divider()
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                    controls
-                }
+                Spacer(minLength: 8)
+                Text("\(min(index + 1, assets.count)) / \(assets.count)")
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(.primary.opacity(0.85))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(PhotoPalette.glassStroke, lineWidth: 1))
+                    .accessibilityIdentifier("tent-counter")
             }
-            .padding(12)
+            Rectangle()
+                .fill(PhotoPalette.glassStroke)
+                .frame(height: 1)
+
+            // Keep the two actions used during a slideshow together in a
+            // floating glass row. Poster creation is intentionally secondary.
+            HStack(spacing: 9) {
+                playbackButton
+                closeButton
+            }
+
+            posterMenu
         }
-        .font(.subheadline)
-        .tint(PhotoPalette.accent)
+        .padding(11)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .photoGlass(cornerRadius: 22)
+        .padding(8)
     }
 
-    /// 幻灯片的四个操作按钮。
-    @ViewBuilder private var controls: some View {
-        Button(paused ? "继续播放" : "暂停", systemImage: paused ? "play.fill" : "pause.fill") {
+    /// The playback toggle remains visible and gets the primary visual weight.
+    private var playbackButton: some View {
+        TentControlButton(
+            title: paused ? "继续播放" : "暂停",
+            symbol: paused ? "play.fill" : "pause.fill",
+            tint: PhotoPalette.accent,
+            prominence: .primary,
+            identifier: "tent-playback-button"
+        ) {
             paused.toggle()
             if paused { slideTask?.cancel() } else { runSlide() }
         }
-        .buttonStyle(.bordered)
-        Button("查看本张海报", systemImage: "doc.richtext") { buildPoster() }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("tent-poster-button")
-        Button("生成全部海报", systemImage: "square.stack.3d.up") {
-            Task { await model.generatePosters(portfolioID: portfolio.id) }
+    }
+
+    private var closeButton: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 50, height: 50)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(PhotoPalette.glassStroke, lineWidth: 1))
+                .contentShape(Circle())
         }
-        .buttonStyle(.bordered)
-        Button("关闭", systemImage: "xmark") { dismiss() }
-            .buttonStyle(.bordered)
+        .buttonStyle(.plain)
+        .accessibilityLabel("关闭")
+        .accessibilityHint("退出帐篷模式")
+        .accessibilityIdentifier("tent-close-button")
+    }
+
+    private var posterMenu: some View {
+        Menu {
+            Button(action: buildPoster) {
+                Label("查看本张海报", systemImage: "doc.richtext")
+            }
+            .accessibilityIdentifier("tent-poster-button")
+
+            Button {
+                Task { await model.generatePosters(portfolioID: portfolio.id) }
+            } label: {
+                Label("生成全部海报", systemImage: "square.stack.3d.up")
+            }
+            .accessibilityIdentifier("tent-all-posters-button")
+        } label: {
+            Label("海报与更多", systemImage: "ellipsis.circle")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(PhotoPalette.glassStroke, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .accessibilityLabel("海报与更多")
+        .accessibilityIdentifier("tent-more-menu")
     }
 
     // MARK: - Playback
@@ -271,6 +323,65 @@ struct TentSlideshowView: View {
             poster = rendered
             showPoster = true
         }
+    }
+}
+
+/// A compact, glass-backed tent action with a persistent touch target and a
+/// stable accessibility label across Duo postures.
+private struct TentControlButton: View {
+    enum Prominence: Equatable {
+        case primary
+        case regular
+        case quiet
+    }
+
+    let title: String
+    let symbol: String
+    let tint: Color
+    var prominence: Prominence = .regular
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 30, height: 30)
+                    .background(tint.opacity(0.14), in: Circle())
+
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    if prominence == .primary {
+                        shape.fill(tint.opacity(0.08))
+                    }
+                }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        prominence == .quiet ? PhotoPalette.glassStroke.opacity(0.65) : tint.opacity(0.22),
+                        lineWidth: 1
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(identifier)
     }
 }
 

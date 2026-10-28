@@ -218,13 +218,25 @@ final class FlowTests: XCTestCase {
     func testTagFilterClearsBulkSelection() {
         app.buttons["导入与选片"].tap()
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟导入")).firstMatch.tap()
+        app.buttons["精筛"].tap()
+        app.buttons["已处理"].tap()
         app.buttons["选择"].tap()
-        app.descendants(matching: .any).matching(identifier: "photo-card-fixture-0").firstMatch.tap()
+        let card = app.descendants(matching: .any).matching(identifier: "photo-card-fixture-6").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "精筛已处理区应包含粗筛入选的 fixture-6")
+        card.tap()
         XCTAssertTrue(app.buttons["保留"].exists)
         app.buttons["筛选"].tap()
-        app.buttons["主体"].tap(); app.buttons["人像"].tap(); app.buttons["完成"].tap()
+        let subject = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "主体")).firstMatch
+        XCTAssertTrue(subject.waitForExistence(timeout: 5), "精筛筛选应按领域展示当前照片已有的 AI 标签")
+        XCTAssertTrue(waitHittable(subject), "主体领域应当可以展开")
+        forceTap(subject)
+        let portrait = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "人像")).firstMatch
+        XCTAssertTrue(portrait.waitForExistence(timeout: 5), "领域展开后应列出当前范围内的AI人像标签")
+        portrait.tap()
+        app.buttons["完成"].tap()
         XCTAssertFalse(app.buttons["保留"].exists)
-        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "photo-card-fixture-0").firstMatch.exists)
+        XCTAssertFalse(card.exists, "筛选后不匹配的照片应离开当前列表")
     }
     func testPortfolioUsesCompactTabsAndKeepsCandidateSelection() {
         app.buttons["作品集"].tap()
@@ -256,11 +268,71 @@ final class FlowTests: XCTestCase {
         app.buttons["作品集"].tap()
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch.tap()
         app.buttons["智能拼图"].tap()
-        XCTAssertTrue(app.buttons["随机组合"].waitForExistence(timeout: 5))
-        app.buttons["随机组合"].tap()
-        app.buttons["保存"].tap()
+        let randomize = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "随机")).firstMatch
+        XCTAssertTrue(randomize.waitForExistence(timeout: 5), "拼图主操作应提供快速随机组合")
+        randomize.tap()
+        XCTAssertTrue(app.staticTexts["已按当前范围随机组合"].waitForExistence(timeout: 5), "随机组合应当填入当前作品集范围内的照片")
+        let save = app.buttons["保存"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "填入照片后应当可以保存拼图")
+        save.tap()
         XCTAssertTrue(app.staticTexts["已保存到作品集创作"].waitForExistence(timeout: 20))
         screenshot("拼图编辑")
+    }
+    func testCollageReplacesAndReframesOnlyOnDemandAcrossRotation() {
+        app.buttons["作品集"].tap()
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟旅行")).firstMatch.tap()
+        app.buttons["智能拼图"].tap()
+
+        let candidate = app.buttons["collage-candidate-fixture-6"]
+        XCTAssertFalse(candidate.exists, "默认画布不应展开候选照片列表")
+
+        let emptyCell = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "第 1 格，空格")).firstMatch
+        XCTAssertTrue(emptyCell.waitForExistence(timeout: 8), "新拼图应展示可点选的空画格")
+        emptyCell.tap()
+        XCTAssertTrue(app.navigationBars["替换第 1 格"].waitForExistence(timeout: 5), "点选空格应打开单格替换面板")
+        XCTAssertTrue(candidate.waitForExistence(timeout: 8), "替换面板应从当前作品集提供候选照片")
+        candidate.tap()
+
+        let filledCell = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "第 1 格")).firstMatch
+        XCTAssertTrue(filledCell.waitForExistence(timeout: 8), "选中的照片应回到第一格画布")
+        XCTAssertFalse(candidate.exists, "选择完成后候选列表应收起")
+
+        let initialCrop = filledCell.value as? String
+        let start = filledCell.coordinate(withNormalizedOffset: CGVector(dx: 0.34, dy: 0.34))
+        let end = filledCell.coordinate(withNormalizedOffset: CGVector(dx: 0.68, dy: 0.62))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        let undo = app.buttons["撤销"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        let undoEnabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == YES"), object: undo)
+        XCTAssertEqual(XCTWaiter.wait(for: [undoEnabled], timeout: 5), .completed, "拖动画格调整构图后应可撤销")
+        let movedCrop = filledCell.value as? String
+        XCTAssertNotEqual(movedCrop, initialCrop, "拖动应改变选中画格的构图")
+        undo.tap()
+        XCTAssertEqual(filledCell.value as? String, initialCrop, "撤销应恢复拖动前的构图")
+        XCTAssertTrue(undo.isEnabled, "替换照片仍可独立撤销")
+
+        rotateToLandscape()
+        let window = app.windows.firstMatch
+        let save = app.buttons["保存"].firstMatch
+        let close = app.buttons["关闭"].firstMatch
+        let isLandscape = window.frame.width > window.frame.height
+        let isDuoActiveDisplay = abs(window.frame.width - 466) < 2 && abs(window.frame.height - 678) < 2
+        if !isLandscape && isDuoActiveDisplay {
+            // The iPhone Duo simulator accepted the orientation request but
+            // retained its current 466×678 active display viewport. Keep the
+            // reachability assertion meaningful without claiming this is a
+            // landscape layout; standard iPhone simulators must rotate.
+            print("iPhone Duo retained its active display viewport after a landscape orientation request")
+        } else {
+            XCTAssertTrue(isLandscape, "非 Duo 模拟器应切换到横屏布局")
+        }
+        XCTAssertTrue(window.frame.contains(save.frame), "横屏操作栏的保存按钮应留在可见窗口内")
+        XCTAssertTrue(window.frame.contains(close.frame), "横屏操作栏的关闭按钮应留在可见窗口内")
+        XCTAssertTrue(save.isHittable, "横屏保存按钮应保持可操作")
+        XCTAssertTrue(close.isHittable, "横屏关闭按钮应保持可操作")
+        screenshot(isLandscape ? "横屏拼图单格编辑与操作栏" : "Duo当前视口拼图操作栏")
     }
     /// Opening the tent mode asks for a portfolio first, then plays it.
     func testTentModeAsksForPortfolioAndSlideshow() {
@@ -286,7 +358,8 @@ final class FlowTests: XCTestCase {
         screenshot("帐篷模式自动播放")
         // The poster of the current photograph is a single image, split in two
         // equal halves.
-        app.buttons["查看本张海报"].tap()
+        app.buttons["tent-more-menu"].tap()
+        app.buttons["tent-poster-button"].tap()
         let poster = app.descendants(matching: .any).matching(identifier: "poster-image").firstMatch
         XCTAssertTrue(poster.waitForExistence(timeout: 90), "应当能查看本张照片的独立海报")
         screenshot("帐篷模式海报")
@@ -334,12 +407,24 @@ final class FlowTests: XCTestCase {
     /// 打开选片网格的溢出菜单。
     ///
     /// 选片网格这一屏只有一个「更多」：Duo 上它在右侧边栏里，普通 iPhone 上在
-    /// 导航栏右上角，所以这里不按位置挑，按可点性挑。
+    /// 导航栏右上角。SwiftUI Menu 在不同系统版本会被 XCTest 归类为 Button
+    /// 或其他元素，因此先按稳定标识找，再用可访问名称兜底。
     @discardableResult
     private func openGridMenu() -> Bool {
-        let menu = app.buttons["selection-grid-menu"].firstMatch
-        guard menu.waitForExistence(timeout: 8), waitHittable(menu) else { return false }
-        menu.tap()
+        let identified = app.descendants(matching: .any)
+            .matching(identifier: "selection-grid-menu").firstMatch
+        if identified.waitForExistence(timeout: 8), waitHittable(identified) {
+            identified.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            return true
+        }
+
+        let more = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "更多"))
+            .allElementsBoundByIndex.first { $0.isHittable }
+        guard let more else {
+            print("GRID MENU 未找到可点的更多按钮：\n\(app.debugDescription)")
+            return false
+        }
+        more.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         return true
     }
     /// 打开页面正文里的「更多」菜单。
@@ -526,7 +611,19 @@ final class FlowTests: XCTestCase {
         choice.tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "tent-canvas").firstMatch.waitForExistence(timeout: 20))
         screenshot("17-帐篷模式-幻灯片")
-        app.buttons["查看本张海报"].tap()
+        let playback = app.buttons["tent-playback-button"]
+        XCTAssertTrue(playback.waitForExistence(timeout: 10), "播放按钮应当在帐篷侧栏中保持可用")
+        playback.tap()
+        XCTAssertTrue(app.buttons["继续播放"].waitForExistence(timeout: 5), "暂停后应当显示继续播放")
+        app.buttons["tent-playback-button"].tap()
+        XCTAssertTrue(app.buttons["暂停"].waitForExistence(timeout: 5), "继续播放后应当恢复暂停状态")
+        XCTAssertFalse(app.buttons["tent-poster-button"].exists, "海报操作应收纳在次级菜单中")
+        let moreActions = app.buttons["tent-more-menu"]
+        XCTAssertTrue(moreActions.waitForExistence(timeout: 5), "次要操作菜单应当可访问")
+        moreActions.tap()
+        let currentPoster = app.buttons["tent-poster-button"]
+        XCTAssertTrue(currentPoster.waitForExistence(timeout: 5), "更多菜单应当提供当前照片海报")
+        currentPoster.tap()
         let poster = app.descendants(matching: .any).matching(identifier: "poster-image").firstMatch
         XCTAssertTrue(poster.waitForExistence(timeout: 90), "应当能查看本张照片的独立海报")
         screenshot("18-帐篷模式-海报")
@@ -539,8 +636,9 @@ final class FlowTests: XCTestCase {
         }
         XCTAssertFalse(app.buttons["分享海报"].exists, "海报弹层应当已经关闭")
         // 给整个作品集各生成一张海报：这是「每张照片一张独立海报」的完整链路。
-        let allPosters = app.buttons["生成全部海报"]
-        XCTAssertTrue(allPosters.waitForExistence(timeout: 10), "帐篷侧栏里应当有「生成全部海报」")
+        moreActions.tap()
+        let allPosters = app.buttons["tent-all-posters-button"]
+        XCTAssertTrue(allPosters.waitForExistence(timeout: 10), "更多菜单应当提供「生成全部海报」")
         forceTap(allPosters)
         let done = app.buttons["知道了"]
         XCTAssertTrue(done.waitForExistence(timeout: 180), "应当提示海报已生成")
@@ -561,7 +659,8 @@ final class FlowTests: XCTestCase {
         app.buttons["创作"].tap()
         screenshot("20-作品集创作-海报列表")
         app.buttons["智能拼图"].tap()
-        XCTAssertTrue(app.buttons["随机组合"].waitForExistence(timeout: 10), "应当打开智能拼图编辑器")
+        let randomize = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "随机")).firstMatch
+        XCTAssertTrue(randomize.waitForExistence(timeout: 10), "应当打开智能拼图编辑器并展示随机组合操作")
         screenshot("21-智能拼图")
         app.buttons["关闭"].firstMatch.tap()
         app.buttons["生成文案"].tap()
