@@ -193,6 +193,28 @@ final class FlowTests: XCTestCase {
         XCTAssertFalse(app.buttons["下一张"].exists)
         screenshot("精筛二选")
     }
+    func testImmersiveDecisionControlsRemainAccessibleAfterRotation() {
+        app.buttons["导入与选片"].tap()
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟导入")).firstMatch.tap()
+        let photo = app.descendants(matching: .any).matching(identifier: "photo-card-fixture-0").firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 10)); photo.tap()
+
+        let keep = app.buttons["保留"]
+        let undo = app.buttons["撤销"]
+        let close = app.buttons["关闭"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 5))
+        rotateToLandscape()
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.frame.contains(keep.frame), "横向时保留按钮应留在窗口内")
+        XCTAssertTrue(keep.isHittable, "横向时保留按钮仍可操作")
+        XCTAssertGreaterThanOrEqual(keep.frame.height, 56, "决定按钮至少高 56pt")
+        XCTAssertTrue(window.frame.contains(undo.frame)); XCTAssertTrue(undo.isHittable)
+        XCTAssertTrue(window.frame.contains(close.frame)); XCTAssertTrue(close.isHittable)
+        XCTAssertTrue(app.staticTexts["current-photo"].exists, "当前照片名称应可访问")
+        screenshot("横向沉浸式决定控件")
+        close.tap()
+    }
     func testTagFilterClearsBulkSelection() {
         app.buttons["导入与选片"].tap()
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "模拟导入")).firstMatch.tap()
@@ -315,8 +337,8 @@ final class FlowTests: XCTestCase {
     /// 导航栏右上角，所以这里不按位置挑，按可点性挑。
     @discardableResult
     private func openGridMenu() -> Bool {
-        let menu = app.buttons.matching(NSPredicate(format: "label == %@", "更多")).allElementsBoundByIndex.first { $0.isHittable }
-        guard let menu else { return false }
+        let menu = app.buttons["selection-grid-menu"].firstMatch
+        guard menu.waitForExistence(timeout: 8), waitHittable(menu) else { return false }
         menu.tap()
         return true
     }
@@ -548,7 +570,9 @@ final class FlowTests: XCTestCase {
         app.buttons["关闭"].firstMatch.tap()
         // 设置入口在作品集列表页右上角的齿轮上，先退回列表再打开设置。
         let back = app.buttons["BackButton"].firstMatch
-        if back.waitForExistence(timeout: 8) { back.tap() }
+        if back.waitForExistence(timeout: 3) { back.tap() }
+        else { app.navigationBars.buttons.firstMatch.tap() }
+        XCTAssertTrue(app.buttons["我的作品"].waitForExistence(timeout: 8), "应返回作品集列表")
         XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 8), "作品集列表页应当有设置入口")
         app.buttons["设置"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 8), "应当打开设置页")
