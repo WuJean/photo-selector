@@ -256,3 +256,4 @@ Duo 的次要区域是一条又窄又矮的横带（约 280 × 180 点）。帐�
 - 签名真机构建成功（`.local/ios-interaction-device-build.log`），Mac 锁屏期间尚未进行新版 Duo 真机交互与实机 iCloud 相册验证；模拟器不可替代真机结果。
 - 随后新版已安装至 iPhone Duo 并成功启动，真机原生测试 75 项全部通过（`.local/ios-duo-native-final.xcresult`）。GitHub iOS 完整检查在提交 `3b06aa1` 上通过。
 - 本轮真机界面自动化两次在系统启用自动化模式时超时，未进入界面用例；期间设备再次锁屏。上述原生测试及既有模拟器结果不能视作本轮真机手势、折叠姿态或真实 iCloud 大图库验收。
+- 2026-10-30 用户确认开启 UI 自动化后再次尝试，测试程序仍在初始化自动化时超时（`.local/ios-duo-ui-enabled.xcresult`）；应用可正常启动。测试环境为 Xcode 27.1、iPhone Duo iOS 27.2，版本差异是否有关尚未确认。
