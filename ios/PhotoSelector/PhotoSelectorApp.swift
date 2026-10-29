@@ -920,6 +920,7 @@ struct GalleryView: View {
             }
             .padding(10)
         }
+        .accessibilityIdentifier("portfolio-photo-wall")
         .navigationTitle(portfolio?.name ?? "作品集")
         .photoBackdrop()
         .fullScreenCover(item: $selected) { asset in ImmersiveView(ids: photos.map(\.id), initialID: asset.id, batchID: nil, round: .fine) }

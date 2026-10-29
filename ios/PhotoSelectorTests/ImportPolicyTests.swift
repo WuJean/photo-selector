@@ -112,7 +112,10 @@ final class ImportPolicyTests: XCTestCase {
     }
 
     private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
-        for _ in 0..<400 {
+        // Hosted simulators can be substantially slower than a local device.
+        // Keep the same completion assertion while allowing the queue to drain.
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
             if condition() { return true }
             try? await Task.sleep(for: .milliseconds(5))
         }

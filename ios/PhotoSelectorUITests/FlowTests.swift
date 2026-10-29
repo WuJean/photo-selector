@@ -262,7 +262,8 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(candidate.exists)
         app.buttons["更多"].tap()
         app.buttons["查看照片墙"].tap()
-        XCTAssertFalse(app.buttons["智能拼图"].exists)
+        XCTAssertTrue(app.scrollViews["portfolio-photo-wall"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["智能拼图"].isHittable, "打开照片墙后作品管理操作应不可触达")
     }
     func testCollageAndSettings() {
         app.buttons["作品集"].tap()

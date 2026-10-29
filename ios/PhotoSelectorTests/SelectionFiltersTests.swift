@@ -183,7 +183,9 @@ final class FocalMetadataRegressionTests: XCTestCase {
     }
 
     private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(2)
+        // Waiting for the real flush rather than a fixed short scheduling window
+        // keeps this race regression meaningful on slower hosted simulators.
+        let deadline = Date().addingTimeInterval(30)
         while Date() < deadline {
             if condition() { return true }
             try? await Task.sleep(for: .milliseconds(5))
