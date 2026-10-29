@@ -254,3 +254,5 @@ Duo 的次要区域是一条又窄又矮的横带（约 280 × 180 点）。帐�
 - 相册焦段按需仅请求本机数据，未知焦段可重试；分类依赖配置的远程服务。焦段并发写入、无数据重试和队列交接均有回归测试。
 - Duo 模拟器原生测试 75 项通过（`.local/ios-interaction-native-v7.xcresult`）；iPhone 18 Pro 模拟器完成拼图替换、拖动、撤销、横屏操作栏、标签筛选与帐篷播放菜单专项（`.local/ios-interaction-ui-v7.xcresult`）。粗精筛滑动与撤销及旋转控件在 Duo 模拟器通过（`.local/ios-interaction-ui-v1.log` 中对应两项）；该整包中的旧拼图和标签测试失败，后已分别修正并复测。
 - 签名真机构建成功（`.local/ios-interaction-device-build.log`），Mac 锁屏期间尚未进行新版 Duo 真机交互与实机 iCloud 相册验证；模拟器不可替代真机结果。
+- 随后新版已安装至 iPhone Duo 并成功启动，真机原生测试 75 项全部通过（`.local/ios-duo-native-final.xcresult`）。GitHub iOS 完整检查在提交 `3b06aa1` 上通过。
+- 本轮真机界面自动化两次在系统启用自动化模式时超时，未进入界面用例；期间设备再次锁屏。上述原生测试及既有模拟器结果不能视作本轮真机手势、折叠姿态或真实 iCloud 大图库验收。
